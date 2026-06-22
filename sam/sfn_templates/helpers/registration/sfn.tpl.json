@@ -1,0 +1,341 @@
+{
+  "Comment": "Registration Helper (Event-Driven) - Register task, subscriptions, check deps, signal if ready",
+  "QueryLanguage": "JSONata",
+  "StartAt": "Save_Task_Record",
+  "States": {
+    "Save_Task_Record": {
+      "Type": "Task",
+      "Comment": "Register task in pipeline_tokens table with orchestration context",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Arguments": {
+        "TableName": "${tokens_table}",
+        "Item": {
+          "execution_name": {
+            "S": "{% $states.input.execution_name %}"
+          },
+          "task_name": {
+            "S": "{% $states.input.task_name %}"
+          },
+          "task_arn": {
+            "S": "{% $states.input.task_arn %}"
+          },
+          "status": {
+            "S": "waiting"
+          },
+          "dependencies": {
+            "S": "{% $string($states.input.dependencies) %}"
+          },
+          "orchestration_token": {
+            "S": "{% $states.input.orchestration_token %}"
+          },
+          "wait_token": {
+            "S": "{% $states.input.wait_token %}"
+          },
+          "cross_account_role": {
+            "S": "{% $states.input.cross_account_role %}"
+          },
+          "slack_channel": {
+            "S": "{% $states.input.slack_channel %}"
+          },
+          "wait_before": {
+            "N": "{% $string($exists($states.input.wait_before) ? $states.input.wait_before : 0) %}"
+          },
+          "trigger_rule": {
+            "S": "{% $exists($states.input.trigger_rule) ? $states.input.trigger_rule : 'all_success' %}"
+          },
+          "date": {
+            "S": "{% $states.input.date %}"
+          },
+          "started_at": {
+            "S": "{% $now() %}"
+          },
+          "ttl": {
+            "N": "{% $string($states.input.ttl) %}"
+          },
+          "pipeline_name": {
+            "S": "{% $exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown' %}"
+          },
+          "pipeline_execution": {
+            "S": "{% $exists($states.input.pipeline_execution) ? $states.input.pipeline_execution : 'unknown' %}"
+          },
+          "pipeline_execution_short": {
+            "S": "{% $exists($states.input.pipeline_execution_short) ? $states.input.pipeline_execution_short : 'unknown' %}"
+          },
+          "wrapper_execution_arn": {
+            "S": "{% $exists($states.input.wrapper_execution_arn) ? $states.input.wrapper_execution_arn : '' %}"
+          },
+          "task_type": {
+            "S": "{% $exists($states.input.task_type) ? $states.input.task_type : 'sfn' %}"
+          },
+          "task_config": {
+            "S": "{% $exists($states.input.task_config) ? $string($states.input.task_config) : '{}' %}"
+          },
+          "outlets": {
+            "S": "{% $exists($states.input.outlets) ? $string($states.input.outlets) : '[]' %}"
+          },
+          "wait_for": {
+            "S": "{% $exists($states.input.wait_for) ? $string($states.input.wait_for) : '[]' %}"
+          }
+        }
+      },
+      "Output": "{% $states.input %}",
+      "Next": "Has_Dependencies_Or_Assets",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ProvisionedThroughputExceededException",
+            "DynamoDB.ThrottlingException",
+            "DynamoDB.InternalServerError",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ]
+    },
+    "Has_Dependencies_Or_Assets": {
+      "Type": "Choice",
+      "Comment": "If no dependencies and no wait_for assets, signal immediately",
+      "Choices": [
+        {
+          "Condition": "{% $count($states.input.dependencies) = 0 and $count($exists($states.input.wait_for) ? $states.input.wait_for : []) = 0 %}",
+          "Next": "Signal_Ready_Immediately"
+        }
+      ],
+      "Default": "Check_Dependencies_And_Assets"
+    },
+    "Check_Dependencies_And_Assets": {
+      "Type": "Parallel",
+      "Comment": "Check task dependencies and asset dependencies in parallel",
+      "Branches": [
+        {
+          "StartAt": "Has_Task_Deps",
+          "States": {
+            "Has_Task_Deps": {
+              "Type": "Choice",
+              "Comment": "Check if has task dependencies",
+              "Choices": [
+                {
+                  "Condition": "{% $count($states.input.dependencies) = 0 %}",
+                  "Next": "No_Task_Deps"
+                }
+              ],
+              "Default": "Save_Task_Subscriptions"
+            },
+            "No_Task_Deps": {
+              "Type": "Pass",
+              "Output": "{% { 'type': 'task_deps', 'ready': true, 'counts': { 'total': 0 } } %}",
+              "End": true
+            },
+            "Save_Task_Subscriptions": {
+              "Type": "Map",
+              "Comment": "For each dependency, create a subscription record",
+              "Items": "{% $append([], $map($states.input.dependencies, function($dep) { {'dep': $dep, 'subscriber': $states.input.task_name, 'wait_token': $states.input.wait_token, 'pipeline_execution_short': $states.input.pipeline_execution_short, 'ttl': $states.input.ttl} })) %}",
+              "MaxConcurrency": 10,
+              "ItemProcessor": {
+                "ProcessorConfig": {
+                  "Mode": "INLINE"
+                },
+                "StartAt": "Save_One_Task_Sub",
+                "States": {
+                  "Save_One_Task_Sub": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::dynamodb:putItem",
+                    "Arguments": {
+                      "TableName": "${subscriptions_table}",
+                      "Item": {
+                        "dependency_key": {
+                          "S": "{% $states.input.dep & '-' & $states.input.pipeline_execution_short %}"
+                        },
+                        "subscriber": {
+                          "S": "{% $states.input.subscriber %}"
+                        },
+                        "wait_token": {
+                          "S": "{% $states.input.wait_token %}"
+                        },
+                        "ttl": {
+                          "N": "{% $string($states.input.ttl) %}"
+                        }
+                      }
+                    },
+                    "Output": "{% {'saved': $states.input.dep} %}",
+                    "End": true
+                  }
+                }
+              },
+              "Output": "{% $states.input %}",
+              "Next": "Check_Task_Deps_Status"
+            },
+            "Check_Task_Deps_Status": {
+              "Type": "Map",
+              "Comment": "Check status of each task dependency",
+              "Items": "{% $append([], $map($states.input.dependencies, function($dep) { {'dep': $dep, 'date': $states.input.date, 'pipeline_execution_short': $states.input.pipeline_execution_short} })) %}",
+              "MaxConcurrency": 10,
+              "ItemProcessor": {
+                "ProcessorConfig": {
+                  "Mode": "INLINE"
+                },
+                "StartAt": "Get_Task_Dep_Status",
+                "States": {
+                  "Get_Task_Dep_Status": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::dynamodb:getItem",
+                    "Arguments": {
+                      "TableName": "${tokens_table}",
+                      "ConsistentRead": true,
+                      "Key": {
+                        "execution_name": {
+                          "S": "{% $states.input.dep & '-' & $states.input.date & '-' & $states.input.pipeline_execution_short %}"
+                        }
+                      }
+                    },
+                    "Output": "{% { 'dep': $states.input.dep, 'status': $exists($states.result.Item.status.S) ? $states.result.Item.status.S : 'not_found' } %}",
+                    "End": true
+                  }
+                }
+              },
+              "Output": "{% $states.input ~> |$| { 'dep_results': $states.result } | %}",
+              "Next": "Eval_Task_Deps"
+            },
+            "Eval_Task_Deps": {
+              "Type": "Pass",
+              "Comment": "Evaluate trigger rule for task dependencies",
+              "Output": "{% ( $results := $states.input.dep_results; $tr := $exists($states.input.trigger_rule) ? $states.input.trigger_rule : 'all_success'; $c := { 'success': $count($results[status = 'success']), 'skipped': $count($results[status = 'skipped']), 'failed': $count($results[status in ['failed', 'upstream_failed', 'aborted']]), 'done': $count($results[status in ['success', 'failed', 'skipped', 'upstream_failed', 'aborted']]), 'not_found': $count($results[status = 'not_found']), 'total': $count($results) }; $pending := $c.total - $c.done; $ok := $c.success + $c.skipped; $ready := $tr = 'all_success' ? ($pending = 0 and $ok = $c.total) : $tr = 'one_success' ? $c.success > 0 : $tr = 'all_failed' ? ($pending = 0 and $c.failed = $c.total) : $tr = 'one_failed' ? $c.failed > 0 : $tr = 'all_done' ? $pending = 0 : $tr = 'one_done' ? $c.done > 0 : $tr = 'none_failed' ? ($pending = 0 and $c.failed = 0) : $tr = 'none_failed_min_one_success' ? ($pending = 0 and $c.failed = 0 and $c.success > 0) : $tr = 'all_done_min_one_success' ? ($pending = 0 and $c.success > 0) : $tr = 'all_skipped' ? ($pending = 0 and $c.skipped = $c.total) : $tr = 'none_skipped' ? ($pending = 0 and $c.skipped = 0) : ($pending = 0 and $ok = $c.total); { 'type': 'task_deps', 'ready': $ready, 'trigger_rule': $tr, 'counts': $c } ) %}",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Has_Asset_Deps",
+          "States": {
+            "Has_Asset_Deps": {
+              "Type": "Choice",
+              "Comment": "Check if has asset dependencies (wait_for)",
+              "Choices": [
+                {
+                  "Condition": "{% $count($exists($states.input.wait_for) ? $states.input.wait_for : []) = 0 %}",
+                  "Next": "No_Asset_Deps"
+                }
+              ],
+              "Default": "Check_Assets_Via_Lambda"
+            },
+            "No_Asset_Deps": {
+              "Type": "Pass",
+              "Output": "{% { 'type': 'asset_deps', 'ready': true, 'assets': [] } %}",
+              "End": true
+            },
+            "Check_Assets_Via_Lambda": {
+              "Type": "Task",
+              "Comment": "Check asset freshness and save subscriptions via Lambda",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Arguments": {
+                "FunctionName": "${check_assets_lambda_arn}",
+                "Payload": {
+                  "wait_for": "{% $states.input.wait_for %}",
+                  "task_name": "{% $states.input.task_name %}",
+                  "wait_token": "{% $states.input.wait_token %}",
+                  "execution_name": "{% $states.input.execution_name %}",
+                  "ttl": "{% $states.input.ttl %}",
+                  "current_date": "{% $exists($states.input.current_date) ? $states.input.current_date : '' %}"
+                }
+              },
+              "Output": "{% $states.result.Payload %}",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2
+                }
+              ],
+              "End": true
+            }
+          }
+        }
+      ],
+      "Output": "{% ( $taskResult := $states.result[0]; $assetResult := $states.result[1]; $states.input ~> |$| { 'task_deps_ready': $taskResult.ready, 'asset_deps_ready': $assetResult.ready, 'task_counts': $taskResult.counts, 'asset_results': $exists($assetResult.assets) ? $assetResult.assets : [] } | ) %}",
+      "Next": "Route_Combined_Check"
+    },
+    "Route_Combined_Check": {
+      "Type": "Choice",
+      "Comment": "If both task deps and asset deps are ready, signal immediately",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.task_deps_ready = true and $states.input.asset_deps_ready = true %}",
+          "Next": "Signal_Ready_Immediately"
+        }
+      ],
+      "Default": "Wait_For_Signal"
+    },
+    "Signal_Ready_Immediately": {
+      "Type": "Task",
+      "Comment": "All deps ready (or no deps) - signal wrapper to continue",
+      "Resource": "arn:aws:states:::aws-sdk:sfn:sendTaskSuccess",
+      "Arguments": {
+        "TaskToken": "{% $states.input.wait_token %}",
+        "Output": "{\"signal\":\"deps_ready\",\"immediate\":true}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Comment": "Token expired or wrapper already finished - continue anyway",
+          "Output": "{% $states.input %}",
+          "Next": "Update_Status_Ready"
+        }
+      ],
+      "Output": "{% $states.input ~> |$| {'signaled': true} | %}",
+      "Next": "Update_Status_Ready"
+    },
+    "Update_Status_Ready": {
+      "Type": "Task",
+      "Comment": "Update status to deps_ready",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Arguments": {
+        "TableName": "${tokens_table}",
+        "Key": {
+          "execution_name": {
+            "S": "{% $states.input.execution_name %}"
+          }
+        },
+        "UpdateExpression": "SET #s = :status",
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "deps_ready"
+          }
+        }
+      },
+      "Output": "{% $states.input %}",
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ProvisionedThroughputExceededException",
+            "DynamoDB.ThrottlingException",
+            "DynamoDB.InternalServerError",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ]
+    },
+    "Wait_For_Signal": {
+      "Type": "Pass",
+      "Comment": "Dependencies not ready - Lambda will signal later via EventBridge",
+      "Output": "{% $states.input ~> |$| {'signaled': false, 'waiting_for': $states.input.dependencies} | %}",
+      "End": true
+    }
+  }
+}

@@ -1,0 +1,162 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { useAppStore } from '../stores/useAppStore';
+
+const mockQueryData = { data: [] as Record<string, unknown>[], isLoading: false, refetch: vi.fn() };
+
+vi.mock('@/hooks/queries', () => ({
+    useAllTasksQuery: () => mockQueryData,
+    useAllRunsQuery: () => ({ data: [], isLoading: false, refetch: vi.fn() }),
+    usePipelinesQuery: () => ({ data: mockPipelines }),
+}));
+vi.mock('@/utils/icons', () => ({
+    Activity: () => <span data-testid="icon-activity" />,
+    Search: () => <span data-testid="icon-search" />,
+    Inbox: () => <span data-testid="icon-inbox" />,
+    ArrowUp: () => <span>↑</span>,
+    ArrowDown: () => <span>↓</span>,
+    StatusIcon: ({ status }: { status: string }) => <span data-testid={`status-${status}`} />,
+    ListTodo: () => <span data-testid="icon-list" />,
+    X: () => <span data-testid="icon-x" />,
+}));
+vi.mock('../utils/icons', () => ({
+    Activity: () => <span data-testid="icon-activity" />,
+    Search: () => <span data-testid="icon-search" />,
+    Inbox: () => <span data-testid="icon-inbox" />,
+    ArrowUp: () => <span>↑</span>,
+    ArrowDown: () => <span>↓</span>,
+    StatusIcon: ({ status }: { status: string }) => <span data-testid={`status-${status}`} />,
+    ListTodo: () => <span data-testid="icon-list" />,
+    X: () => <span data-testid="icon-x" />,
+}));
+vi.mock('@/components/ui/button', () => ({
+    Button: (props: Record<string, unknown>) => <button onClick={props.onClick as () => void}>{props.children as React.ReactNode}</button>,
+}));
+vi.mock('./Skeletons', () => ({
+    TableSkeleton: () => <div data-testid="skeleton" />,
+}));
+
+import { AllTasksView } from './AllTasksView';
+
+const mockTasks = [
+    { task_name: 'extract', pipeline_name: 'acme-daily', status: 'success', execution_name: 'exec-001', started_at: '2024-01-15T08:00:00Z', duration_ms: 30000, date: '2024-01-15' },
+    { task_name: 'transform', pipeline_name: 'acme-daily', status: 'failed', execution_name: 'exec-002', started_at: '2024-01-15T08:01:00Z', duration_ms: 15000, date: '2024-01-15' },
+    { task_name: 'load', pipeline_name: 'shopmart-weekly', status: 'running', execution_name: 'exec-003', started_at: '2024-01-15T08:02:00Z', duration_ms: 0, date: '2024-01-15' },
+];
+
+const mockPipelines = [
+    { name: 'acme-daily' },
+    { name: 'shopmart-weekly' },
+] as Array<{ name: string }>;
+
+const defaultProps = {
+    onPipelineClick: vi.fn(),
+};
+
+function setup(overrides: { tasks?: Record<string, unknown>[]; loading?: boolean } = {}) {
+    const store = useAppStore.getState();
+    store.setTaskFilter({ status: '', date: '', pipeline: '', taskName: '' });
+    mockQueryData.data = overrides.tasks ?? mockTasks;
+    mockQueryData.isLoading = overrides.loading ?? false;
+    defaultProps.onPipelineClick.mockClear();
+}
+
+describe('AllTasksView', () => {
+    beforeEach(() => setup());
+
+    describe('rendering', () => {
+        it('renders table with tasks', () => {
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByText('extract')).toBeInTheDocument();
+            expect(screen.getByText('transform')).toBeInTheDocument();
+            expect(screen.getByText('load')).toBeInTheDocument();
+        });
+
+        it('shows task count', () => {
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByText('3 tasks')).toBeInTheDocument();
+        });
+
+        it('shows loading skeleton when loading', () => {
+            setup({ tasks: [], loading: true });
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByTestId('skeleton')).toBeInTheDocument();
+        });
+
+        it('shows empty state when no tasks', () => {
+            setup({ tasks: [] });
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByText('No tasks found')).toBeInTheDocument();
+        });
+
+        it('table has aria-label', () => {
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByRole('table')).toHaveAttribute('aria-label', 'Task executions');
+        });
+    });
+
+    describe('sorting', () => {
+        it('sorts by column when header clicked', () => {
+            render(<AllTasksView {...defaultProps} />);
+            const taskHeader = screen.getByText('Task');
+            fireEvent.click(taskHeader.closest('th')!);
+            expect(taskHeader.closest('th')).toHaveAttribute('aria-sort', 'descending');
+        });
+
+        it('toggles sort direction', () => {
+            render(<AllTasksView {...defaultProps} />);
+            const header = screen.getByText('Task').closest('th')!;
+            fireEvent.click(header);
+            expect(header).toHaveAttribute('aria-sort', 'descending');
+            fireEvent.click(header);
+            expect(header).toHaveAttribute('aria-sort', 'ascending');
+        });
+    });
+
+    describe('filtering', () => {
+        it('has task name search input', () => {
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByPlaceholderText(/task name/i)).toBeInTheDocument();
+        });
+
+        it('updates store when status filter changed', () => {
+            render(<AllTasksView {...defaultProps} />);
+            const statusSelect = screen.getByDisplayValue('All Statuses');
+            fireEvent.change(statusSelect, { target: { value: 'failed' } });
+            expect(useAppStore.getState().taskFilter.status).toBe('failed');
+        });
+    });
+
+    describe('interactions', () => {
+        it('calls onPipelineClick when pipeline name clicked', () => {
+            render(<AllTasksView {...defaultProps} />);
+            const table = screen.getByRole('table');
+            const pipelineLinks = Array.from(table.querySelectorAll('.clickable'));
+            expect(pipelineLinks.length).toBeGreaterThan(0);
+            fireEvent.click(pipelineLinks[0]);
+            expect(defaultProps.onPipelineClick).toHaveBeenCalledWith(
+                expect.objectContaining({ name: 'acme-daily' }),
+                '2024-01-15'
+            );
+        });
+    });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // v0.78.3+ — keyboard shortcuts (ADR #64).
+    // ──────────────────────────────────────────────────────────────────────
+    describe('keyboard shortcuts', () => {
+        it('ctrl+r calls refetch on the tasks query', () => {
+            mockQueryData.refetch.mockClear();
+            render(<AllTasksView {...defaultProps} />);
+            fireEvent.keyDown(document, { key: 'r', ctrlKey: true });
+            expect(mockQueryData.refetch).toHaveBeenCalled();
+        });
+
+        it('/ focuses the task name search input', () => {
+            render(<AllTasksView {...defaultProps} />);
+            const searchInput = screen.getByPlaceholderText(/task name/i);
+            fireEvent.keyDown(document, { key: '/' });
+            expect(document.activeElement).toBe(searchInput);
+        });
+    });
+});

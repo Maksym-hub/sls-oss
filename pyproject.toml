@@ -1,0 +1,114 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slsflow"
+version = "0.91.0"
+description = "Airflow-compatible Python DSL for AWS Step Functions"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3",
+]
+
+
+# =============================================================================
+# Linting & Formatting (ruff)
+# =============================================================================
+
+
+[project.optional-dependencies]
+# AI Assistant - all FREE options!
+ai = [
+    "ollama>=0.1.0",       # Local AI (FREE)
+    "groq>=0.4.0",         # Cloud AI (FREE tier)
+]
+# Paid AI options (optional)
+ai-paid = [
+    "anthropic>=0.18.0",
+    "openai>=1.0.0",
+    "google-generativeai>=0.3.0",
+]
+# Development dependencies
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "moto>=4.0.0",         # AWS mocking
+    "pytest-mock>=3.0.0",  # mocker fixture
+    "ruff>=0.1.0",         # Linter & formatter
+    "mypy>=1.0.0",         # Type checking
+    "pyarrow>=14.0.0",     # for adapter tests (slsflow.adapters.pyarrow)
+    "pydantic>=2.0.0",     # for adapter tests (slsflow.adapters.pydantic_)
+    "jsonata-python>=0.5.0",  # evaluate SFN template JSONata in CI (ADR #85)
+]
+# Schema bridge to the pyarrow ecosystem (Iceberg, Parquet, BigQuery, ...).
+# Required to use Asset.from_pyarrow / Asset.from_parquet helpers.
+pyarrow = [
+    "pyarrow>=14.0.0",
+]
+# Pydantic schema import. Required to use Asset.from_pydantic.
+pydantic = [
+    "pydantic>=2.0.0",
+]
+all = [
+
+    "ollama>=0.1.0",
+    "groq>=0.4.0",
+    "pyarrow>=14.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+slsflow = "slsflow.cli:main"
+slsflow-deploy = "slsflow.deploy:main"
+slsflow-init = "slsflow.init:main"
+slsflow-output = "slsflow.output:main"
+slsflow-register = "slsflow.register:main"
+slsflow-validate = "slsflow.validation:main"
+
+[tool.setuptools.packages.find]
+include = ["slsflow*"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "E402",  # module level import not at top of file
+    "F401",  # imported but unused (often intentional in __init__.py)
+    "W291",  # trailing whitespace
+    "W293",  # blank line contains whitespace
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["E501"]
+
+# =============================================================================
+# Type Checking (mypy)
+# =============================================================================
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_return_any = false
+warn_unused_ignores = true
+
+# =============================================================================
+# Testing (pytest)
+# =============================================================================
+
+[tool.pytest.ini_options]
+testpaths = ["tests/sdk", "tests/backend", "tests/integration"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+markers = [
+    "sdk: SDK/library tests (ASL generation, templates, trigger rules)",
+    "backend: Backend API tests (routes, alerting, handlers)",
+    "integration: Integration tests (cross-layer, requires mocked AWS)",
+]

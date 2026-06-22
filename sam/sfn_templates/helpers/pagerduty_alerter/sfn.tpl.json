@@ -1,0 +1,87 @@
+{
+    "Comment": "Send alert to PagerDuty Events API v2",
+    "QueryLanguage": "JSONata",
+    "StartAt": "Check_Routing_Key",
+    "States": {
+        "Check_Routing_Key": {
+            "Type": "Choice",
+            "Comment": "Only send if routing key is configured",
+            "Choices": [
+                {
+                    "Condition": "{% '${pagerduty_routing_key}' != '' %}",
+                    "Next": "Build_Alert_Payload"
+                }
+            ],
+            "Default": "Skip_Alert"
+        },
+        "Build_Alert_Payload": {
+            "Type": "Pass",
+            "Comment": "Prepare PagerDuty payload with truncated error and AWS Console links",
+            "Output": "{% ( $summary := 'Task ' & $states.input.task_name & ' FAILED in ' & ($exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown'); $errorShort := $exists($states.input.error) ? $substring($string($states.input.error), 0, 500) : 'No error details'; $severity := $exists($states.input.severity) ? $states.input.severity : 'critical'; $awsConsole := 'https://${aws_region}.console.aws.amazon.com/states/home?region=${aws_region}#/v2/executions/details/'; $taskArn := $exists($states.input.task_execution_arn) and $states.input.task_execution_arn != '' ? $states.input.task_execution_arn : ''; $wrapperArn := $exists($states.input.wrapper_execution_arn) and $states.input.wrapper_execution_arn != '' ? $states.input.wrapper_execution_arn : ''; $taskLink := $taskArn != '' ? [{'href': $awsConsole & $taskArn, 'text': 'Task SFN Execution'}] : []; $wrapperLink := $wrapperArn != '' ? [{'href': $awsConsole & $wrapperArn, 'text': 'Wrapper SFN Execution'}] : []; $uiUrl := '${ui_url}'; $uiLink := $uiUrl != '' ? [{'href': $uiUrl & '/?pipeline=' & $states.input.pipeline_name & '&task=' & $states.input.task_name & '&date=' & $states.input.date, 'text': 'SLSFlow Console'}] : []; $links := $append($append($uiLink, $taskLink), $wrapperLink); { 'original': $states.input, 'pagerduty': { 'routing_key': '${pagerduty_routing_key}', 'event_action': 'trigger', 'dedup_key': $states.input.pipeline_name & '/' & $states.input.task_name & '/' & $states.input.date, 'payload': { 'summary': $summary, 'severity': $severity, 'source': 'slsflow', 'timestamp': $now(), 'custom_details': { 'pipeline': $exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown', 'task': $states.input.task_name, 'execution': $states.input.execution_name, 'date': $exists($states.input.date) ? $states.input.date : '', 'error': $errorShort, 'console_url': '${console_url}' } }, 'links': $links } } ) %}",
+            "Next": "Send_PagerDuty_Alert"
+        },
+        "Send_PagerDuty_Alert": {
+            "Type": "Task",
+            "Comment": "POST to PagerDuty Events API v2",
+            "Resource": "arn:aws:states:::http:invoke",
+            "Arguments": {
+                "ApiEndpoint": "https://events.pagerduty.com/v2/enqueue",
+                "Method": "POST",
+                "Headers": {
+                    "Content-Type": "application/json"
+                },
+                "Authentication": {
+                    "ConnectionArn": "${connection_arn}"
+                },
+                "RequestBody": "{% $states.input.pagerduty %}"
+            },
+            "Output": "{% { 'status': 'sent', 'task_name': $states.input.original.task_name, 'pagerduty_response': $states.result } %}",
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Comment": "PagerDuty call failed - log but don't break pipeline",
+                    "Output": "{% { 'status': 'failed', 'task_name': $states.input.original.task_name, 'error': $string($states.errorOutput) } %}",
+                    "Next": "Alert_Failed"
+                }
+            ],
+            "Next": "Alert_Sent",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "States.Http.StatusCode.429",
+                        "States.Http.StatusCode.500",
+                        "States.Http.StatusCode.502",
+                        "States.Http.StatusCode.503",
+                        "States.Http.StatusCode.504",
+                        "States.Timeout"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2,
+                    "JitterStrategy": "FULL"
+                }
+            ]
+        },
+        "Alert_Sent": {
+            "Type": "Pass",
+            "Comment": "Alert successfully sent to PagerDuty",
+            "End": true
+        },
+        "Alert_Failed": {
+            "Type": "Pass",
+            "Comment": "Failed to send alert - continue gracefully",
+            "End": true
+        },
+        "Skip_Alert": {
+            "Type": "Pass",
+            "Comment": "PagerDuty not configured - skip",
+            "Output": {
+                "status": "skipped",
+                "reason": "pagerduty_routing_key not configured"
+            },
+            "End": true
+        }
+    }
+}

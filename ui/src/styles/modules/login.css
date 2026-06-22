@@ -1,0 +1,539 @@
+/**
+ * Login Page Styles
+ * 
+ * Styles for authentication UI components.
+ * Uses CSS variables for theming consistency with main app.
+ */
+
+/* =============================================================================
+   Auth Loading Screen
+   ============================================================================= */
+
+.ag-auth-loading {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: hsl(var(--background));
+}
+
+.ag-auth-loading-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+    color: hsl(var(--muted-foreground));
+}
+
+.ag-auth-loading-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.8) 100%);
+    color: hsl(var(--primary-foreground));
+    border-radius: 16px;
+    margin-bottom: var(--space-sm);
+}
+
+/* =============================================================================
+   Login Page Layout
+   ============================================================================= */
+
+.lp-login-page {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, hsl(var(--background)) 0%, hsl(var(--muted)) 100%);
+    padding: var(--space-lg);
+}
+
+.lp-login-container {
+    width: 100%;
+    max-width: 420px;
+}
+
+/* =============================================================================
+   Login Header
+   ============================================================================= */
+
+.lp-login-header {
+    text-align: center;
+    margin-bottom: var(--space-xl);
+}
+
+.lp-login-logo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+    margin-bottom: var(--space-md);
+}
+
+.lp-login-logo-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.8) 100%);
+    color: hsl(var(--primary-foreground));
+    border-radius: 12px;
+    box-shadow: 0 4px 12px hsl(var(--primary) / 0.3);
+}
+
+.lp-login-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    margin: 0 0 var(--space-xs) 0;
+}
+
+.lp-login-subtitle {
+    font-size: 0.875rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+}
+
+/* =============================================================================
+   Login Card
+   ============================================================================= */
+
+.lp-login-card {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: var(--space-3xl, 40px) var(--space-2xl, 32px);
+    box-shadow: 
+        0 4px 6px -1px hsl(var(--foreground) / 0.05),
+        0 2px 4px -2px hsl(var(--foreground) / 0.05);
+}
+
+/* =============================================================================
+   Login Form
+   ============================================================================= */
+
+.lp-login-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xl, 24px);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md, 12px);
+}
+
+.lp-form-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: hsl(var(--foreground));
+}
+
+.lp-form-label-icon {
+    color: hsl(var(--muted-foreground));
+}
+
+/* Password Input with Toggle */
+.lp-password-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.lp-password-input-wrapper input {
+    padding-right: 44px;
+}
+
+.lp-password-toggle {
+    position: absolute;
+    right: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius);
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.lp-password-toggle:hover {
+    color: hsl(var(--foreground));
+    background: hsl(var(--muted));
+}
+
+.lp-password-requirements {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    margin-top: var(--space-xs);
+}
+
+/* MFA Input */
+.lp-mfa-input {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    letter-spacing: 0.5em;
+    text-align: center;
+}
+
+/* =============================================================================
+   Notices
+   ============================================================================= */
+
+.lp-new-password-notice,
+.lp-mfa-notice,
+.lp-reset-notice,
+.lp-success-notice {
+    display: flex;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    background: hsl(var(--primary) / 0.1);
+    border: 1px solid hsl(var(--primary) / 0.2);
+    border-radius: var(--radius);
+    color: hsl(var(--foreground));
+}
+
+.lp-new-password-notice svg,
+.lp-mfa-notice svg,
+.lp-reset-notice svg {
+    flex-shrink: 0;
+    color: hsl(var(--primary));
+}
+
+.lp-success-notice {
+    background: hsl(142 76% 36% / 0.1);
+    border-color: hsl(142 76% 36% / 0.2);
+}
+
+.lp-success-notice svg {
+    flex-shrink: 0;
+    color: hsl(142 76% 36%);
+}
+
+.lp-new-password-notice strong,
+.lp-mfa-notice strong,
+.lp-reset-notice strong,
+.lp-success-notice strong {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: var(--space-xs);
+}
+
+.lp-new-password-notice p,
+.lp-mfa-notice p,
+.lp-reset-notice p,
+.lp-success-notice p {
+    font-size: 0.813rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+}
+
+/* =============================================================================
+   Error Message
+   ============================================================================= */
+
+.lp-login-error {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: hsl(var(--destructive) / 0.1);
+    border: 1px solid hsl(var(--destructive) / 0.2);
+    border-radius: var(--radius);
+    color: hsl(var(--destructive));
+    font-size: 0.875rem;
+}
+
+.lp-login-error svg {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+/* =============================================================================
+   Buttons
+   ============================================================================= */
+
+.lp-login-button {
+    width: 100%;
+    height: 44px;
+    font-size: 0.938rem;
+    font-weight: 500;
+}
+
+.lp-forgot-password-link {
+    background: none;
+    border: none;
+    color: hsl(var(--primary));
+    font-size: 0.875rem;
+    cursor: pointer;
+    padding: 0;
+    text-align: center;
+    transition: color 0.15s;
+}
+
+.lp-forgot-password-link:hover {
+    color: hsl(var(--primary) / 0.8);
+    text-decoration: underline;
+}
+
+.lp-back-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    background: none;
+    border: none;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.875rem;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.15s;
+}
+
+.lp-back-link:hover {
+    color: hsl(var(--foreground));
+}
+
+/* =============================================================================
+   Footer
+   ============================================================================= */
+
+.lp-login-footer {
+    text-align: center;
+    margin-top: var(--space-xl);
+}
+
+.lp-login-footer p {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    margin: 0;
+}
+
+/* =============================================================================
+   User Menu (for Header)
+   ============================================================================= */
+
+.um-user-menu {
+    position: relative;
+}
+
+.um-user-menu-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: hsl(var(--foreground));
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.um-user-menu-trigger:hover {
+    background: hsl(var(--muted));
+    border-color: hsl(var(--border));
+}
+
+.um-user-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary) / 0.8) 100%);
+    color: hsl(var(--primary-foreground));
+    border-radius: 50%;
+    font-size: 0.813rem;
+    font-weight: 600;
+    box-shadow: 0 2px 4px hsl(var(--primary) / 0.2);
+    flex-shrink: 0;
+}
+
+.um-user-avatar--lg {
+    width: 44px;
+    height: 44px;
+    font-size: 1rem;
+}
+
+.um-user-name {
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.um-user-menu-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 300px;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 14px;
+    box-shadow:
+        0 4px 6px -1px hsl(var(--foreground) / 0.08),
+        0 12px 28px -6px hsl(var(--foreground) / 0.18);
+    z-index: 100;
+    overflow: hidden;
+    animation: dropdown-enter 0.15s ease-out;
+}
+
+@keyframes dropdown-enter {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.um-user-menu-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    background: hsl(var(--muted) / 0.5);
+    border-bottom: 1px solid hsl(var(--border));
+}
+
+.um-user-menu-identity {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.um-user-menu-name {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.um-user-menu-email {
+    font-size: 0.8125rem;
+    color: hsl(var(--muted-foreground));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.um-user-menu-role {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: flex-start;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: hsl(var(--muted-foreground));
+    margin-top: 6px;
+    padding: 2px 8px;
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    border-radius: 999px;
+}
+
+.um-user-menu-content {
+    padding: 6px;
+}
+
+.um-user-menu-divider {
+    height: 1px;
+    background: hsl(var(--border));
+    margin: 6px 8px;
+}
+
+.um-user-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: hsl(var(--foreground));
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.um-user-menu-item:hover {
+    background: hsl(var(--muted));
+}
+
+.um-user-menu-item svg {
+    color: hsl(var(--muted-foreground));
+    flex-shrink: 0;
+}
+
+.um-user-menu-item.um-destructive {
+    color: hsl(var(--destructive));
+}
+
+.um-user-menu-item.um-destructive svg {
+    color: hsl(var(--destructive));
+}
+
+.um-user-menu-item.um-destructive:hover {
+    background: hsl(var(--destructive) / 0.1);
+}
+
+.um-user-menu-divider {
+    height: 1px;
+    background: hsl(var(--border));
+    margin: var(--space-xs) var(--space-md);
+}
+
+/* =============================================================================
+   Dark Mode Adjustments
+   ============================================================================= */
+
+[data-theme="dark"] .lp-login-page {
+    background: linear-gradient(135deg, hsl(var(--background)) 0%, hsl(222 50% 8%) 100%);
+}
+
+[data-theme="dark"] .lp-login-card {
+    box-shadow: 
+        0 4px 6px -1px hsl(0 0% 0% / 0.3),
+        0 2px 4px -2px hsl(0 0% 0% / 0.2);
+}
+
+/* =============================================================================
+   Responsive
+   ============================================================================= */
+
+@media (max-width: 480px) {
+    .lp-login-page {
+        padding: var(--space-md);
+    }
+    
+    .lp-login-card {
+        padding: var(--space-lg);
+    }
+    
+    .lp-login-logo {
+        font-size: 1.5rem;
+    }
+    
+    .lp-login-logo-icon {
+        width: 40px;
+        height: 40px;
+    }
+}

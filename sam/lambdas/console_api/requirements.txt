@@ -1,0 +1,7 @@
+# Console API runtime dependencies (packaged by `sam build` from this CodeUri).
+# boto3 is provided by the Lambda runtime and is intentionally not pinned here.
+#
+# rsa — pure-Python RSASSA-PKCS1-v1_5/SHA-256 used by auth.py to verify Cognito
+# JWTs offline (RS256) against the pool JWKS. Pure Python (no native wheel), so
+# `sam build` works WITHOUT `--use-container`. See ADR #65.
+rsa>=4.9

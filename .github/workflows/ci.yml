@@ -1,0 +1,248 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ============================================
+  # Python Tests & Linting
+  # ============================================
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          # console_api code (auth.py) imports `rsa` at module load; SDK tests
+          # import the Lambda ROUTES, so install its runtime deps (SSoT).
+          pip install -r sam/lambdas/console_api/requirements.txt
+          pip install ruff mypy cfn-lint
+
+      - name: Lint with ruff
+        run: |
+          ruff check .
+
+      - name: Type check with mypy (non-blocking)
+        continue-on-error: true
+        run: |
+          mypy slsflow/ --ignore-missing-imports --no-error-summary || true
+
+      - name: Lint Python + JSON templates
+        run: make lint
+
+      - name: Run SDK tests
+        run: make test-sdk
+
+      - name: Run backend tests
+        run: make test-backend
+
+      - name: Run integration tests
+        run: make test-integration
+
+      - name: Verify version consistency
+        run: make check-versions
+
+      - name: Verify pipeline definitions
+        run: make smoke-pipelines
+
+  # ============================================
+  # Lambda Tests
+  # ============================================
+  lambdas:
+    name: Lambda Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pytest-mock boto3
+          # auth.py imports `rsa` (pure-Python RS256 JWT verify, ADR #65) at
+          # module load; install console_api runtime deps so the import works.
+          pip install -r sam/lambdas/console_api/requirements.txt
+          # console_api/routes/backfill.py imports slsflow.partitions /
+          # slsflow.granularity. In the deployed Lambda, the slsflow package
+          # is bundled via Makefile (see lambdas/console_api/Makefile +
+          # template.yaml BuildMethod: makefile). For CI tests, install
+          # slsflow as editable so the import works the same way as runtime.
+          pip install -e .
+
+      - name: Validate Lambda handlers syntax
+        run: |
+          echo "Checking Lambda handler syntax..."
+          find sam/lambdas -name "*.py" -not -path "*/__pycache__/*" -not -path "*/test_*" -not -path "*/tests/*" | while read f; do
+            echo "  Checking $f"
+            python -m py_compile "$f"
+          done
+          echo "✅ All Lambda handlers valid"
+
+      - name: Verify constants sync
+        run: make sync-constants
+
+      - name: Run evaluate_deps tests
+        run: |
+          cd sam/lambdas/evaluate_deps && PYTHONPATH=. python -m pytest test_evaluate_deps.py -v
+
+      - name: Run notify_asset_subscribers tests
+        run: |
+          cd sam/lambdas/notify_asset_subscribers && PYTHONPATH=. python -m pytest test_notify_asset_subscribers.py -v
+
+      - name: Run check_assets tests
+        run: |
+          cd sam/lambdas/check_assets && PYTHONPATH=. python -m pytest test_check_assets.py -v
+
+      - name: Run console_api tests
+        run: |
+          # slsflow installed editable above; PYTHONPATH=. keeps the
+          # Lambda's own modules (config, routes, dal, …) importable.
+          cd sam/lambdas/console_api && PYTHONPATH=. python -m pytest tests/ -v
+
+  # ============================================
+  # Step Function Templates
+  # ============================================
+  sfn-templates:
+    name: SFN Templates
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python deps
+        run: |
+          pip install -e . pytest
+
+      - name: Validate ASL templates (JSON + structure)
+        run: |
+          python -c "
+          import json, re
+          from pathlib import Path
+
+          templates_dir = Path('sam/sfn_templates')
+          errors = []
+          count = 0
+
+          for f in templates_dir.rglob('*.json'):
+              count += 1
+              try:
+                  with open(f) as fp:
+                      content = fp.read()
+                  # Bare numeric Terraform vars like ${pause_heartbeat_seconds} break JSON
+                  content = re.sub(r':\s*[$][{](\w+)[}](\s*[,}\]])', r': 99999\2', content)
+                  data = json.loads(content)
+                  if 'States' not in data:
+                      errors.append(f'{f}: missing States')
+              except json.JSONDecodeError as e:
+                  errors.append(f'{f}: {e}')
+
+          if errors:
+              for e in errors:
+                  print(f'❌ {e}')
+              exit(1)
+          else:
+              print(f'✅ All {count} templates valid')
+          "
+
+      - name: Run SFN flow graph tests
+        run: |
+          pytest tests/sdk/test_sfn_flow.py -v
+
+      - name: Run JSONata expression tests
+        run: |
+          cd tests/sfn_jsonata && npm install --silent && npm test
+
+  # ============================================
+  # CloudFormation Lint
+  # ============================================
+  # CLAUDE.md lists `cfn-lint sam/template.yaml` as a quality gate;
+  # this job enforces it in CI (separate from sfn-templates so a CFN
+  # regression is visible without scrolling through SFN logs).
+  cfn-lint:
+    name: CFN Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install cfn-lint
+        run: pip install cfn-lint
+
+      - name: Lint SAM template
+        run: cfn-lint sam/template.yaml
+
+  # ============================================
+  # UI
+  # ============================================
+  ui:
+    name: UI
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test -- --run
+
+      - name: Build
+        run: npm run build
+
+      # Open-core guard (ADR #99): the public build must be self-contained —
+      # with the Team surface (src/ee) removed it must still typecheck + build.
+      - name: OSS open-core build guard
+        run: bash scripts/check-oss-build.sh
