@@ -1,4 +1,4 @@
-# SLSFlow SAM Configuration
+# Polyris SAM Configuration
 # ============================================================
 # Quick start:
 #   1. cp samconfig.toml.example samconfig.toml
@@ -11,7 +11,7 @@
 version = 0.1
 
 [default.deploy.parameters]
-stack_name        = "slsflow-dev"
+stack_name        = "polyris-dev"
 region            = "us-east-1"
 profile           = "default"
 capabilities      = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
@@ -23,16 +23,12 @@ parameter_overrides = [
   "Stage=dev",
   "AwsRegion=us-east-1",
 
-  # Optional — Slack alerts
-  # "SlackWebhookEndpoint=https://hooks.slack.com/services/YOUR/WEBHOOK",
-  # "DefaultSlackChannel=#data-alerts",
-
-  # Optional — PagerDuty
-  # "PagerDutyRoutingKey=YOUR_KEY",
+  # Slack / PagerDuty alerts are configured in the Console UI (Settings → Alerts),
+  # not via CloudFormation parameters (ADR #103).
 
   # Optional — Cognito auth for Console UI (recommended for production)
   "EnableCognitoAuth=true",
 
   # Optional — custom domain (e.g. if you set up Route53 + ACM)
-  # "ConsoleUrlOverride=https://slsflow.myorg.com",
+  # "ConsoleUrlOverride=https://polyris.myorg.com",
 ]

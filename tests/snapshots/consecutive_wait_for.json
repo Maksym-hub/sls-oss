@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"consecutive_wait_for\", \"description\": \"\", \"group\": \"\", \"schedule\": \"cron(0 22 ? * SUN *)\", \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"mark_weekly_complete\", \"task_type\": \"sfn\", \"dependencies\": [], \"outlets\": [{\"name\": \"acme/weekly-complete\", \"uri\": \"\", \"granularity\": \"daily\"}], \"wait_for\": [{\"name\": \"acme/daily-complete\", \"consecutive_days\": 7}]}], \"dag\": {\"nodes\": [{\"id\": \"mark_weekly_complete\", \"name\": \"mark_weekly_complete\", \"outlets\": [{\"name\": \"acme/weekly-complete\", \"uri\": \"\", \"granularity\": \"daily\"}], \"wait_for\": [{\"name\": \"acme/daily-complete\", \"consecutive_days\": 7}]}], \"edges\": []}, \"slsflow_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"consecutive_wait_for\", \"description\": \"\", \"group\": \"\", \"schedule\": \"cron(0 22 ? * SUN *)\", \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"mark_weekly_complete\", \"task_type\": \"sfn\", \"dependencies\": [], \"outlets\": [{\"name\": \"acme/weekly-complete\", \"uri\": \"\", \"granularity\": \"daily\"}], \"wait_for\": [{\"name\": \"acme/daily-complete\", \"consecutive_days\": 7}]}], \"dag\": {\"nodes\": [{\"id\": \"mark_weekly_complete\", \"name\": \"mark_weekly_complete\", \"outlets\": [{\"name\": \"acme/weekly-complete\", \"uri\": \"\", \"granularity\": \"daily\"}], \"wait_for\": [{\"name\": \"acme/daily-complete\", \"consecutive_days\": 7}]}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -77,7 +77,7 @@
     },
     "Check_Register_Only": {
       "Type": "Choice",
-      "Comment": "Skip task execution if register_only=true (used by slsflow-register CLI)",
+      "Comment": "Skip task execution if register_only=true (used by polyris-register CLI)",
       "Choices": [
         {
           "Condition": "{% $states.input.register_only = true %}",
@@ -124,8 +124,6 @@
                   "wait_before": 0,
                   "trigger_rule": "all_success",
                   "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}",
-                  "alerts": {},
-                  "slack_mentions_formatted": "",
                   "outlets": [
                     {
                       "name": "acme/weekly-complete",

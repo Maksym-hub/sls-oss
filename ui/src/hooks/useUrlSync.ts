@@ -71,8 +71,10 @@ export function useUrlSync<T extends UrlState>(options: UseUrlSyncOptions<T>) {
         onChangeRef.current = onChange;
     });
     const keysRef = useRef(keys);
+    // eslint-disable-next-line react-hooks/refs -- latest-value ref synced for use in effects/callbacks, not read during render
     keysRef.current = keys;
     const defaultsRef = useRef(defaults);
+    // eslint-disable-next-line react-hooks/refs -- latest-value ref synced for use in effects/callbacks, not read during render
     defaultsRef.current = defaults;
 
     // Read initial state from URL on mount (computed once, stable across renders)

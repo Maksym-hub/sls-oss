@@ -2,7 +2,7 @@
 
 ## Overview
 
-slsflow generates AWS Step Functions JSON (Amazon States Language) from Python DAG definitions.
+polyris generates AWS Step Functions JSON (Amazon States Language) from Python DAG definitions.
 
 ---
 

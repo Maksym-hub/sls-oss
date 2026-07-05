@@ -2,25 +2,26 @@
 
 ## Core Decisions
 
-### 1. Required `alerts` Parameter
+### 1. Alerts Configured in the UI, Not the DSL
 
-**Decision:** Make `alerts` a required parameter on DAG.
+**Decision:** Failure-alert delivery (Slack, PagerDuty) is configured per pipeline
+in the Settings → Alerts UI and stored in the pipeline registry (`alert_config`),
+not declared in the DAG. The old required `alerts=` DAG parameter is **deprecated**
+and ignored.
 
 **Rationale:**
-- Production systems need alerting
-- Prevents "I'll add it later" → never
-- Explicit is better than implicit
-- Forces conscious decision: configure or disable
+- Secrets (Slack webhook, PagerDuty routing key) must not live in pipeline source —
+  they belong in SSM, written via the UI, never committed
+- Alerting is an operational concern that changes without a code redeploy
+- Browser notifications are free and automatic; external channels are Team-tier
+- A single source of truth (the registry) that the notify Lambda reads at 3am,
+  with no UI involvement at failure time
 
 **Implementation:**
-```python
-# Error if missing
-with DAG("pipeline") as dag:  # → ValueError
-
-# Must explicitly set
-with DAG("pipeline", alerts={"slack": "#ch"}) as dag:  # OK
-with DAG("test", alerts=None) as dag:  # OK (explicitly disabled)
-```
+The DSL still accepts `alerts=` for one release with a `DeprecationWarning`, then
+ignores it (`self.alerts = None`). Non-secret config (channel, mentions, severity,
+enabled channels) lives in `alert_config`; secrets go to SSM with only the
+parameter name kept in the config. See ADR #103 and `docs/features/alerts.md`.
 
 ---
 
@@ -58,12 +59,12 @@ with DAG("test", alerts=None) as dag:  # OK (explicitly disabled)
 - pause_waiter — save pause token for callback
 - notify_dependents — wake up waiting tasks **(EXPRESS)**
 - notify_asset_consumers — cross-pipeline asset triggers **(EXPRESS)**
-- interactive_choice_slack — Slack action buttons **(EXPRESS)**
-- pagerduty_alerter — PagerDuty alert **(EXPRESS)**
-- pagerduty_resolver — PagerDuty auto-resolve on success **(EXPRESS)**
 - restart_task — restart failed task **(EXPRESS)**
 - restart_wrapper — restart wrapper execution **(EXPRESS)**
 - ~~register_on_create~~ — removed, replaced by Pulumi Dynamic Provider (ADR #24)
+- ~~interactive_choice_slack / pagerduty_alerter / pagerduty_resolver~~ — removed
+  in ADR #103; interactive Slack and PagerDuty alerts/resolves are now
+  `lambda:invoke` calls to the notify Lambda, not separate state machines
 
 ---
 
@@ -165,9 +166,9 @@ with DAG("test", alerts=None) as dag:  # OK (explicitly disabled)
 
 ### 9. Pulumi for Pipelines, Terraform for Shared
 
-> **SUPERSEDED — Pulumi removed.** Pipelines now deploy via `slsflow-deploy`
+> **SUPERSEDED — Pulumi removed.** Pipelines now deploy via `polyris-deploy`
 > (CloudFormation); shared infra via AWS SAM. There is no Pulumi path anymore
-> (`slsflow/pulumi.py` deleted, no `import pulumi` in the codebase). See
+> (`polyris/pulumi.py` deleted, no `import pulumi` in the codebase). See
 > CLAUDE.md rules #34–#35 and the "Pulumi removed" CHANGELOG entry. Kept below
 > as a historical record only.
 
@@ -243,7 +244,7 @@ Can't generate tasks at runtime. Accepted because:
 - User still needs control over failed tasks
 - 5h timeout same as normal runs — consistent behavior
 
-**Implementation:** `Check_Is_Backfill` → `Wait_For_Decision` (skipping Check_Has_Slack and Check_Has_PagerDuty). Task shows `waiting_decision` in UI with skip/fail/restart buttons.
+**Implementation:** `Check_Is_Backfill` → `Wait_For_Decision` (skipping Interactive_Slack and Send_PagerDuty_Alert). Task shows `waiting_decision` in UI with skip/fail/restart buttons.
 
 ---
 
@@ -267,7 +268,7 @@ def scrape_pdp():
 
 ### 13. Decorator Parameter Duplication (for IDE autocomplete)
 
-**Decision:** Duplicate common parameters (`retries`, `retry_delay`, `trigger_rule`, `slack_channel`, `wait_before`, `skip_on_backfill`) across all 7 task decorator methods.
+**Decision:** Duplicate common parameters (`retries`, `retry_delay`, `trigger_rule`, `wait_before`, `skip_on_backfill`) across all 7 task decorator methods.
 
 **Rationale:**
 - Python lacks good mechanism for "signature inheritance" between methods
@@ -361,7 +362,6 @@ return {"output_path": "s3://bucket/output/2026-01-01/", "row_count": 50000}
 | notify_asset_consumers | run_task (hours, .sync callbacks) |
 | | registration (waitForTaskToken) |
 | | failure_handler (invokes other SFNs) |
-| | pagerduty_alerter |
 
 **Rationale:**
 - Express: ~100x cheaper ($0.000001 vs $0.000025 per transition), but no execution history in console
@@ -386,12 +386,12 @@ return {"output_path": "s3://bucket/output/2026-01-01/", "row_count": 50000}
 **Comparison at 2000 tasks/day, 1.5hr average:**
 | Pattern | Monthly cost for waiting |
 |---|---:|
-| slsflow (waitForTaskToken) | **$0** |
+| polyris (waitForTaskToken) | **$0** |
 | Airflow (worker blocked) | ~$4,950 |
 | Prefect (polling agent) | ~$53 |
 | Dagster (polling daemon) | ~$35 |
 
-This is slsflow's key architectural advantage — the longer tasks run, the more money is saved versus polling-based orchestrators.
+This is polyris's key architectural advantage — the longer tasks run, the more money is saved versus polling-based orchestrators.
 
 ---
 
@@ -465,14 +465,14 @@ This is slsflow's key architectural advantage — the longer tasks run, the more
 
 **Decision:** Each execution writes its own DAG snapshot to `tokens_table` with key `dag_snapshot::{execution_name}`. TTL: 120 days (AWS SFN history is 90 days + 30-day buffer).
 
-**Problem:** After `slsflow-deploy` with changed DAG, old executions in UI showed the *new* graph instead of the graph they actually ran with. Debugging "why did it fail" was impossible because the DAG structure was wrong.
+**Problem:** After `polyris-deploy` with changed DAG, old executions in UI showed the *new* graph instead of the graph they actually ran with. Debugging "why did it fail" was impossible because the DAG structure was wrong.
 
 **Alternatives considered:**
 - Per-deploy snapshot (S3 or DDB) — doesn't tie to specific execution, overwrites on each deploy
 - Git commit hash — requires git in deploy environment, no actual DAG data
 - Hash-only indicator — shows "DAG changed" but not *how* it changed
 
-**Why per-execution:** AWS Step Functions guarantees that each execution runs the ASL definition that was active at `StartExecution` time. The DAG metadata is hardcoded as a string literal in the ASL at `slsflow-deploy` time. Each execution writes to a unique key (its own execution ARN) — no overwrites, no race conditions.
+**Why per-execution:** AWS Step Functions guarantees that each execution runs the ASL definition that was active at `StartExecution` time. The DAG metadata is hardcoded as a string literal in the ASL at `polyris-deploy` time. Each execution writes to a unique key (its own execution ARN) — no overwrites, no race conditions.
 
 **API lookup priority:** snapshot → registry → inferred. Old executions (pre-feature) gracefully fall back to registry.
 
@@ -494,7 +494,7 @@ This is slsflow's key architectural advantage — the longer tasks run, the more
 - `update`: re-registers with new DAG
 - `delete`: direct DDB cleanup (`pipeline_registry` + `asset_subscriptions`)
 
-**Why not `apply()` callback:** `apply()` fires on every `slsflow-deploy` (even no-change), has no error tracking, can't distinguish create from update, and doesn't work for destroy. Dynamic Provider gives Pulumi state tracking, retry on failure, and separate handlers for each lifecycle event.
+**Why not `apply()` callback:** `apply()` fires on every `polyris-deploy` (even no-change), has no error tracking, can't distinguish create from update, and doesn't work for destroy. Dynamic Provider gives Pulumi state tracking, retry on failure, and separate handlers for each lifecycle event.
 
 **Migration:** EventBridge auto-registration (`auto_registration.tf`, ~300 lines + Lambda) removed in v69.1 after Dynamic Provider was verified in production.
 
@@ -538,14 +538,14 @@ This is slsflow's key architectural advantage — the longer tasks run, the more
 - `yield mock` in fixtures → `return mock` (mocker handles teardown)
 
 **Exceptions (stdlib `unittest.mock` allowed):**
-- `slsflow/validation.py` — runtime module spoofing (not a test)
+- `polyris/validation.py` — runtime module spoofing (not a test)
 - `test_registration_provider.py` fixture — `sys.modules` bootstrap for Pulumi mock
 
 **Dependency:** `pytest-mock>=3.0.0` in `pyproject.toml` `[project.optional-dependencies] dev`.
 
 ### 27. Unified Version String Across All Packages
 
-**Decision:** `pyproject.toml`, `slsflow/__init__.py`, and `ui/package.json` share the same version string. CI fails on mismatch.
+**Decision:** `pyproject.toml`, `polyris/__init__.py`, and `ui/package.json` share the same version string. CI fails on mismatch.
 
 **Rationale:**
 - Single repo, single deploy → single version. No ambiguity about "which version is deployed?"
@@ -622,7 +622,7 @@ except Exception:
 
 **Previous approach:** `from_terraform_state()` — read S3 Terraform state file via IAM role assume. Required a dedicated IAM role, S3 access, and knowledge of bucket/key.
 
-**Decision:** `from_ssm()` — Terraform automatically writes values to SSM Parameter Store under `/slsflow/{stage}/` after `sam deploy`. Pulumi reads from there.
+**Decision:** `from_ssm()` — Terraform automatically writes values to SSM Parameter Store under `/polyris/{stage}/` after `sam deploy`. Pulumi reads from there.
 
 **Reasons:**
 - Simpler UX: zero configuration for the user after `sam deploy`
@@ -634,7 +634,7 @@ except Exception:
 
 ---
 
-### 31. Removal of `config.arn()` and `[tool.slsflow.accounts]`
+### 31. Removal of `config.arn()` and `[tool.polyris.accounts]`
 
 **Context:** `config.arn()` constructed Step Function ARNs from account IDs in `pyproject.toml`.
 
@@ -698,28 +698,28 @@ arn=f"arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:myorg-{STAGE}-extract"
 - Fewer tools: OpenTofu removed, SAM = AWS-native
 
 **What stayed unchanged:**
-- SSM Parameters — CFN writes to the same `/slsflow/{stage}/` paths
+- SSM Parameters — CFN writes to the same `/polyris/{stage}/` paths
 - `from_ssm()` in Pulumi — works without changes
 - Pulumi — remained for pipeline deploys (separate refactoring step, see ADR #35)
 
 ---
 
-### 35. `slsflow-deploy` as a Parallel Alternative to Pulumi
+### 35. `polyris-deploy` as a Parallel Alternative to Pulumi
 
 **Context:** Pulumi requires a separate CLI, account, and state backend. For new users this is an additional barrier.
 
-**Decision:** `slsflow-deploy` — a built-in CLI command that deploys pipelines via CloudFormation.
+**Decision:** `polyris-deploy` — a built-in CLI command that deploys pipelines via CloudFormation.
 
 **What it does:**
 1. Reads `dag.py` (the same file Pulumi reads)
-2. Reads SSM `/slsflow/{stage}/` (the same parameters)
+2. Reads SSM `/polyris/{stage}/` (the same parameters)
 3. Generates a CFN template (SFN + LogGroup + EventBridge)
 4. `aws cloudformation deploy` — AWS manages state
 5. Registers the pipeline via boto3
 
 **What stayed unchanged:** *(Historical: at the time, Pulumi remained as an
 equal second option.)* **Update — Pulumi was later removed entirely;
-`slsflow-deploy` (CFN) is now the only pipeline-deploy path.** See CLAUDE.md
+`polyris-deploy` (CFN) is now the only pipeline-deploy path.** See CLAUDE.md
 #34–#35.
 
 **Advantages of the CFN approach:** native AWS state, rollback, zero external dependencies.
@@ -730,12 +730,12 @@ equal second option.)* **Update — Pulumi was later removed entirely;
 
 **Context:** Shared infra (SAM) and pipeline stacks need a way to pass ARNs between each other.
 
-**Decision:** AWS SSM Parameter Store — `/slsflow/{stage}/wrapper_arn` and similar.
+**Decision:** AWS SSM Parameter Store — `/polyris/{stage}/wrapper_arn` and similar.
 
 **Why not `Fn::ImportValue`:**
-- SSM is unified across all tools — Pulumi, slsflow-deploy, CDK, boto3
+- SSM is unified across all tools — Pulumi, polyris-deploy, CDK, boto3
 - `Fn::ImportValue` ties to CFN — if a customer wants different IaC, it requires a rewrite
-- SSM is human-readable: `aws ssm get-parameter --name /slsflow/dev/wrapper_arn`
+- SSM is human-readable: `aws ssm get-parameter --name /polyris/dev/wrapper_arn`
 
 **The single downside of SSM vs ImportValue:**
 `Fn::ImportValue` protects against deletion of a shared stack while dependent pipeline stacks exist.
@@ -749,18 +749,18 @@ SSM can be replaced with `Fn::ImportValue`. The SAM template already contains al
 Outputs:
   DependencyWrapperArn:
     Export:
-      Name: !Sub "${Namespace}-${Stage}-slsflow-wrapper-arn"
+      Name: !Sub "${Namespace}-${Stage}-polyris-wrapper-arn"
   OrchestrationRoleArn:
     Export:
-      Name: !Sub "${Namespace}-${Stage}-slsflow-orchestration-role-arn"
+      Name: !Sub "${Namespace}-${Stage}-polyris-orchestration-role-arn"
 
 # pipeline stack — instead of reading SSM:
 Resources:
   PipelineStateMachine:
     Properties:
-      RoleArn: !ImportValue myorg-dev-slsflow-orchestration-role-arn
+      RoleArn: !ImportValue myorg-dev-polyris-orchestration-role-arn
       DefinitionSubstitutions:
-        wrapper_arn: !ImportValue myorg-dev-slsflow-wrapper-arn
+        wrapper_arn: !ImportValue myorg-dev-polyris-wrapper-arn
 ```
 
 CFN will additionally protect against an accidental `sam delete` while dependent pipeline stacks exist.
@@ -1044,7 +1044,7 @@ Even with the CloudFront Function in place, using `router.push` for search-param
    AWS Console → CloudFront → distribution → Behaviors → Edit → remove
    Function association → Save. Then redeploy v0.70.18 frontend.
 
-2. **CFN redeploy** (~10 min): Extract `slsflow_baseline_v70_18.tar.gz`,
+2. **CFN redeploy** (~10 min): Extract `polyris_baseline_v70_18.tar.gz`,
    `sam deploy && deploy.sh && invalidation`.
 
 **Lesson for future routing changes:**
@@ -1094,7 +1094,7 @@ data libraries, not the outlier.
 **API:**
 
 ```python
-from slsflow import Asset, Column, types as t
+from polyris import Asset, Column, types as t
 
 orders = Asset(
     name="retail/orders",
@@ -1114,7 +1114,7 @@ Binary/FixedBinary, Date/Time/Timestamp, Uuid, Json, Array/Struct/Map.
 
 **Single source of truth:**
 
-- `slsflow/schema.py` — type classes, factories, `Column`, `normalize_schema`,
+- `polyris/schema.py` — type classes, factories, `Column`, `normalize_schema`,
   `column_to_dict`/`column_from_dict`, `to_glue_string`/`type_from_string`.
 - `Asset.__init__` calls `normalize_schema(schema)` once. The `Asset.schema`
   attribute is always `List[Column]` internally.
@@ -1158,8 +1158,8 @@ correct without any parsing. With strings, every comparison re-parses
 and a duplicate of the parsing already done at load time.
 
 **Why our own types instead of pyarrow as internal?** Adding `pyarrow` as a
-required dependency would push slsflow's install footprint from ~5MB to ~35MB
-(pyarrow ships compiled C++ extensions). slsflow's only required dependency
+required dependency would push polyris's install footprint from ~5MB to ~35MB
+(pyarrow ships compiled C++ extensions). polyris's only required dependency
 is `boto3`, and we want to keep it that way. pyarrow becomes an *optional*
 bridge in a later phase: a single adapter (`to_pyarrow` / `from_pyarrow`) gives
 us access to Iceberg, BigQuery, Parquet, Polars, Pandas, DuckDB, and Spark
@@ -1233,15 +1233,15 @@ null — this lets the UI render the declared schema and a structured error
 card alongside, rather than a blank network-error toast.
 
 **Wire-format compatibility:** Glue Catalog returns column types as strings
-(`"bigint"`, `"decimal(10,2)"`, `"array<string>"`). The slsflow type system
+(`"bigint"`, `"decimal(10,2)"`, `"array<string>"`). The polyris type system
 emits the byte-identical format via `to_glue_string` (ADR #42). The diff
 therefore reduces to string equality on `(name, type)` pairs. No parsing,
-no normalization, no type system in the backend Lambda — `slsflow` is not
+no normalization, no type system in the backend Lambda — `polyris` is not
 imported there. Two separately-evolving systems converged on the same
 format precisely because the format is Glue's, not ours.
 
 **Constraint fields ignored in diff:** `nullable`, `primary_key`, `unique`,
-`partition_key` are slsflow Column metadata that Glue Catalog does not
+`partition_key` are polyris Column metadata that Glue Catalog does not
 represent. They cannot drift in either direction. Partition columns (which
 Glue does represent) are surfaced from `Table.PartitionKeys` and merged
 with regular columns in the response so a column declared with
@@ -1295,7 +1295,7 @@ schema sources and produce ready-to-deploy assets:
     deploy time as the source of truth.
 
 Each constructor is a thin wrapper around an adapter module under
-`slsflow/adapters/` (`pyarrow_.py`, `pydantic_.py`, `glue.py`). Adapters
+`polyris/adapters/` (`pyarrow_.py`, `pydantic_.py`, `glue.py`). Adapters
 are independently importable.
 
 **Context:** Phase 1 (v0.72) established the typed Column system but
@@ -1310,7 +1310,7 @@ ecosystem packages.
 short version: pyarrow is the convergent type system for tabular data
 in the Python ecosystem (Iceberg, Parquet, BigQuery, Polars, Pandas, and
 DuckDB all expose or accept it), but its install footprint (~30MB of
-compiled C++ extensions) is too large to make a required slsflow
+compiled C++ extensions) is too large to make a required polyris
 dependency. Bridging once via `pyarrow_to_columns` / `columns_to_pyarrow`
 gets us all of those formats at zero marginal cost when the user opts in.
 
@@ -1323,28 +1323,28 @@ pydantic = ["pydantic>=2.0.0"]
 all      = [..., "pyarrow>=14.0.0", "pydantic>=2.0.0"]
 ```
 
-`import slsflow` succeeds without either installed. The adapter modules
+`import polyris` succeeds without either installed. The adapter modules
 exist and are importable too — only the actual conversion functions
 guard their peer import. Calling `pyarrow_to_columns` without
 `pyarrow` installed raises:
 
-    ImportError: pyarrow is required for slsflow.adapters.pyarrow_.
-    Install with:  pip install 'slsflow[pyarrow]'
+    ImportError: pyarrow is required for polyris.adapters.pyarrow_.
+    Install with:  pip install 'polyris[pyarrow]'
 
 **Type-mapping decisions worth recording:**
 
-For pyarrow → slsflow:
+For pyarrow → polyris:
   - Unsigned ints collapse to same-width signed (uint64 → bigint, with
     overflow at the top of the unsigned range). Promoting to wider types
     would inflate Glue/Iceberg storage; users needing full uint64 should
     declare manually.
-  - `float16` widens to `float` (slsflow has no float16).
+  - `float16` widens to `float` (polyris has no float16).
   - `dictionary` collapses to its value type (compression detail, not a
     semantic type).
-  - `fixed_size_list` collapses to `array` (slsflow has no fixed-array
+  - `fixed_size_list` collapses to `array` (polyris has no fixed-array
     distinction).
 
-For slsflow → pyarrow:
+For polyris → pyarrow:
   - `varchar(N)` and `char(N)` both collapse to `string`. Pyarrow has no
     length-bounded string variant — this is unavoidable without inventing
     a parquet-incompatible extension type.
@@ -1354,7 +1354,7 @@ For slsflow → pyarrow:
     surfaced because we only carry "is the timestamp tz-aware", not which
     tz.
 
-For pydantic → slsflow:
+For pydantic → polyris:
   - `int` maps to `bigint`, not `integer`. Python's int is unbounded and
     a 32-bit landing would silently truncate at the catalog. Users wanting
     narrower types should use the explicit Column form.
@@ -1367,7 +1367,7 @@ For pydantic → slsflow:
   - Default values for non-scalar types (list, dict, complex objects) are
     dropped, only JSON-safe scalars survive on `Column.default`.
 
-For Glue → slsflow:
+For Glue → polyris:
   - Reuses `type_from_string` from ADR #42 — same parser, no duplication.
   - `Comment` becomes `Column.description`.
   - `PartitionKeys` are included with `partition_key=True`.
@@ -1379,8 +1379,8 @@ make signatures harder to read. Three explicit methods keep call sites
 self-documenting. Discoverability via IDE autocomplete also wins:
 typing `Asset.from_` shows three obvious next steps.
 
-**Why `slsflow.adapters.pyarrow_` and `pydantic_` (trailing underscore)?**
-Without it, `from slsflow.adapters import pyarrow` would shadow the real
+**Why `polyris.adapters.pyarrow_` and `pydantic_` (trailing underscore)?**
+Without it, `from polyris.adapters import pyarrow` would shadow the real
 `pyarrow` package in caller scope. The trailing underscore is the
 standard Python convention for "almost-name-but-keyword-conflict" cases.
 The classmethods on Asset are the canonical user-facing API — direct
@@ -1501,10 +1501,10 @@ provision it for them.
   - **Athena Federated Catalogs.** Athena's UI shows a four-level
     hierarchy (Data source → Catalog → Database → Table) where "Data
     source" can be a Lambda-backed connector to Hive, MySQL, Snowflake,
-    etc. SLSFlow targets AWS Glue Data Catalog directly via
+    etc. Polyris targets AWS Glue Data Catalog directly via
     `glue.get_table()`. Users who need to drift-detect against
     federated sources should use the source-of-truth catalog's own
-    APIs, not SLSFlow.
+    APIs, not Polyris.
   - **Athena DataSource aliases.** Cross-account Glue catalogs
     registered as Athena data sources (e.g.
     `Central_Data_Catalog` pointing at account 222) are Athena UI
@@ -1532,7 +1532,7 @@ Phase 3 deferred until trigger fires.
 
 **Context:** `Asset.to_ddl()` renders Glue/Hive `CREATE EXTERNAL TABLE`
 output for the "Copy as DDL" UI button. The Python implementation lives
-in the SDK (`slsflow/assets.py`); the UI bundle ships independently and
+in the SDK (`polyris/assets.py`); the UI bundle ships independently and
 cannot import Python at runtime, so a TypeScript mirror exists in
 `ui/src/utils/ddl-glue.ts`. This is duplication.
 
@@ -1551,7 +1551,7 @@ cost than the duplication itself.
     moving parts to maintain.
 
 The duplication itself is small (~50 lines, mirror logic), the format
-is stable (Hive/Glue DDL is an AWS specification, not a SLSFlow
+is stable (Hive/Glue DDL is an AWS specification, not a Polyris
 invention), and the divergence risk is **enforced down to zero** by a
 shared fixture file plus parity tests on both sides.
 
@@ -1585,8 +1585,8 @@ Postgres, Snowflake) lands.
 
 Refactor outline:
 
-  - Move `_render_glue_ddl` from `slsflow/assets.py` to
-    `slsflow/renderers/glue.py`. New sibling files for each new
+  - Move `_render_glue_ddl` from `polyris/assets.py` to
+    `polyris/renderers/glue.py`. New sibling files for each new
     dialect (`bigquery.py`, `iceberg.py`, ...).
   - Define a `Renderer` Protocol *only after seeing the second
     dialect's requirements* — this is the key timing point. Designing
@@ -1616,7 +1616,7 @@ Refactor outline:
   - Discover renderers via Python `entry_points` in `pyproject.toml`:
 
 ```toml
-[project.entry-points."slsflow.renderers"]
+[project.entry-points."polyris.renderers"]
 my_dialect = "my_pkg.renderers:MyDialectRenderer"
 ```
 
@@ -1749,7 +1749,7 @@ because of a single asset's transient DDB throttle. Tested in
     50-100ms is acceptable.
   - **Aggregated "last_updated" in pipeline_registry** — see above,
     rejected for write-cost / complexity reasons.
-  - **Cross-region last_updated** — out of scope; SLSFlow is
+  - **Cross-region last_updated** — out of scope; Polyris is
     single-region per stack and `asset-events` table is per-stack.
 
 
@@ -2121,7 +2121,7 @@ Three companion features round out the change:
    deferred to v0.78 if real users ask.
 
 2. **Glue auto-detect at deploy time.** For Glue-backed assets,
-   `slsflow-deploy` reads `PartitionKeys` and infers granularity from
+   `polyris-deploy` reads `PartitionKeys` and infers granularity from
    naming: `year/month/day` → daily, `year/month/day/hour` → hourly,
    `year/week` → weekly, `year/month` → monthly. Inference is
    **advisory** — declared values win, but mismatches print warnings.
@@ -2300,7 +2300,7 @@ causes:
 #### Decision
 
 Introduce **"Backfill"** as a first-class operation: one endpoint
-(`POST /api/backfill`), one orchestrator SFN (`slsflow-bulk-backfill`),
+(`POST /api/backfill`), one orchestrator SFN (`polyris-bulk-backfill`),
 one persisted record per operation, one UI modal with seed-based pre-fill
 for all six entry points.
 
@@ -2380,10 +2380,10 @@ POST /api/backfill
    estimate cost
        ↓
    write backfill record to pipeline-tokens
-   start slsflow-bulk-backfill SFN
+   start polyris-bulk-backfill SFN
        ↓ (returns immediately with backfill_id)
    
-slsflow-bulk-backfill (Standard SFN):
+polyris-bulk-backfill (Standard SFN):
   Initialize
     ├─ capture pipeline_dag_hash from pipeline_registry
     └─ update backfill record (status=running, hash, partition list)
@@ -2428,7 +2428,7 @@ the rename is a clean atomic change with no migration path needed.
 ```
 {
   execution_name = backfill_id (e.g., "bf-a1b2c3d4")
-  pipeline_name = "_slsflow_bulk_backfill"  # sentinel
+  pipeline_name = "_polyris_bulk_backfill"  # sentinel
   record_type = "backfill"
   
   # User intent
@@ -2454,7 +2454,7 @@ the rename is a clean atomic change with no migration path needed.
   parent_backfill_id = "bf-xyz789" | null   # set if this is retry-failed of another
   
   # Operational
-  sfn_arn = "arn:aws:states:...:execution:slsflow-bulk-backfill:bf-a1b2c3d4"
+  sfn_arn = "arn:aws:states:...:execution:polyris-bulk-backfill:bf-a1b2c3d4"
   child_executions = ["acme-daily-2024-01-15-...", ...]  # populated as they start
   ttl = epoch + 30 days
 }
@@ -2637,22 +2637,22 @@ Hard-coded constants in `sam/lambdas/console_api/constants.py::BackfillLimits`:
 
 #### CLI
 
-New `slsflow.run_cli` module exposes `slsflow backfill` and `slsflow
+New `polyris.run_cli` module exposes `polyris backfill` and `polyris
 backfills` subcommands:
 
 ```
-slsflow backfill pipeline acme/daily_orders \
+polyris backfill pipeline acme/daily_orders \
     --partitions 2024-01-01:2024-01-31 \
     --max-parallel 5
 
-slsflow backfill asset acme/orders \
+polyris backfill asset acme/orders \
     --partitions 2024-01:2024-03 \
     --cascade auto
 
-slsflow backfills list [--status running] [--target ...] [--user ...]
-slsflow backfills show bf-a1b2c3d4
-slsflow backfills cancel bf-a1b2c3d4
-slsflow backfills retry bf-a1b2c3d4
+polyris backfills list [--status running] [--target ...] [--user ...]
+polyris backfills show bf-a1b2c3d4
+polyris backfills cancel bf-a1b2c3d4
+polyris backfills retry bf-a1b2c3d4
 ```
 
 Thin wrapper over `/api/backfill`; AWS credentials via standard boto3
@@ -2793,7 +2793,7 @@ Phase order from Discovery report (file-by-file walkthrough in
    concept.
 2. SAM template: add `backfill-id-index` GSI, new attributes,
    `BulkBackfillSfn` resource. Deploy + smoke test.
-3. SDK: `slsflow/partitions.py`, `slsflow/granularity.py`. Unit tests.
+3. SDK: `polyris/partitions.py`, `polyris/granularity.py`. Unit tests.
 4. Backend: `routes/backfill.py` (replacing deleted `routes/backfill.py`
    for the old endpoint), `dal/backfills_repo.py`.
 5. Bulk-backfill SFN template.
@@ -2802,7 +2802,7 @@ Phase order from Discovery report (file-by-file walkthrough in
 7. Entry points wiring: Pipeline page, Asset page, Matrix, Task Detail
    Modal.
 8. Tests: integration suite, snapshot re-baseline.
-9. CLI: `slsflow.run_cli`.
+9. CLI: `polyris.run_cli`.
 10. Docs: ADRs #52-#58 written iteratively; user-facing docs rewrite.
 11. v0.78.0 release.
 
@@ -2840,9 +2840,9 @@ transparently in UI.
 
 #### Decision
 
-Add `slsflow/granularity.py` with `infer_cron_cadence(cron_string)`
+Add `polyris/granularity.py` with `infer_cron_cadence(cron_string)`
 function. Called from `routes/backfill.py::start_backfill` when target is
-a pipeline. Result feeds `slsflow.partitions.expand_range`.
+a pipeline. Result feeds `polyris.partitions.expand_range`.
 
 ##### Inference rules
 
@@ -3037,7 +3037,7 @@ not pretending to support what we don't.
 
 The original plan was to write `granularity` to `pipeline_registry` at
 deploy time. Dropped because inference is runtime-cheap (~1 µs per call,
-no AWS calls needed) and avoiding deploy-time write keeps `slsflow-deploy`
+no AWS calls needed) and avoiding deploy-time write keeps `polyris-deploy`
 simpler.
 
 If profiling later shows inference is hot, cache result in `pipeline_registry`
@@ -3082,7 +3082,7 @@ how accurate, and how surfaced.
 
 Competitors (Airflow, Dagster) don't preview costs; they don't have to,
 since their pricing is hosting-based (you pay for the orchestrator
-cluster regardless of operations). slsflow is serverless — every
+cluster regardless of operations). polyris is serverless — every
 operation costs incremental dollars — so cost preview is meaningful and
 adds real value as a differentiator.
 
@@ -3095,7 +3095,7 @@ SFN itself and the spawned child pipeline executions. Lambda invocations
 and DynamoDB writes are excluded — they fall under AWS Free Tier for
 realistic volumes and would noise the estimate.
 
-Estimate is computed in `slsflow/partitions.py::PartitionRange.cost_estimate()`
+Estimate is computed in `polyris/partitions.py::PartitionRange.cost_estimate()`
 and called from the request handler before responding.
 
 ##### Formula
@@ -3231,7 +3231,7 @@ bottleneck).
 Rejected. AWS Pricing API queries are slow (~2s), the prices for
 Step Functions Standard are stable enough that hardcoding the
 $0.025/1000 constant is fine. If AWS changes pricing, we update the
-constant in `slsflow/partitions.py` — a single source location.
+constant in `polyris/partitions.py` — a single source location.
 
 ##### Out of scope
 
@@ -3249,7 +3249,7 @@ constant in `slsflow/partitions.py` — a single source location.
 
 #### Context
 
-ADR #51 calls for a `slsflow-bulk-backfill` SFN that orchestrates one
+ADR #51 calls for a `polyris-bulk-backfill` SFN that orchestrates one
 "slice of work" per partition for a backfill. This ADR specifies its
 internal structure: state machine layout, JSONata expressions, IAM
 permissions, error handling, cancel mechanism, and operational
@@ -3262,7 +3262,7 @@ characteristics.
 (`.sync` integration pattern).
 **State count:** ~12 states (Initialize, Map iterator with 5 sub-states,
 Finalize, plus error paths).
-**Naming:** `slsflow-bulk-backfill` (one SFN, namespace-scoped via SAM
+**Naming:** `polyris-bulk-backfill` (one SFN, namespace-scoped via SAM
 template substitution).
 **Execution naming:** `{backfill_id}` (e.g., `bf-a1b2c3d4`); matches the
 DDB Backfill record's `execution_name`/`backfill_id` field for 1:1
@@ -3429,7 +3429,7 @@ through despite cancel signal. Acceptable. Implementation:
     "TableName": "${PipelineTokensTable}",
     "Key": {
       "execution_name": {"S.$": "$.backfill_id"},
-      "pipeline_name": {"S": "_slsflow_bulk_backfill"}
+      "pipeline_name": {"S": "_polyris_bulk_backfill"}
     },
     "ConsistentRead": true
   },
@@ -3574,7 +3574,7 @@ added via SAM template diff. No existing infrastructure changes.
 
 Smoke test plan:
 1. Deploy SAM update with new resource to test environment
-2. Run `slsflow backfill pipeline acme/daily_orders --partitions
+2. Run `polyris backfill pipeline acme/daily_orders --partitions
    2026-05-01:2026-05-03` (3 partitions)
 3. Verify in AWS Console:
    - bulk-backfill execution visible, Map shows 3 iterations
@@ -3610,7 +3610,7 @@ Monthly fixed:
 
 EventBridge cron rules currently invoke pipeline SFNs directly. The
 v0.78 redesign asks: should scheduled (cron-triggered) executions also
-create Backfill records, routing through `slsflow-bulk-backfill`?
+create Backfill records, routing through `polyris-bulk-backfill`?
 
 Question #6 was discussed in detail. Conclusion (from user feedback):
 preserve existing `/runs` UI which lists all executions including cron;
@@ -3695,7 +3695,7 @@ have `backfill_id` attribute set (Backfill-initiated) and some have
 attributes; legacy executions without them work normally.
 
 `is_internal_record()` in `utils.py` is updated to recognize Backfill
-records (sentinel `pipeline_name=_slsflow_bulk_backfill` AND
+records (sentinel `pipeline_name=_polyris_bulk_backfill` AND
 `record_type=backfill`) and exclude them from execution-list iterations.
 Without this update, Backfill records would leak into UI counts. (See
 Discovery Phase B, file `utils.py` entry.)
@@ -3898,9 +3898,9 @@ distinction adds complexity without value.
 |---|---|
 | **Airflow Backfill** | success / failed / running (only 3) |
 | **Dagster Backfill** | requested / in_progress / completed / failed / canceled (5) |
-| **slsflow** | pending / running / completed / failed / partial / canceled (6) |
+| **polyris** | pending / running / completed / failed / partial / canceled (6) |
 
-slsflow adds `partial` because at our scale (90-day backfills), partial
+polyris adds `partial` because at our scale (90-day backfills), partial
 success is the **common** outcome, not exceptional. Conflating it with
 "failed" is misleading; with "completed" hides the failures. Distinct
 state captures the reality and drives the retry-failed flow naturally.
@@ -4282,7 +4282,7 @@ convention.
 ##### Range expansion algorithm
 
 ```python
-# slsflow/partitions.py
+# polyris/partitions.py
 class PartitionRange:
     @classmethod
     def expand(
@@ -4486,7 +4486,7 @@ source partitions map to it.
 - 1000-partition limit triggers correct error
 - Single-partition cases (start == end)
 
-Coverage target: 100% of `slsflow/partitions.py` (small surface, no
+Coverage target: 100% of `polyris/partitions.py` (small surface, no
 external dependencies, achievable).
 
 #### Migration
@@ -4495,7 +4495,7 @@ No migration. `partition_key` is a new field on all new backfill records
 and child executions. Legacy executions without it work normally. UI
 falls back to `current_date` for display if `partition_key` absent.
 
-`slsflow/partitions.py` is a new module; no existing module is replaced.
+`polyris/partitions.py` is a new module; no existing module is replaced.
 
 #### Cost
 
@@ -4654,7 +4654,7 @@ Helper `_compute_skip_task_ids(target_pipeline, task_subset)` in
 `sam/lambdas/console_api/routes/backfill.py`. Returns list of task
 IDs to skip. Called from `start_backfill` after task_subset
 validation, before building the SFN input. The pipeline SFN (built by
-`slsflow.generators`) already consumes `$states.input.skip_tasks` via
+`polyris.generators`) already consumes `$states.input.skip_tasks` via
 `JSONATA_SKIP_TASKS` — the Choice state in each task short-circuits
 if its task_id appears in the list. No SFN-template change needed.
 
@@ -4833,7 +4833,7 @@ ship none of them until we ship all of them.
 | `POST /api/backfill` response | `estimated_sfn_cost_usd: 0.0047` | Field removed |
 | `POST /api/backfill?preview=true` response | Same | Field removed |
 | DDB `pipeline-tokens` (backfill record) | Wrote `estimated_sfn_cost_usd` | No write |
-| `slsflow.partitions.PartitionRange.cost_estimate()` | Public method | Removed |
+| `polyris.partitions.PartitionRange.cost_estimate()` | Public method | Removed |
 | `dal/ddb_schema.py BackfillCols.ESTIMATED_SFN_COST_USD` | Constant | Removed |
 | `BackfillsListPage` | "Cost" column | Column removed |
 | `BackfillDetailPage` | "Estimated cost" meta row | Row removed |
@@ -5754,7 +5754,7 @@ This ADR establishes a single canonical source with a code generator.
 
 #### Decision
 
-**1. Canonical source: `slsflow/constants.py`** (extended). Existing
+**1. Canonical source: `polyris/constants.py`** (extended). Existing
 `TaskStatus` (Enum), `TriggerRule` (class), and the various status sets
 remain. Added (v0.79.0):
 - `PipelineStatus`, `ExecutionStatus`, `BackfillStatus`, `BackfillCascade`,
@@ -5763,7 +5763,7 @@ remain. Added (v0.79.0):
   `BACKFILL_ACTIVE_STATUSES`
 - `normalize_execution_status` (lifted from v0.78.14 Lambda code)
 
-**2. Generator module: `slsflow/codegen/sync_enums.py`**. Imports the
+**2. Generator module: `polyris/codegen/sync_enums.py`**. Imports the
 canonical Python module (not regex — handles Enum subclasses, derived
 sets, inheritance), writes:
 - `sam/lambdas/_shared/constants_generated.py` (Lambda shared, Python)
@@ -5775,7 +5775,7 @@ canonical SHA (first 16 chars). Idempotent: re-running with no source
 changes produces identical bytes.
 
 **3. CI drift gate: `make check-generate-enums`** (calls
-`python -m slsflow.codegen.sync_enums --check`). Exits 1 if any generated
+`python -m polyris.codegen.sync_enums --check`). Exits 1 if any generated
 file would change. CI runs this; PR can't merge if the developer edited
 canonical without regenerating.
 
@@ -5799,7 +5799,7 @@ The canonical mixes `Enum` subclasses (TaskStatus), plain classes
 (TriggerRule), and derived sets (`TERMINAL_STATUSES = {TaskStatus.SUCCESS.value, ...}`).
 Re-implementing all that resolution in a regex/AST is a 2nd canonical
 to drift from. Python's import machinery already does it correctly —
-the generator just `from slsflow import constants as src` and reads
+the generator just `from polyris import constants as src` and reads
 the resolved attributes.
 
 #### Why class-level (not enum.Enum) for generated Python
@@ -5836,7 +5836,7 @@ attributes match existing patterns and require no caller changes.
 `.github/workflows/ci.yml` should call `make check-generate-enums`
 (not changed in this PR — add when CI is touched next).
 For local: `make generate-enums` to regenerate, or
-`python -m slsflow.codegen.sync_enums`.
+`python -m polyris.codegen.sync_enums`.
 
 #### Lesson
 
@@ -6407,7 +6407,7 @@ sets (values inline-duplicated from canonical). The drift test
 
 #### What changed about the canonical sets
 
-The canonical `slsflow.constants.TERMINAL_STATUSES` includes both
+The canonical `polyris.constants.TERMINAL_STATUSES` includes both
 `'success'` (legacy/Airflow 2) and `'succeeded'` (Airflow 3). The
 old class-level `TaskStatus.TERMINAL` in backend only had `'success'`.
 After migration, `TASK_TERMINAL_STATUSES` now includes both forms.
@@ -6488,7 +6488,7 @@ The cheaper intervention that achieves the same SSoT goal is
 
 **Build a drift checker, not a substitution generator.**
 
-`slsflow/codegen/check_sfn_templates.py` scans all
+`polyris/codegen/check_sfn_templates.py` scans all
 `sam/sfn_templates/**/*.json` for status string literals in two
 patterns and validates each against canonical:
 
@@ -6498,7 +6498,7 @@ patterns and validates each against canonical:
    `":status": {"S": "<value>"}` (and common name variants like
    `:newstatus`, `:s`)
 
-If any value isn't in `slsflow.constants.TaskStatus`, the checker
+If any value isn't in `polyris.constants.TaskStatus`, the checker
 fails and prints the file/line. Run via `make check-sfn-templates`
 locally and in CI.
 
@@ -6583,7 +6583,7 @@ templates would still be hand-edited at the placeholder layer, just
 with worse readability. The validator catches the same class of
 mistakes at lower cost.
 
-"Generator" in the SLSFlow vocabulary now has two flavors:
+"Generator" in the Polyris vocabulary now has two flavors:
 - **Codegen** (sync_enums): produces files from canonical, drift
   check ensures they stay in sync.
 - **Drift checker** (check_sfn_templates): scans hand-authored
@@ -7087,7 +7087,7 @@ This bundles the three workstreams the maintainer approved (A/B/C):
 
 The terminal-status rule lives in two runtimes that can't share code:
 Python (console API derivation) and JSONata (the bulk_backfill SFN
-Finalize state). Created `slsflow/codegen/check_backfill_status_parity.py`
+Finalize state). Created `polyris/codegen/check_backfill_status_parity.py`
 (`make check-backfill-parity`), which asserts the SFN Finalize JSONata
 encodes the canonical rule — the canceled/completed/failed/partial
 decision structure, and that it does NOT reference `skipped` in the
@@ -7098,7 +7098,7 @@ that *can* drift now (see B); this catches it at CI time.
 
 #### B — Single Python authority + `BackfillRecord` value-object
 
-- **`slsflow/backfill_status.py`** is the one Python authority for the
+- **`polyris/backfill_status.py`** is the one Python authority for the
   rule: `finalize_status(completed, failed, *, canceled)` and
   `all_map_done(total, completed, failed)`. Both the console API derivation
   and (logically) the SFN Finalize implement this; the parity check pins
@@ -7161,7 +7161,7 @@ metadata) — the backlog had drifted from the code.
 
 #### Why this is a minor version bump
 
-New public SDK module (`slsflow.backfill_status`), a new CI check, and an
+New public SDK module (`polyris.backfill_status`), a new CI check, and an
 internal architecture change (value-object + single authority). No API
 contract change and no behavior change for valid inputs — the consolidation
 preserves semantics while removing the drift surface.
@@ -7181,7 +7181,7 @@ A quality review of this work found that the consolidation was incomplete:
 `console_api/constants.py` still defined manual class-level
 `BackfillStatus.TERMINAL` / `.ACTIVE` / `.ALL` sets, duplicating the
 codegen-generated `BACKFILL_TERMINAL_STATUSES` / `BACKFILL_ACTIVE_STATUSES`
-(sourced from `slsflow/constants.py`). This is the "BackfillStatus 2 copies"
+(sourced from `polyris/constants.py`). This is the "BackfillStatus 2 copies"
 gap — TaskStatus had migrated to generated sets (ADR #77) but BackfillStatus
 hadn't. The new `BackfillRecord` had (incorrectly) consumed the manual
 duplicate.
@@ -7196,7 +7196,7 @@ Completed the migration:
   generated sets. Removed the now-dead `BackfillStatus` import from the DAL.
 
 Result: the terminal/active status sets have one canonical source
-(`slsflow/constants.py`) flowing through codegen to every consumer; no
+(`polyris/constants.py`) flowing through codegen to every consumer; no
 hand-maintained copy remains. The string-value `BackfillStatus` class
 (PENDING/RUNNING/… with per-value docstrings) is intentionally kept in
 console_api as the readable value namespace — it mirrors the generated
@@ -7208,7 +7208,7 @@ enum-SSoT consolidation tracked in BACKLOG.md.
 
 `BackfillRecord` lives in `dal/backfills_repo.py` — the typed shape of what
 the repo returns, co-located with it for cohesion. Its `derived_status()`
-is a thin adapter that delegates to the `slsflow.backfill_status` authority
+is a thin adapter that delegates to the `polyris.backfill_status` authority
 (no logic ownership in the DAL). This is a deliberate judgment call given
 there is no separate `models/` layer in console_api; if stricter layering
 is wanted later, the value-object extracts cleanly to a models module
@@ -7233,7 +7233,7 @@ codegen-generated class — and the drift check only validates
 manual and generated values were identical for `BackfillStatus` and
 `AssetOperator`, then replaced both manual classes with re-exports of the
 generated ones. Per-value documentation was moved to the canonical
-`slsflow/constants.py` source. Now there is one definition per class,
+`polyris/constants.py` source. Now there is one definition per class,
 guarded by the drift check.
 
 **Found but deferred — three families have diverged.** `TaskStatus`,
@@ -7285,7 +7285,7 @@ an ImportError fallback so the file works standalone in unit tests, and
 re-exporting the generated classes would couple it hard to
 `constants_generated` at import time. Rather than trade that resilience for
 tidiness, the dead members (`DEFAULT`, `EARLY_TRIGGER`) were removed and a
-new guard — `slsflow.codegen.check_shared_constants` (run by
+new guard — `polyris.codegen.check_shared_constants` (run by
 `make sync-constants`) — verifies the _shared manual classes never define a
 value absent from canonical. So the duplication that remains is now
 *guarded*: it cannot silently drift. evaluate_deps stays a verified copy of
@@ -7314,11 +7314,11 @@ each time the constants duplication is noticed.
 #### Context
 
 AWS Lambda functions cannot import each other's code. Canonical definitions
-in `slsflow/constants.py` must therefore be *delivered* into each Lambda
+in `polyris/constants.py` must therefore be *delivered* into each Lambda
 artifact. Today this happens two different ways:
 
-- **console_api** bundles the whole `slsflow` package via a committed
-  symlink (`sam/lambdas/console_api/slsflow` → repo-root `slsflow/`); SAM's
+- **console_api** bundles the whole `polyris` package via a committed
+  symlink (`sam/lambdas/console_api/polyris` → repo-root `polyris/`); SAM's
   Python builder follows it into the artifact.
 - **helper Lambdas** (evaluate_deps via the `_shared` copy) carry a
   codegen-generated `constants_generated.py` plus, in `_shared/constants.py`,
@@ -7344,22 +7344,22 @@ its manual classes + fallback; `check_shared_constants` (run by
 `make sync-constants`) fails CI if those classes ever define a value absent
 from canonical. Duplication remains but **cannot silently drift**.
 
-**C — Lambda Layer.** Publish `slsflow` (or shared constants) as a layer,
+**C — Lambda Layer.** Publish `polyris` (or shared constants) as a layer,
 attach to each Lambda; code lands on `/opt/python` at runtime, so every
-Lambda imports canonical `slsflow` directly — collapsing the symlink,
+Lambda imports canonical `polyris` directly — collapsing the symlink,
 `constants_generated` copies, and `_shared` manual classes together.
 AWS-native and the cleanest runtime model, but: separate layer deploy cycle
 + extra CloudFormation resource + layer-version ARN pinning; and it does
 **not** fully remove the standalone-test fallback, because a layer is a
 runtime concept absent under local/CI `pytest` (tests would still need the
 code pathed). Per the packaging tech-debt note, "not recommended unless
-multiple Lambdas need slsflow and PyPI publish is far off."
+multiple Lambdas need polyris and PyPI publish is far off."
 
 **D — PyPI (or private CodeArtifact) + `requirements.txt`.** Publish
-`slsflow`, pin it in each Lambda's `requirements.txt`; `pip install` vendors
+`polyris`, pin it in each Lambda's `requirements.txt`; `pip install` vendors
 it at build. This is the documented **target end state** for the symlink
 migration. Removes the symlink, and would let helper Lambdas import
-`slsflow` directly (retiring `constants_generated` + `_shared` classes).
+`polyris` directly (retiring `constants_generated` + `_shared` classes).
 Gated on the OSS/PyPI launch.
 
 #### Decision
@@ -7367,20 +7367,20 @@ Gated on the OSS/PyPI launch.
 - **Now: Option B.** The only real risk in the duplication — silent drift —
   is already closed by the `check_shared_constants` guard. B preserves the
   standalone-test resilience of `_shared` at zero ongoing cost.
-- **End state: Option D (PyPI).** When `slsflow` is published, the symlink
+- **End state: Option D (PyPI).** When `polyris` is published, the symlink
   *and* the per-Lambda constants copies *and* the `_shared` manual classes
-  collapse together: every Lambda declares `slsflow==X.Y.Z` and imports the
+  collapse together: every Lambda declares `polyris==X.Y.Z` and imports the
   canonical module directly. Codegen mirrors (`constants_generated`) become
   unnecessary.
-- **Option C (Layer) is the fallback** if a second Lambda needs `slsflow.*`
+- **Option C (Layer) is the fallback** if a second Lambda needs `polyris.*`
   before PyPI is ready — that event is itself the migration trigger.
 
 Crucially, this is **one packaging migration done as a single move**, not a
 piecemeal change for constants alone. The constants duplication and the
-slsflow symlink are the same underlying problem ("Lambdas can't share
+polyris symlink are the same underlying problem ("Lambdas can't share
 code"); they should be resolved together, under the existing
-"Lambda packaging of slsflow SDK" tech-debt item, when its trigger fires
-(PyPI release, or a second `slsflow` consumer).
+"Lambda packaging of polyris SDK" tech-debt item, when its trigger fires
+(PyPI release, or a second `polyris` consumer).
 
 #### Consequences
 
@@ -7394,7 +7394,7 @@ code"); they should be resolved together, under the existing
 
 #### What must NOT come back (cross-ref packaging tech-debt)
 
-The Lambda-local `Makefile` + `BuildMethod: makefile` + `cp ../../../slsflow`
+The Lambda-local `Makefile` + `BuildMethod: makefile` + `cp ../../../polyris`
 pattern and the top-level `make sam-build` vendor-copy both failed live and
 are blocked by regression tests in
 `tests/sdk/test_reviewer_regressions_v078.py`. A future packaging migration
@@ -7654,7 +7654,7 @@ one function, not separate mechanisms:
     partitions) — also zero config.
 - **Override = offset.** A rolling window is expressed as an explicit
   offset on the dependency (Dagster's `start_offset` / `end_offset`;
-  SLSFlow surface TBD, e.g. `inlets=[asset2.offset(days=-6)]`). Opt-in,
+  Polyris surface TBD, e.g. `inlets=[asset2.offset(days=-6)]`). Opt-in,
   rare, does not complicate the default path.
 - **Boundary case = allow-nonexistent.** When mapped upstream partitions
   fall outside the upstream's `partition_start`, do not hard-fail; return
@@ -7818,7 +7818,7 @@ Phase 1 (warn), implemented in Phase 2 (ADR #87 phasing).
   sequential tiers" approach is sound; the `force`-fallback (chained
   sub-backfills) is not needed. The spike was then removed (superseded by
   the production module) and its algorithm carried into Phase 1.
-- **Phase 1 (done):** `slsflow/upstream_resolver.py` (`resolve_plan`,
+- **Phase 1 (done):** `polyris/upstream_resolver.py` (`resolve_plan`,
   `AssetGraph`, `AssetNode`, `PlanItem`, `ResolvedPlan`, `CycleError`) +
   `partitions.partitions_covering`. O(V+E) tiering via Kahn propagation
   (not the spike's re-walk), per-item `dag_hash` (R5), window-offset surface
@@ -8327,7 +8327,7 @@ The upstream-lineage epic (v0.81–v0.84) added a `BackfillUpstream` mode
 hand-maintained it in two places — the backend validator's `_UPSTREAM_MODES`
 tuple and a TS `type BackfillUpstream` union — outside the codegen enum SSoT
 (ADR #72/#83/#93). `BackfillCascade`, its sibling, *is* canonical in
-`slsflow/constants.py` and generated; `BackfillUpstream` was a 9th, un-gated
+`polyris/constants.py` and generated; `BackfillUpstream` was a 9th, un-gated
 family. Correct at the time, but exactly the silent-drift surface the enum SSoT
 exists to remove.
 
@@ -8347,7 +8347,7 @@ generator gate.
 Two different fixes because the two surfaces differ in kind.
 
 1. **BackfillUpstream — eliminate the duplication (per ADR #93).** A canonical
-   `class BackfillUpstream` lives in `slsflow/constants.py`; `sync_enums.py`
+   `class BackfillUpstream` lives in `polyris/constants.py`; `sync_enums.py`
    emits it into every `constants_generated.py` and into
    `ui/src/generated/enums.ts`. The backend `_UPSTREAM_MODES` is now built from
    `BackfillUpstream.{OFF,SMART,FORCE}` (re-exported via
@@ -8359,7 +8359,7 @@ Two different fixes because the two surfaces differ in kind.
    the code → friendly-text map is hand-authored content (titles and hints);
    the map itself cannot be generated away. What *can* be single-sourced is the
    **set of codes** the map must cover. So a canonical `BACKFILL_ERROR_CODES`
-   frozenset is added to `slsflow/constants.py` and generated into `enums.ts`,
+   frozenset is added to `polyris/constants.py` and generated into `enums.ts`,
    and gated on both sides:
    - Backend `test_backfill_error_registry` pins the registry to the route's
      emitted `{'error': '<code>'}` literals in both directions (a new emitted
@@ -8427,7 +8427,7 @@ The system has two write shapes that both "produce executions":
   cancel-all, retry-failed-subset) that cannot live on any single child
   execution. That state needs a first-class parent record — which Backfill has
   (`pipeline-tokens`, `record_type='backfill'`, sentinel
-  `_slsflow_bulk_backfill`, GSI `backfill-id-index`).
+  `_polyris_bulk_backfill`, GSI `backfill-id-index`).
 
 Discovery proposed promoting *every* run (manual/scheduled/backfill) to a
 unified write-side `Run` record (a "Run of 1" for the single case). That work
@@ -8533,7 +8533,7 @@ one move. Enforcement lives in a single gate inside the `console-api` Lambda
 integration), **not** an API Gateway authorizer — there was no authorizer and no
 token check before this. The gate accepts either a Cognito access token
 (browser, verified **offline** via RS256/JWKS and bound to this deployment's app
-client) or a PAT (`slsf_…`, SHA-256 hash
+client) or a PAT (`plrs_…`, SHA-256 hash
 lookup). Gated by `AUTH_ENABLED`, **on by default** (the template sets it
 `true`; set `false` to disable).
 
@@ -8646,3 +8646,91 @@ CloudFront is the only layer that sees every response, so the policy lives there
 **Rule:** for a static-export UI, response headers belong at the edge
 (CloudFront ResponseHeadersPolicy) or on the S3 object — never in
 `next.config.mjs`, where `output: 'export'` will drop them.
+
+### 104. Open-core CLI split, backfill nav-tab slot, and contract-drift cleanup
+
+**Context.** The open-source build advertised and partially wired Team-tier
+features the open-core backend no longer registers (ADR #99/#100) — "contract
+drift." Concretely: the bare `polyris` CLI was a backfill client hitting
+`/api/backfill*` (404 in OSS); `Header.tsx` polled `/api/backfills` every 5s
+via an inline `useBackfillsListQuery('active')` (a live 404 in OSS); a dead
+`usePipelineMetricsQuery` hit a non-existent `/api/pipeline-metrics`; and the
+README, `docs/operations/API.md`, and `HelpModal` promised backfill, Gantt,
+calendar, Slack/PagerDuty, and API tokens as generally available. The boundary
+is intentional (backfill/ops/governance are paid; engine + assets + lineage are
+free) — the drift was that the public surface still claimed the paid half.
+
+**Decision.**
+1. **CLI split** (supersedes the backfill-dispatch half of ADR #51). The bare
+   `polyris` command is now a pure command index — it prints the available
+   `polyris-*` scripts and exits 0, performing no work. Backfill moves to a
+   dedicated `polyris-backfill` console script shipped from `polyris-ee`
+   (`polyris._ee.backfill_cli`), with a flattened parser
+   (`polyris-backfill pipeline|asset|list|show|cancel|retry-failed`). The OSS
+   wheel carries neither `_ee` nor any backfill code.
+2. **Backfill nav tab → `BackfillNavTab` paid-surface slot** (ADR #99). The
+   Header's Backfills tab and its active-count badge now live in the Team build
+   behind the `BackfillNavTab` slot; the free `ViewTab` helper is exported for
+   reuse. In OSS the slot is absent (empty `paidSurface` stub), so no tab is
+   rendered and the `/api/backfills` poll never runs.
+3. **Removed the dead `usePipelineMetricsQuery`** (no consumer; targeted a
+   non-existent endpoint) and its query key.
+4. **Team backfill e2e tests** (`tests/e2e/test_backfill.py`) moved to
+   `polyris-ee`; the two repos are independent (РОЗЧЕПЛЕННЯ), so the e2e harness
+   travels with the tests.
+5. **Docs** (README, API.md, HelpModal) now mark backfill, Gantt/calendar view
+   modes, and Slack/PagerDuty alerts as Team-tier.
+
+**Consequences.** The OSS build is self-contained and honest: no live 404s, no
+free-tier promises the backend won't serve. Team features remain fully available
+through the overlay, validated via the merged tree (CE base + `src/ee`). The
+`BackfillNavTab` slot follows the same eager-component pattern as the other
+in-Header surfaces (e.g. `GanttChart`, `PipelineActionsProvider`).
+
+### 105. Asset console gated to Team with an open-core "coming soon" page; engine stays free
+
+**Context.** The open-core boundary (ADR #99/#104) is "backfill/ops/governance =
+paid; engine = free." Assets sat inconsistently across the seam: the asset
+*engine* (SDK asset declarations, partition lambdas, asset tables) is free and
+pipelines depend on it, but the asset *console* — the `/assets` view (matrix,
+lineage, detail, asset-tabs) plus the single free read route `GET /api/assets` —
+was split awkwardly. The OSS UI gated the whole `AssetsView` as a Team slot
+(showing the Team-tier fallback) while the OSS backend still served
+`GET /api/assets` and the README advertised the asset matrix as free. Net: a
+nav tab that led to a "not available" page, a backend route nothing in OSS
+called, and docs that disagreed with the build.
+
+**Decision.** The asset **console** stays in Team for now, but instead of reading
+as a permanent paid feature it is surfaced in OSS as *coming soon to open-core* —
+it is on the graduation roadmap and will return to free feature-by-feature. The
+asset **engine** stays free throughout.
+1. **Frontend.** The `Assets` nav tab stays **visible** in OSS (not hidden). A
+   visit to `/assets` renders a `ComingSoon` placeholder ("Asset console is
+   coming in an upcoming release"); the real `AssetsView` lives in `ee/team/` and
+   renders only in paid builds. The copy is deliberately **tier-agnostic** (no
+   "open-core" wording) so the same notice is reusable in paid builds too.
+   `ComingSoon` and `EeFeatureFallback` both render a shared, presentational
+   `EmptyState` primitive (icon + title + optional description + action slot;
+   styled via `.empty-state` design tokens, so it themes light/dark). They differ
+   only in copy and icon: `EeFeatureFallback` marks a permanently Team-tier view
+   ("not available in this edition", lock icon), `ComingSoon` signals a
+   not-yet-shipped capability ("coming in an upcoming release", sparkles icon).
+   (Other paid view-modes — Gantt, calendar — keep the `EeFeatureFallback`
+   Team-tier message.)
+2. **Backend.** The free `GET /api/assets` route moved out of OSS:
+   `routes/assets.py` → `ee/team/assets_list.py` (added to `team.MODULES`), and
+   `assets` was dropped from `main.py`'s `ROUTE_MODULES`. The shared
+   `_build_assets_from_pipelines` helper moved with it; `ee/team/assets.py`,
+   `ee/team/matrix.py`, and their tests now import it from `ee.team.assets_list`.
+3. **DAL stays free.** `dal/assets_repo.py` (and its `dal/__init__` re-exports)
+   remain in the free tree because the Team asset routes import them via `dal`;
+   in the OSS build they are present but unused (harmless), avoiding a `dal`
+   restructure.
+4. **Engine untouched.** The SDK's asset modules and the SAM asset tables /
+   lambdas stay free — OSS pipelines can still produce and wait on assets.
+5. **Docs.** README presents the asset console (matrix + lineage) as coming to
+   open-core in an upcoming release; the engine is described as already free.
+
+**Reversibility.** This is the РОЗЧЕПЛЕННЯ/overlay model working as intended:
+re-freeing an individual asset feature later is a `git mv` from `ee/` into the
+free tree (plus a `ROUTE_MODULES`/nav line), not a rewrite (ADR #99).

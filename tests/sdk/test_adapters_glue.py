@@ -1,4 +1,4 @@
-"""Tests for slsflow.adapters.glue — Glue Catalog → List[Column].
+"""Tests for polyris.adapters.glue — Glue Catalog → List[Column].
 
 Patches boto3.client at import time inside the adapter module so we can
 drive the Glue API surface without real AWS credentials.
@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from slsflow import schema as s
-from slsflow.adapters.glue import glue_table_to_columns
-from slsflow.schema import Column
+from polyris import schema as s
+from polyris.adapters.glue import glue_table_to_columns
+from polyris.schema import Column
 
 
 def _glue_response(columns=None, partition_keys=None):
@@ -38,7 +38,7 @@ def _patched_glue_client(response):
 class TestBasicShape:
 
     def test_simple_columns_returned_as_columns(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[
                     {'Name': 'order_id', 'Type': 'bigint'},
@@ -46,7 +46,7 @@ class TestBasicShape:
                 ],
             ))
             # _require_boto3() only triggers `import boto3`; the patch above
-            # also covers the import path because slsflow.adapters.glue
+            # also covers the import path because polyris.adapters.glue
             # already has `boto3` in its module namespace.
             cols = glue_table_to_columns('analytics', 'orders')
 
@@ -58,7 +58,7 @@ class TestBasicShape:
         assert cols[1].type == s.decimal(10, 2)
 
     def test_partition_keys_marked_partition_key(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[{'Name': 'id', 'Type': 'bigint'}],
                 partition_keys=[{'Name': 'event_date', 'Type': 'date'}],
@@ -71,7 +71,7 @@ class TestBasicShape:
         assert cols[1].type == s.date()
 
     def test_comment_becomes_description(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[{'Name': 'id', 'Type': 'bigint',
                           'Comment': 'Primary key'}],
@@ -81,14 +81,14 @@ class TestBasicShape:
         assert cols[0].description == 'Primary key'
 
     def test_empty_table_returns_empty_list(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response())
             cols = glue_table_to_columns('analytics', 'empty')
 
         assert cols == []
 
     def test_complex_types_parse_via_type_from_string(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[
                     {'Name': 'tags', 'Type': 'array<string>'},
@@ -110,7 +110,7 @@ class TestBasicShape:
 class TestCallParameters:
 
     def test_catalog_id_passed_when_set(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_client = _patched_glue_client(_glue_response())
             mock_boto3.client.return_value = mock_client
             glue_table_to_columns('db', 't', catalog_id='123456789012')
@@ -121,7 +121,7 @@ class TestCallParameters:
         assert kwargs['Name'] == 't'
 
     def test_catalog_id_omitted_when_unset(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_client = _patched_glue_client(_glue_response())
             mock_boto3.client.return_value = mock_client
             glue_table_to_columns('db', 't')
@@ -130,7 +130,7 @@ class TestCallParameters:
         assert 'CatalogId' not in kwargs
 
     def test_region_passed_to_boto3_client(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response())
             glue_table_to_columns('db', 't', region='us-west-2')
 
@@ -138,7 +138,7 @@ class TestCallParameters:
         mock_boto3.client.assert_called_with('glue', region_name='us-west-2')
 
     def test_region_default_uses_session_default(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response())
             glue_table_to_columns('db', 't')
 
@@ -152,7 +152,7 @@ class TestCallParameters:
 class TestValidation:
 
     def test_missing_name_raises(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[{'Type': 'bigint'}],  # no Name
             ))
@@ -160,7 +160,7 @@ class TestValidation:
                 glue_table_to_columns('db', 't')
 
     def test_missing_type_raises(self):
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[{'Name': 'x'}],  # no Type
             ))
@@ -175,8 +175,8 @@ class TestValidation:
 class TestAssetFromGlueTable:
 
     def test_basic_construction_and_glue_table_carried(self):
-        from slsflow import Asset
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        from polyris import Asset
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[
                     {'Name': 'order_id', 'Type': 'bigint'},
@@ -197,8 +197,8 @@ class TestAssetFromGlueTable:
         assert a.schema[2].partition_key is True
 
     def test_default_name_is_glue_table(self):
-        from slsflow import Asset
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        from polyris import Asset
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[{'Name': 'x', 'Type': 'bigint'}],
             ))
@@ -207,23 +207,23 @@ class TestAssetFromGlueTable:
         assert a.name == 'analytics.orders'
 
     def test_malformed_glue_table_rejected(self):
-        from slsflow import Asset
+        from polyris import Asset
         with pytest.raises(ValueError, match="database.table"):
             Asset.from_glue_table('not_a_table_ref')
 
     def test_rejects_explicit_schema_kwarg(self):
-        from slsflow import Asset
+        from polyris import Asset
         with pytest.raises(TypeError, match='from_glue_table'):
             Asset.from_glue_table('a.b', schema=[])
 
     def test_rejects_glue_table_kwarg_collision(self):
-        from slsflow import Asset
+        from polyris import Asset
         with pytest.raises(TypeError, match='glue_table'):
             Asset.from_glue_table('a.b', glue_table='c.d')
 
     def test_catalog_id_propagates_to_asset(self):
-        from slsflow import Asset
-        with patch('slsflow.adapters.glue.boto3') as mock_boto3:
+        from polyris import Asset
+        with patch('polyris.adapters.glue.boto3') as mock_boto3:
             mock_boto3.client.return_value = _patched_glue_client(_glue_response(
                 columns=[{'Name': 'x', 'Type': 'bigint'}],
             ))

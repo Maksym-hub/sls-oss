@@ -92,9 +92,9 @@ describe('LoginPage', () => {
     // ─── Layout ─────────────────────────────────────────────────────────
 
     describe('layout', () => {
-        it('renders slsflow branding', () => {
+        it('renders polyris branding', () => {
             render(<LoginPage />);
-            expect(screen.getByText('slsflow')).toBeInTheDocument();
+            expect(screen.getByText('polyris')).toBeInTheDocument();
             expect(screen.getByText('Console')).toBeInTheDocument();
         });
 

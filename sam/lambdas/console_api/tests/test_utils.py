@@ -342,140 +342,81 @@ class TestRecordManualDecision:
 
 
 class TestResolvePagerduty:
-    """Tests for resolve_pagerduty() — non-blocking PD auto-resolve on human decisions."""
+    """Tests for resolve_pagerduty() — non-blocking PD resolve on human decisions.
 
-    def test_happy_path_calls_resolver(self, mocker):
-        """When PD configured and env set, starts resolver SFN execution."""
+    Stage 2 (ADR #103): invokes the notify Lambda's resolve_pagerduty action
+    instead of the pagerduty_resolver SFN. The Lambda reads the routing key from
+    alert_config by pipeline_name, so this no longer inspects alerts_json — it
+    just needs NOTIFY_FUNCTION_ARN + a pipeline_name.
+    """
+
+    def test_happy_path_invokes_notify(self, mocker):
+        """When env set and pipeline_name present, invokes the notify Lambda with
+        the resolve_pagerduty action."""
         from console_api.utils import resolve_pagerduty
 
-        mocker.patch.dict('os.environ', {'PAGERDUTY_RESOLVER_ARN': 'arn:aws:states:us-east-1:123:stateMachine:resolver'})
-        mock_sfn = mocker.patch('console_api.utils.sfn')
+        mocker.patch.dict('os.environ', {'NOTIFY_FUNCTION_ARN': 'arn:aws:lambda:us-east-1:123:function:notify'})
+        mock_lambda = mocker.patch('console_api.utils.lambda_client')
 
         item = {
             'execution_name': 'extract-2024-01-15-abc123',
             'task_name': 'extract',
             'pipeline_name': 'test-pipeline',
             'date': '2024-01-15',
-            'alerts_json': '{"slack": "#alerts", "pagerduty": "critical"}'
         }
-
         resolve_pagerduty(item)
 
-        mock_sfn.start_execution.assert_called_once()
-        call_kwargs = mock_sfn.start_execution.call_args[1]
-        assert call_kwargs['stateMachineArn'] == 'arn:aws:states:us-east-1:123:stateMachine:resolver'
+        mock_lambda.invoke.assert_called_once()
+        kwargs = mock_lambda.invoke.call_args[1]
+        assert kwargs['FunctionName'] == 'arn:aws:lambda:us-east-1:123:function:notify'
+        assert kwargs['InvocationType'] == 'Event'   # fire-and-forget
         import json
-        inp = json.loads(call_kwargs['input'])
-        assert inp['pipeline_name'] == 'test-pipeline'
-        assert inp['task_name'] == 'extract'
-        assert inp['date'] == '2024-01-15'
-        assert inp['execution_name'] == 'extract-2024-01-15-abc123'
+        payload = json.loads(kwargs['Payload'])
+        assert payload['action'] == 'resolve_pagerduty'
+        assert payload['pipeline_name'] == 'test-pipeline'
+        assert payload['failure']['task_name'] == 'extract'
+        assert payload['failure']['date'] == '2024-01-15'
+        assert payload['failure']['execution_name'] == 'extract-2024-01-15-abc123'
 
     def test_no_env_var_skips(self, mocker):
-        """Without PAGERDUTY_RESOLVER_ARN, does nothing."""
+        """Without NOTIFY_FUNCTION_ARN, does nothing."""
         from console_api.utils import resolve_pagerduty
 
         mocker.patch.dict('os.environ', {}, clear=True)
         import os
-        os.environ.pop('PAGERDUTY_RESOLVER_ARN', None)
-        mock_sfn = mocker.patch('console_api.utils.sfn')
+        os.environ.pop('NOTIFY_FUNCTION_ARN', None)
+        mock_lambda = mocker.patch('console_api.utils.lambda_client')
 
-        item = {'alerts_json': '{"pagerduty": "critical"}'}
-        resolve_pagerduty(item)
-        mock_sfn.start_execution.assert_not_called()
+        resolve_pagerduty({'pipeline_name': 'test'})
+        mock_lambda.invoke.assert_not_called()
 
-    def test_no_alerts_json_skips(self, mocker):
-        """Without alerts_json in DDB item, does nothing."""
+    def test_no_pipeline_name_skips(self, mocker):
+        """Without a pipeline_name, can't read alert_config — does nothing."""
         from console_api.utils import resolve_pagerduty
 
-        mocker.patch.dict('os.environ', {'PAGERDUTY_RESOLVER_ARN': 'arn:resolver'})
-        mock_sfn = mocker.patch('console_api.utils.sfn')
+        mocker.patch.dict('os.environ', {'NOTIFY_FUNCTION_ARN': 'arn:notify'})
+        mock_lambda = mocker.patch('console_api.utils.lambda_client')
 
         resolve_pagerduty({'execution_name': 'test-123'})
-        mock_sfn.start_execution.assert_not_called()
+        mock_lambda.invoke.assert_not_called()
 
-    def test_no_pagerduty_in_alerts_skips(self, mocker):
-        """Slack-only pipeline (no pagerduty key) — does nothing."""
+    def test_invoke_failure_non_blocking(self, mocker):
+        """If the Lambda invoke fails, no exception raised — the action continues."""
         from console_api.utils import resolve_pagerduty
 
-        mocker.patch.dict('os.environ', {'PAGERDUTY_RESOLVER_ARN': 'arn:resolver'})
-        mock_sfn = mocker.patch('console_api.utils.sfn')
-
-        item = {'alerts_json': '{"slack": "#channel"}'}
-        resolve_pagerduty(item)
-        mock_sfn.start_execution.assert_not_called()
-
-    def test_invalid_alerts_json_skips(self, mocker):
-        """Corrupt alerts_json — does nothing, no crash."""
-        from console_api.utils import resolve_pagerduty
-
-        mocker.patch.dict('os.environ', {'PAGERDUTY_RESOLVER_ARN': 'arn:resolver'})
-        mock_sfn = mocker.patch('console_api.utils.sfn')
-
-        item = {'alerts_json': 'not-valid-json{{{'}
-        resolve_pagerduty(item)
-        mock_sfn.start_execution.assert_not_called()
-
-    def test_sfn_failure_non_blocking(self, mocker):
-        """If SFN call fails, no exception raised — action continues."""
-        from console_api.utils import resolve_pagerduty
-
-        mocker.patch.dict('os.environ', {'PAGERDUTY_RESOLVER_ARN': 'arn:resolver'})
-        mock_sfn = mocker.patch('console_api.utils.sfn')
-        mock_sfn.start_execution.side_effect = Exception("SFN unavailable")
+        mocker.patch.dict('os.environ', {'NOTIFY_FUNCTION_ARN': 'arn:notify'})
+        mock_lambda = mocker.patch('console_api.utils.lambda_client')
+        mock_lambda.invoke.side_effect = Exception("Lambda unavailable")
 
         item = {
-            'alerts_json': '{"pagerduty": "critical"}',
             'execution_name': 'test-123',
             'task_name': 'extract',
             'pipeline_name': 'test',
-            'date': '2024-01-15'
+            'date': '2024-01-15',
         }
-
         # Should NOT raise
         resolve_pagerduty(item)
 
-    def test_empty_alerts_json_string_skips(self, mocker):
-        """Empty string alerts_json — does nothing."""
-        from console_api.utils import resolve_pagerduty
-
-        mocker.patch.dict('os.environ', {'PAGERDUTY_RESOLVER_ARN': 'arn:resolver'})
-        mock_sfn = mocker.patch('console_api.utils.sfn')
-
-        item = {'alerts_json': ''}
-        resolve_pagerduty(item)
-        mock_sfn.start_execution.assert_not_called()
-
-    def test_dedup_key_fields_match_alerter(self, mocker):
-        """Lambda passes same fields as PD alerter uses for dedup_key: pipeline/task/date."""
-        from console_api.utils import resolve_pagerduty
-
-        mocker.patch.dict('os.environ', {'PAGERDUTY_RESOLVER_ARN': 'arn:resolver'})
-        mock_sfn = mocker.patch('console_api.utils.sfn')
-
-        item = {
-            'execution_name': 'extract-2024-01-15-abc123',
-            'task_name': 'extract',
-            'pipeline_name': 'acme-daily',
-            'date': '2024-01-15',
-            'alerts_json': '{"pagerduty": "critical"}'
-        }
-
-        resolve_pagerduty(item)
-
-        import json
-        inp = json.loads(mock_sfn.start_execution.call_args[1]['input'])
-        # Resolver builds dedup_key as: pipeline_name/task_name/date
-        assert inp['pipeline_name'] == 'acme-daily'
-        assert inp['task_name'] == 'extract'
-        assert inp['date'] == '2024-01-15'
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# dict_schema_richness — wire-format twin of slsflow.schema.dict_schema_richness
-# Exercises the same scoring rules but for the dict shape stored in
-# pipeline_registry (which is what the conflict-resolution path sees).
-# ──────────────────────────────────────────────────────────────────────────────
 
 class TestDictSchemaRichness:
     def test_empty_returns_zero(self):
@@ -562,7 +503,7 @@ class TestIsBackfillRecord:
 
     def test_by_sentinel_pipeline_name(self):
         from utils import is_backfill_record
-        assert is_backfill_record({'pipeline_name': '_slsflow_bulk_backfill'}) is True
+        assert is_backfill_record({'pipeline_name': '_polyris_bulk_backfill'}) is True
 
     def test_either_marker_sufficient(self):
         """Defense in depth: either field marks the row."""
@@ -570,7 +511,7 @@ class TestIsBackfillRecord:
         # Only record_type, no pipeline_name
         assert is_backfill_record({'record_type': 'backfill'}) is True
         # Only pipeline_name, no record_type
-        assert is_backfill_record({'pipeline_name': '_slsflow_bulk_backfill'}) is True
+        assert is_backfill_record({'pipeline_name': '_polyris_bulk_backfill'}) is True
 
     def test_regular_execution_not_backfill(self):
         from utils import is_backfill_record
@@ -594,7 +535,7 @@ class TestShouldSkipTokenRow:
         assert should_skip_token_row({
             'execution_name': 'bf-abc123',
             'record_type': 'backfill',
-            'pipeline_name': '_slsflow_bulk_backfill',
+            'pipeline_name': '_polyris_bulk_backfill',
         }) is True
 
     def test_regular_execution_not_skipped(self):

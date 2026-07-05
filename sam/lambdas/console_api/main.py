@@ -26,14 +26,16 @@ from routes import (
     health,
     pipelines_list, pipelines_info, pipelines_actions,
     tasks, executions,
-    assets,
+    notifications,
+    settings,
 )
 
 ROUTE_MODULES = [
     health,
     pipelines_list, pipelines_info, pipelines_actions,
     tasks, executions,
-    assets,
+    notifications,
+    settings,
 ]
 
 # Proprietary route modules (Team tier) live in console_api/ee/ and ship inside

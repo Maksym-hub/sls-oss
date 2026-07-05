@@ -9,7 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useAllTasksQuery, usePipelinesQuery } from '@/hooks/queries';
 import { useUrlSync } from '@/hooks/useUrlSync';
 import { useKeyboardShortcuts, SHORTCUTS } from '@/hooks';
-import type { PipelineWithUI, TaskFilter } from '@/types';
+import type { PipelineWithUI } from '@/types';
 
 interface AllTasksViewProps {
     onPipelineClick: (pipeline: PipelineWithUI, date?: string) => void;

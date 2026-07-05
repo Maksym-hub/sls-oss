@@ -2,15 +2,417 @@
 
 ## Unreleased
 
+### Fixed — open-core UI/docs consistency
+
+- **Backfills nav tab now appears in the open-source build.** The tab was gated
+  entirely to the paid slot, so OSS had a `/backfills` "coming soon" page (ADR #105)
+  with no way to reach it from the nav. OSS now renders a plain Backfills tab (no
+  active-count badge, no `/api/backfills` poll) that opens that page — mirroring
+  Assets. The Team build still ships the badge tab.
+- **API-token help is edition-aware.** The API reference tab told every build to
+  "create a PAT under Settings → API Tokens", but personal access tokens
+  (`api.tokens`) are Team-only and that settings tab is absent in OSS. It now points
+  OSS users to a Cognito access token and mentions PATs only when the Team tokens
+  surface is present.
+- **Running the Console locally is now discoverable.** SETUP_FROM_SCRATCH links to
+  the UI guide's *Local UI against a deployed API* section (`npm run dev`, the exact
+  `NEXT_PUBLIC_API_URL`, and the with/without-Cognito setup).
+
+### Fixed — EMR task deploys (Step Functions schema validation)
+
+- `Run_Task_EMR` in the `run_task` wrapper passed the whole EMR step as an opaque
+  JSONata expression (`"Step": "{% task_config.step %}"`). Step Functions'
+  deploy-time schema validation for `elasticmapreduce:addStep.sync` can't see the
+  required fields inside an opaque expression, so `sam deploy` failed with
+  `SCHEMA_VALIDATION_FAILED: Step.Name / Step.HadoopJarStep / Step.HadoopJarStep.Jar
+  required but missing`. The step is now expanded into literal fields (Name,
+  ActionOnFailure, HadoopJarStep.{Jar, Args, Properties}) whose values still come
+  from the user's `emr_step` (`task_config.step`) — the runtime contract (ADR #106)
+  is unchanged. Added a static-structure guard test (the existing runtime-resolution
+  tests passed either way and did not catch this).
+
+### Open-core — editions map + backfill "coming soon"
+
+- **`docs/reference/EDITIONS.md`** — a canonical Free / Team / Enterprise
+  capability map, the human-readable source of truth for the tier boundary
+  (referenced from `README.md` and `CLAUDE.md`). Fills the gap where the boundary
+  was only recorded piecemeal across ADRs, README, and code.
+- **`/backfills` shows a *coming soon* notice in the open-source build** (like
+  `/assets`, ADR #105) instead of a permanent paid-tier lock — backfill is on the
+  graduation roadmap. The Header badge/poll was already behind the paid nav-tab
+  (ADR #104), so no `/api/backfills` request is made in OSS.
+- **Entitlement registry corrected.** `console_api/ee/entitlements.py` no longer
+  lists task/execution intervention or browser notifications as Team capabilities
+  — they are free (ADR #110, ADR #103). Only config mutation (`task.config`)
+  remains from that area. No route or UI behaviour changes; the registry now
+  matches the shipped surface.
+
+
+### Open-core — task & execution intervention moved to free (ADR #110)
+
+- **Free now includes live-run intervention.** Task actions (`skip` / `fail` /
+  `success` / `stop` / `restart`, and the deprecated `retry` alias) and execution
+  control (`stop` / `pause` / `resume` / `extend`) moved from the Team tier into
+  the free build. A free operator who can author, deploy, and run a pipeline can
+  now also unstick it. Config mutation (`PUT /api/task-config`, `PUT
+  /api/settings/decision-timeout`) and pipeline-level lifecycle
+  (`pipeline-pause` / `pipeline-restart`) stay paid.
+- **Backend.** `ee/team/executions.py` merged into `routes/executions.py` (module
+  deleted, dropped from `team.MODULES`); six task handlers + `_execute_task_action`
+  / `_write_notify_warning` merged into `routes/tasks.py`; `update_task_config`
+  (PUT) is all that remains in `ee/team/tasks.py`. Moved handlers are re-exported
+  from `routes/__init__.py`. Total route surface unchanged at **63** (free 17 → 27,
+  a Team→free reclassification).
+- **UI — fixes a public-build bug.** `usePipelineActions`, `ActionModal`, and
+  `PipelineActionsProvider` moved from `src/ee/team/` to the free `src/hooks/` /
+  `src/components/`; `PipelineDetail` now wraps its content in the provider
+  **unconditionally**. Previously the public build shipped an empty provider slot,
+  so the toolbar / pause-banner / task-modal intervention controls rendered but did
+  nothing. `PipelineActions` / `PipelineActionsParams` moved from `ee-contract.ts`
+  to `@/types`; the `PipelineActionsProvider` `PaidSurface` slot was removed.
+- **Guards.** The full-build route-table guard now **derives** the free/Team
+  split from module namespace (`ee.*` = paid, `routes.*` = free — the open-core
+  invariant, ADR #98) instead of pinning `== 63` or a hand-maintained
+  `team_critical` list: it asserts the two tiers are disjoint and cover the whole
+  table, so the total is computed and a future re-strip of an intervention route
+  fails immediately. The behavioural tests moved to `tests/backend/`; the Slack
+  idempotency tests stayed in `ee/team/tests/`.
+
+
+### SDK — contract hardening & typing (ADR #108, ADR #109)
+
+- **`TaskConfigKey` constants (ADR #108):** the SDK↔wrapper `task_config` keys
+  now live once in `polyris.constants.TaskConfigKey` (str-Enum, identical JSON
+  output). Both writer sites key their dicts with the enum, and
+  `tests/sdk/test_task_config_contract.py` pins the contract from **both**
+  sides (template refs ⊆ enum; per-type produced keys == enum-derived sets;
+  source guard against bare literals). Closes the drift class behind the emr
+  break fixed in ADR #106.
+- **Unified decorator kwargs (ADR #109):** the 13 common `@task.<type>`
+  parameters are declared once as `CommonTaskKwargs` (PEP 692 `Unpack`);
+  variant signatures keep only service-specific params. Defaults live solely
+  in `_create_task`. Typos still raise `TypeError`, now naming the decorator
+  itself (`task.glue() got an unexpected keyword argument 'retrys'`).
+  `task.py`: 1068 → 946 lines; the 16× duplicated signature lines are gone.
+- **Fixed — `(a & b) | (c | d)` dropped operands:** `AssetAll.__or__` nested
+  the right-hand `AssetAny` inside `AssetAny.assets`, where serialization
+  (`asset_names` / `to_dict`) silently ignored it — the OR trigger lost
+  operands. OR is associative; the operand list is now flattened. Pinned by
+  `TestAssetAllOrFlattensAssetAny`.
+- **mypy: 403 → 0** across `polyris/` (35 files) — the debt `py.typed`
+  (ADR #106 D5) was already shipping to downstream type-checkers. Highlights:
+  ~130 implicit-`Optional` annotations made truthful; the 14 `_gen_<type>_state`
+  helpers now take their exact `Step` subclass; `Task.dependencies` /
+  `Step.dependencies` annotations widened to the runtime truth
+  (mixed-DAG bridging stores both); `config.get` made LSP-compatible with
+  `dict`; `find_sfn_arn` return is honestly `Optional[str]`;
+  `importlib` spec-loader guards added on 5 load sites (clear `ImportError`
+  instead of `AttributeError` on a broken path); `sync_enums` variable
+  shadowing untangled. Two deliberate, documented `type: ignore`s remain
+  (instrumented `DAG.__exit__` in validation; the known mixed-operator-list
+  nesting limitation in `normalize_asset_schedule`).
+- **local runner:** dependency ids now read `node_id` (shared by `Task` and
+  `Step`), matching the generators' own idiom — identical values for pure-task
+  DAGs, no crash on bridged mixed deps.
+
+
+### SDK — `@task` parameter parity, per-task retries, strict kwargs
+
+Every wrapper-routed `@task` type (`lambda`/`glue`/`ecs`/`athena`/`emr`/`batch`)
+now passes **all** of its parameters end-to-end through the `run_task` wrapper,
+the contract is pinned by tests, and `task.retries` finally does something. See
+**ADR #106** (parameter parity) and **ADR #107** (in-place retry loop).
+
+- **emr (was a hard break):** the user's `emr_step` now reaches `addStep`
+  verbatim. Previously the wrapper read flat fields the SDK never wrote, so
+  `HadoopJarStep.Jar` was empty and every EMR task failed.
+- **glue:** `worker_type` / `number_of_workers` / `allocated_capacity` now reach
+  `StartJobRun` (were silently dropped).
+- **ecs:** new `assign_public_ip` parameter (was swallowed by `**kwargs`);
+  `NetworkConfiguration` is now emitted only when subnets are set, so EC2
+  bridge/host tasks no longer get an invalid `AwsvpcConfiguration`.
+- **lambda:** a user `payload` now flows into the invoke as the lowest-priority
+  layer — orchestration context (`current_date`/`PARTITION_ARG`/`variables`/
+  `upstream`) overrides it on collision, so a stray key can't corrupt backfill and
+  XCom-in is never clobbered. **Removed `invocation_type`**: async `'Event'` breaks
+  the `waitForTaskToken` wait-model.
+- **athena:** `ResultConfiguration` is now emitted only when `output_location` is
+  set, so workgroup-enforced output works (an empty `OutputLocation` is rejected
+  by `StartQueryExecution`).
+- **role (cross-account):** `Credentials.RoleArn` now applies to **all six**
+  service dispatch states, not only `sfn` — `role=` was a silent no-op for the
+  rest.
+- **retries:** `task.retries` / `retry_delay` now drive a real in-place retry loop
+  inside the wrapper (Choice + dynamic Wait + counter), composing with the
+  existing failure-decision flow. No-retry tasks are unchanged. **Exponential
+  backoff** is available opt-in via `retry_exponential_backoff=True`, with
+  `max_retry_delay` as the ceiling (defaults off — fixed delay — so existing
+  retries are unchanged). **Jitter** is available opt-in via `retry_jitter=True`
+  (equal jitter over the computed wait) to avoid retry thundering-herd.
+- **Fixed — direct service-integration ARNs:** `S3Task` used `arn:aws:states:::s3:*`
+  and `DynamoDBTask` query/scan used `arn:aws:states:::dynamodb:query|scan`, neither of
+  which is a valid Step Functions optimized integration. Both now use the AWS SDK
+  integration (`arn:aws:states:::aws-sdk:s3:*`, `...:aws-sdk:dynamodb:query|scan`).
+  The DynamoDB CRUD ops (get/put/update/delete) are unchanged (they are optimized).
+- **Validation at the decorator boundary:** emr (`emr_step` must carry
+  `HadoopJarStep.Jar`; reject plural `Steps`), glue (worker pair together;
+  `allocated_capacity` exclusive with it), ecs (Fargate requires subnets).
+- **Strict kwargs (breaking):** the variant decorators no longer accept `**kwargs`
+  — an unknown/typo'd parameter now raises `TypeError` instead of being silently
+  ignored.
+- Added a `py.typed` marker so downstream type-checkers see `polyris`'s types.
+
+### UI — standardize the unavailable-feature placeholder (EmptyState)
+
+The OSS `/assets` "coming soon" panel rendered unstyled (top-left text, bare
+button). Root cause: `ComingSoon` and `EeFeatureFallback` referenced a CSS class
+(`error-fallback`) that doesn't exist — only `pd-error-fallback` is defined — so
+they had no styling at all.
+
+- New reusable, presentational `EmptyState` primitive (icon + title + optional
+  description + action slot), styled via the app's design tokens so it themes
+  light/dark. `ComingSoon` and `EeFeatureFallback` now both render it (one source
+  of truth instead of two near-duplicate markups), and the assets error-boundary
+  fallback in `App.tsx` was corrected to the real `pd-error-fallback` class.
+- `ComingSoon` copy is now **tier-agnostic** — "coming in an upcoming release"
+  instead of "coming to open-core" — so the same notice is reusable in paid
+  builds. `EeFeatureFallback` keeps its Team-tier message (that's its purpose).
+- Added `EmptyState` and `EeFeatureFallback` tests; updated `ComingSoon` tests.
+  See ADR #105.
+
+### Docs — explicit deploy commands in setup guides
+
+Setup/deployment docs now show full, explicit commands instead of leaning on
+hidden defaults (a hidden `polyris-dev` default in `ui/deploy.sh` broke after a
+stack was renamed). `SETUP_FROM_SCRATCH.md` and `QUICKSTART.md` set
+`STACK_NAME` / `AWS_REGION` / `AWS_PROFILE` once and pass them explicitly;
+`SAM.md` and `README.md` clarify that `sam` reads the stack name from
+`samconfig.toml` (the single source of truth) while `./deploy.sh` and
+`aws cloudformation describe-stacks` need it passed in, kept identical to
+`samconfig.toml`. No code or behavior changes.
+
+
+### Fix — empty Settings in OSS; wire the free Decision Timeout section (ADR #103 1b)
+
+The `DecisionTimeoutSection` (the global decision-wait timeout — how long a failed
+task pauses for a Skip / Mark Success / Fail / Restart decision, default 5h) was
+built per ADR #103 1b with the correct tiering (the `GET` is free, the `PUT` is
+Team; the field renders read-only with a hint off Team) but was never registered
+in `SettingsModal`. Since the only other sections (API Tokens, Alerts) are
+Team-tier paid slots, the OSS Settings modal opened **empty**.
+
+- `DecisionTimeoutSection` is now wired into `SettingsModal` as a **free** section
+  (always present, first in the sidebar). OSS shows it read-only; Team can edit it.
+- OSS Settings is no longer an empty shell. Added `SettingsModal` OSS + Team tests.
+
+### Open-core boundary — asset console gated to Team, coming to open-core (ADR #105)
+
+Assets were inconsistent across the open-core seam: the OSS UI gated the assets
+page as Team, yet the OSS backend served `GET /api/assets` and the README called
+the asset matrix free. The asset **engine** stays free; the asset **console**
+stays in Team for now but is surfaced in OSS as *coming soon to open-core*
+(it's on the graduation roadmap):
+
+- **Frontend.** The `Assets` nav tab stays visible in OSS; visiting `/assets`
+  shows a `ComingSoon` notice ("coming to open-core in an upcoming release")
+  instead of the Team-tier fallback. The real asset console renders in paid
+  builds. Gantt/calendar view-modes keep the Team-tier message.
+- **Backend.** `GET /api/assets` moved from OSS to Team (`routes/assets.py` →
+  `ee/team/assets_list.py`); the shared `_build_assets_from_pipelines` helper
+  moved with it. `dal/assets_repo.py` stays free (Team routes import it).
+- **Engine unchanged.** SDK asset support and the SAM asset tables/lambdas stay
+  free — OSS pipelines can still produce and wait on assets.
+- **Docs.** README marks the asset console (matrix + lineage) as Team.
+
+### Open-core boundary — contract-drift cleanup (ADR #104)
+
+Removed the drift where the open-source build advertised and partially wired
+Team-tier features the open-core backend no longer registers:
+
+- **CLI split.** The bare `polyris` command is now a command index (prints the
+  available `polyris-*` scripts, does no work). Backfill moves to a dedicated
+  `polyris-backfill` script shipped from the Team package, with a flattened
+  parser (`polyris-backfill pipeline|asset|list|show|cancel|retry-failed`).
+  Supersedes the backfill-dispatch half of ADR #51. No breaking change to the
+  open-source commands (`polyris-init/deploy/validate/output/register`).
+- **No more `/api/backfills` 404.** The Header's Backfills tab + active-count
+  badge moved behind the `BackfillNavTab` paid-surface slot (ADR #99); the OSS
+  build renders no tab and never polls the endpoint.
+- **Removed** the dead `usePipelineMetricsQuery` hook (no consumer; hit a
+  non-existent `/api/pipeline-metrics`).
+- **Moved** the Team backfill e2e tests to `polyris-ee`.
+- **Docs** (README, `docs/operations/API.md`, HelpModal) now mark backfill,
+  Gantt/calendar view modes, and Slack/PagerDuty alerts as Team-tier.
+
+### Fix — asset-cycle detection now catches multi-DAG loops
+
+`detect_asset_cycles` (used by `validate_all` / `polyris --validate`) previously only
+flagged *self-loops* — a DAG triggered by an asset it also produces. A cross-pipeline
+loop spanning two or more DAGs (A produces `asset_x` → triggers B, B produces `asset_y`
+→ triggers A) was silently missed, even though that exact case is the function's
+documented purpose. The traversal marked each neighbour visited at enqueue time and
+then skipped it before expansion, so no multi-DAG loop could ever close. Replaced with
+a path-aware DFS that detects self-loops and longer `A→B→C→A` cycles, reports each
+distinct cycle once, and produces no false positives on acyclic graphs. Added
+`tests/sdk/test_validation_core.py` covering the graph builder, cycle detector, file
+discovery, DAG extraction, ASL validation and the full `validate_all` path
+(`validation.py` line coverage 17% → 75%).
+
+### Internal — pure-logic coverage floor (Principle #22)
+
+Added a CI coverage floor on the pure-logic core, enforced via
+`[tool.coverage.report] fail_under` in `pyproject.toml` and `make test-cov`, wired into
+the `python` CI job. AWS/CLI/deploy modules are `omit`-ed (covered by e2e/smoke). The
+floor is a ratchet (currently 86%, target 90%). Seeded it by expanding unit tests for the
+core engine: `tests/sdk/test_generators_core.py` (the `validate_asl` validator + the
+public generation surface — `generate_step_function_json` / `generate_dag_json` / mermaid
+/ asset + EventBridge JSON / debug / hashing; `generators.py` 57% → 70%),
+`tests/sdk/test_task_core.py` (dependency wiring via `>>` / `<<` / `set_upstream` /
+`set_downstream`, computed timeout/retry properties, and every service decorator;
+`task.py` 64% → 91%), and `tests/sdk/test_dag_core.py` (schedule/alerts validation,
+`trigger_assets`, and the `topological_sort` / `roots` / `leaves` graph methods;
+`dag.py` 66% → 99%), and `tests/sdk/test_assets_core.py` (asset combinators `&` / `|`,
+`within` / `consecutive` refs, `AssetAll` / `AssetAny` / `AssetAlias` containers,
+`normalize_asset_schedule`, and watcher config; `assets.py` 66% → 95%), and
+`tests/sdk/test_task_group_core.py` (TaskGroup membership/prefixing, roots/leaves, the
+`>>` / `<<` operators, and the `@task_group` decorator; `task_group.py` 25% → 91%), and
+`tests/sdk/test_step_states.py` (each `Step` subclass through the `_generate_step_state`
+dispatcher — covering the service integrations with no public decorator: sns / sqs / s3 /
+dynamodb / eventbridge / bedrock / http; `generators.py` 57% → 74%, `steps.py` 75% → 81%),
+`tests/sdk/test_dsl_helpers.py` (`chain` / `cross_downstream` / `Label`, `XComArg`, and the
+`ARNResolver`; `helpers.py` 24% → 74%, `resolver.py` 25% → 95%, `xcom.py` → 100%), and
+`tests/sdk/test_config_core.py` (`_RolesDict` env-override + missing-role error, the
+`PolyrisConfig` accessors, and stage views; `config.py` 64% → 90%), and
+`tests/sdk/test_generators_builders.py` (`render_dag_ascii`, the wait_for/outlet/inlet
+serializers, and the asset-EventBridge rule builders; `generators.py` 74% → 92%), and
+`tests/sdk/test_steps_core.py` (the `Step` `>>` / `<<` operators, `Choice` + the
+`Condition` JSONata builders, and `Map` / `Sensor` / `ShortCircuit`; `steps.py` 75% → 96%),
+and `tests/sdk/test_validation_cli.py` (pipeline discovery, the `--test` runner, and the
+`polyris-validate` `main` dispatch via patched argv/cwd; `validation.py` 75% → 94%).
+The 90% target is exceeded — the measured core is at 93.1%, and the floor has ratcheted
+from an initial 72% to **92%**.
+
+### DSL — `alerts=` is now optional (ADR #103, finishing the deprecation)
+
+The DAG `alerts=` argument no longer raises when omitted — alerts are configured in
+the Console UI (Settings → Alerts), and the argument is deprecated and ignored. Passing
+it now emits a `DeprecationWarning` instead of being required. Removed the stale
+`alerts={...}` usage from the bundled `examples/`, the demo `pipelines/`, the feature
+docs (ASSETS, ASSET_PULL_FEATURE, LOCAL_TESTING, DEPLOY), and the dead
+`SlackWebhookEndpoint` / `PagerDutyRoutingKey` / `DefaultSlackChannel` overrides from
+`samconfig.toml.example` (those CloudFormation parameters no longer exist).
+
+
+### Open-core hardening — public surface reconciled with the split
+
+The AI assistant is a paid feature and no longer appears in the free repo: removed
+the "AI Assistant (FREE!)" README section, the feature bullet, and the AI_ASSISTANT.md
+link, and dropped the [ai] / [ai-paid] optional-dependency extras (the polyris-ai CLI
+lives in the private repo, ADR #102). Removed the abandoned scripts/oss-export.sh (the
+repos are decoupled, not generated). Added CLAUDE.md agent instructions with a
+public-specific "Repository context" block — the shared body is kept identical to the
+private repo to prevent drift. Unified the ruff config across both repos and cleaned
+whitespace so the shared notify/ Lambda core stays byte-identical. CI now runs the free
+console_api tests only (no EE-only ee/team/tests path) and takes rsa (auth.py, ADR #65)
+from the [dev] extra. Corrected the console_api route count to 63 (full build) / 18
+(free).
+
+
+### Docs — architecture aligned with ADR #103
+
+Rewrote the alerting architecture in ARCHITECTURE.md, BACKEND.md, and
+DESIGN_DECISIONS.md to match the current model: interactive Slack and PagerDuty
+alerts/resolves are lambda:invoke calls to the notify Lambda, not separate Express
+state machines (the old sf_slack_interactive / sf_pagerduty_alerter /
+sf_pagerduty_resolver and their EventBridge Connection were removed in Stage 2/3).
+Dropped the obsolete "alerts parameter is required" decision and troubleshooting
+entries (alerts are configured in the UI now; the DSL parameter is deprecated),
+removed slack_channel from the DSL parameter docs, and removed the dead
+snapshot-export section from RELEASE.md (the repos are decoupled, not generated).
+
+
+### Global decision-wait timeout (ADR #103 1b)
+
+The decision-wait timeout (how long a failed task waits for a Skip/Success/Fail/
+Restart decision) is now a single global setting instead of a hardcoded 5h. It is
+stored in a reserved registry record and read by the run_task SFN before the wait.
+The value is visible to everyone (GET /api/settings/decision-timeout is free) and
+shown in Settings; editing it is Team-tier. UI: a Decision Timeout settings
+section, read-only on the free tier.
+
+
+### Alerting — legacy field teardown (ADR #103)
+
+Removed the dead old-model alert fields (`alerts_json`, `slack_channel`,
+`slack_mentions_formatted`) from the SFNs, the template (`DefaultSlackChannel`),
+and the API responses now that all alert config lives in alert_config. The
+frontend was verified to not consume `slack_channel` before the API field was
+dropped. Slack @-mentions now come from `alert_config.slack.mentions` (the
+interactive Slack action formats them), closing the gap left by removing the
+legacy formatted-mentions field. Stale alerts_json tests removed; suites green.
+
+
+### Alerting Stage 4 (ADR #103) — docs
+
+The DSL `alerts=` argument is documented as deprecated (accepted one release,
+then ignored); all `alerts={...}` examples removed from README, DSL.md, the
+tutorials, and the reference docs. Added a user-facing Settings → Alerts how-to
+(`docs/features/alerts.md`) covering browser notifications, Slack (channel mode,
+mentions, action buttons), PagerDuty (severity, one-incident dedup), the Test
+button, and where secrets live (SSM).
+
+
+### Alerting Stage 3 (ADR #103) — dead machinery removed
+
+Deleted the three transitional helper SFNs (pagerduty_alerter, pagerduty_resolver,
+interactive_choice_slack) now that all alert sends go through the notify Lambda. run_task/wrapper no longer reference them; the EventBridge Slack Connection + ApiDestination and the deploy-level PagerDuty params (PagerDutyRoutingKey, HasPagerDuty) are gone too. Stale tests removed/updated; suites green.
+
+
+### Alerting (ADR #103) — РОЗЧЕПЛЕННЯ split
+
+**Stage 2 (directed actions) — wired.** The notify Lambda gained an action-dispatch
+framework (`actions.py`: registry + `register_action` + `dispatch_action`, plus an
+`action` shape in the handler) and a shared registry read (`registry.py`). run_task
+and dependency_wrapper now `lambda:invoke` the notify Lambda for the interactive
+Slack post, the live PagerDuty alert, and the PagerDuty resolve — replacing the
+three helper SFNs (which are now unused, deleted in Stage 3). The Lambda reads
+alert_config from the registry by pipeline_name, so the SFN only passes
+pipeline_name + failure + console_api_endpoint (this sidesteps the legacy
+input.alerts shape). template gains `notify_function_arn`/`console_api_endpoint`
+substitutions for run_task and `notify_function_arn` for the wrapper. The free
+build ships the framework with no actions registered (unknown action no-ops); the
+paid actions live in the paid repo. Live Slack-click / PD cycle still need a dev
+deploy to confirm end-to-end.
+
+
+The failure-alerting system is now split across the two repos. **Public (this
+repo) ships the free surface:**
+- **notify Lambda framework** (`sam/lambdas/notify/`): base `Notifier`, the
+  webhook channel, the SSM/HTTP helpers, and the registry with `register()` +
+  `try: import ee`. Slack/PagerDuty are absent here (paid) — `get_notifier`
+  no-ops on them. The Lambda also gained a **batch mode**: given `{pipeline_name,
+  failure}` it reads `alert_config` from the registry itself and fans out over
+  enabled channels with per-channel isolation.
+- **failure_handler** collapsed from 11 → 9 states: the 3-state alert fan-out
+  (`Get_Alert_Config` + `Has_Channels` + `Fan_Out_Alerts`) is now a single
+  `Send_Alerts` Lambda invoke (the Lambda does the config read + fan-out).
+- **browser notifications** (`routes/notifications.py`) are free (in-app polling).
+- **template.yaml** gains the 3 notify resources (NotifyFunction / NotifyRole /
+  NotifyLogGroup); NotifyRole reads `alert_config` from the registry.
+
+Slack/PagerDuty delivery, the alert-config API, secrets handling, and the
+Settings → Alerts UI live in the paid repo.
+
+
 Open-core refactor — **redeploy scope:** SDK reinstall (`pip install -e .`) for the
 `ai` move; console_api `sam deploy` for the route registry, Team-module split, and
-the `SLSFLOW_TIER` entitlement parameter; a UI rebuild for the tier restructure. No
+the `POLYRIS_TIER` entitlement parameter; a UI rebuild for the tier restructure. No
 schema change; behaviour-preserving (the full build is the same surface).
 
 ### Added
 
 - **Tier entitlement for the team↔enterprise boundary (ADR #100).** Both paid
-  tiers ship in one build; a deployment-level `SLSFLOW_TIER` (`team`|`enterprise`)
+  tiers ship in one build; a deployment-level `POLYRIS_TIER` (`team`|`enterprise`)
   decides what is enabled at runtime — *not* a physical strip (that remains the
   free↔paid boundary, ADR #98/#99). New `ee/entitlements.py` is the single source
   of truth (capability → tier; enterprise ⊇ team by construction) and exposes the
@@ -18,7 +420,7 @@ schema change; behaviour-preserving (the full build is the same surface).
   deployment's tier and capabilities for the UI's `can()`. The paid surface is now
   organised into `ee/team/` and `ee/enterprise/` tier packages composed in
   `ee/__init__.py` (enterprise empty until its first feature). Full paid surface is
-  now **58 routes** (was 57). `SLSFLOW_TIER` is a new SAM parameter; the OSS build
+  now **58 routes** (was 57). `POLYRIS_TIER` is a new SAM parameter; the OSS build
   (no `ee/`) ignores all of it. Every current paid feature is Team; the decorator
   applies to 0 routes today — this lands the mechanism so the first Enterprise
   feature is additive, not a re-architecture.
@@ -35,9 +437,18 @@ schema change; behaviour-preserving (the full build is the same surface).
 
 ### Changed
 
-- **SDK: the AI assistant moved to the `slsflow/_ee/` proprietary root (ADR #98).**
-  `slsflow/ai/` → `slsflow/_ee/ai/`; the `slsflow-ai` entry point now targets
-  `slsflow._ee.ai.cli:main`. The OSS build strips `slsflow/_ee/` (and the entry),
+- **Repo split into public `polyris` + private `polyris-ee` (ADR #102).** The
+  single open-core monorepo (with snapshot-export) is replaced by two repos: the
+  public `polyris` (SDK core + free UI + free backend — a fully working
+  self-hostable product) and the private `polyris-ee` (the `ee/` backend plugin,
+  paid UI, and SDK AI). The dependency is one-way (`ee` → free) and distributed by
+  git tag, not PyPI. The console Lambda now pulls the SDK core from
+  `requirements.txt` (`polyris @ git+...@tag`) instead of the repo-root symlink,
+  which is removed. Paid features are SaaS-only, so the private repo is never
+  distributed. Supersedes the snapshot model; `oss-export.sh` is retired.
+- **SDK: the AI assistant moved to the `polyris/_ee/` proprietary root (ADR #98).**
+  `polyris/ai/` → `polyris/_ee/ai/`; the `polyris-ai` entry point now targets
+  `polyris._ee.ai.cli:main`. The OSS build strips `polyris/_ee/` (and the entry),
   so the public SDK ships without the Team AI assistant — the only proprietary SDK
   code, and self-contained (core never imported it). `_ee` is a distinct package
   name from the backend's `ee`, so the two proprietary roots never collide on
@@ -124,15 +535,15 @@ fixes need nothing.
 
 > ⚠️ After unzipping this archive, confirm the Lambda SDK symlink survived as a
 > symlink before `sam build` (some unzip tools turn it into a 16-byte text file):
-> `ls -la sam/lambdas/console_api/slsflow` must show `-> ../../../slsflow`.
+> `ls -la sam/lambdas/console_api/polyris` must show `-> ../../../polyris`.
 
 ### Added
 
-- **`slsflow-ai` console script.** The AI assistant (`slsflow/ai/cli.py`) was
+- **`polyris-ai` console script.** The AI assistant (`polyris/ai/cli.py`) was
   fully implemented and documented but never registered in `[project.scripts]`,
-  so the `slsflow-ai` command advertised across the README and
+  so the `polyris-ai` command advertised across the README and
   `docs/tools/AI_ASSISTANT.md` did not exist after a clean install. Now
-  registered (`slsflow-ai = "slsflow.ai.cli:main"`).
+  registered (`polyris-ai = "polyris.ai.cli:main"`).
 - **CloudFront security headers (ADR #96).** An
   `AWS::CloudFront::ResponseHeadersPolicy` on the console distribution adds
   `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`,
@@ -144,8 +555,8 @@ fixes need nothing.
 
 ### Fixed
 
-- **`slsflow-init … --local` scaffolded `pipeline.py`** while `slsflow-validate`
-  and `slsflow-output` default to `dag.py`, so the README "Try It Now" quickstart
+- **`polyris-init … --local` scaffolded `pipeline.py`** while `polyris-validate`
+  and `polyris-output` default to `dag.py`, so the README "Try It Now" quickstart
   failed on the first command with `Pipeline file not found: dag.py`. `--local`
   now writes `dag.py`, matching the interactive/CFN path and the rest of the CLI.
 - **`formatDateTime` date-boundary tests were timezone-dependent.** A fixed UTC
@@ -217,7 +628,7 @@ clutter the list. Backend change; requires a backend redeploy.
 
 ## v89.9 (0.89.9) - 2026-06-05
 
-Renamed the API-docs example token env var from `$SLSF_TOKEN` to `$API_TOKEN`
+Renamed the API-docs example token env var from `$PLRS_TOKEN` to `$API_TOKEN`
 (naming preference). Affects only the curl examples and the intro note in the
 in-app API reference (`HelpModal`); no behavior change.
 
@@ -231,10 +642,10 @@ but the curl examples omitted it. Now every example shows the auth header.
 - **`HelpModal` API reference:** curl examples did not include the
   `Authorization` header, so copying one and running it returned `401` once
   `AUTH_ENABLED=true`. Added a central `withAuthHeader()` injector that prepends
-  `-H "Authorization: Bearer $SLSF_TOKEN"` to every example (after `curl` / after
+  `-H "Authorization: Bearer $PLRS_TOKEN"` to every example (after `curl` / after
   `-X METHOD`) — one place, no drift across ~25 examples (Principle #1). The
-  examples reference `$SLSF_TOKEN`, and the intro now tells the user to export it
-  once (`export SLSF_TOKEN=slsf_…`, created under Settings → API Tokens).
+  examples reference `$PLRS_TOKEN`, and the intro now tells the user to export it
+  once (`export PLRS_TOKEN=plrs_…`, created under Settings → API Tokens).
 - Injector is idempotent (won't double-add if a header is already present) and
   leaves non-curl strings untouched; unit tests added.
 
@@ -494,7 +905,7 @@ Feature: API authentication enforcement + Personal Access Tokens (PAT). The
 Console API previously had **no** auth enforcement — no API Gateway authorizer
 and no token check in the Lambda, despite Cognito existing for the UI login.
 This adds a single auth gate at the API entry point that accepts either a
-Cognito access token (browser/Amplify) or a slsflow PAT (`slsf_…`, for
+Cognito access token (browser/Amplify) or a polyris PAT (`plrs_…`, for
 scripts/CI/examples), plus token management. Enforcement is **on by default**
 (`AUTH_ENABLED=true`) — every non-public request needs a token; disabling it is
 a deliberate, reversible step. See
@@ -503,7 +914,7 @@ ADR #65 (`docs/reference/adr-65-api-tokens-and-auth-enforcement.md`).
 ### Added
 
 - **Auth gate** (`console_api/auth.py`): one `authenticate()` check at the top
-  of `main.handler`, branching on the `slsf_` prefix. PAT path = SHA-256 hash
+  of `main.handler`, branching on the `plrs_` prefix. PAT path = SHA-256 hash
   lookup with constant-time compare, revoke + expiry checks; Cognito path =
   `cognito-idp:GetUser` on the access token (cached, no offline JWKS dependency
   — see ADR #65 for the rationale and PyJWT upgrade path). Health/metrics paths
@@ -590,12 +1001,12 @@ See ADR #94.
 ### Added
 
 - Canonical `BackfillUpstream` enum (`off`/`smart`/`force`) in
-  `slsflow/constants.py`, codegen-generated into every `constants_generated.py`
+  `polyris/constants.py`, codegen-generated into every `constants_generated.py`
   and `ui/src/generated/enums.ts`. The backend validator (`_UPSTREAM_MODES`)
   and the TS `BackfillUpstream` type now derive from it — no more hand-
   maintained copies. It was a 9th, un-gated enum family (the upstream mirror of
   the already-gated `BackfillCascade`); `check-generate-enums` now covers it.
-- Canonical `BACKFILL_ERROR_CODES` registry (`slsflow/constants.py`, generated
+- Canonical `BACKFILL_ERROR_CODES` registry (`polyris/constants.py`, generated
   into `enums.ts`) and a two-sided gate: backend `test_backfill_error_registry`
   pins the registry to the route's emitted `{'error': ...}` literals; UI
   `backfillErrors.test.ts` asserts the friendly-error map covers every code.
@@ -653,7 +1064,7 @@ v0.84.0 whole-repo consistency audit. No product behavior change.
 
 ### Changed
 
-- `slsflow/codegen/sync_enums.py` now also emits a named-key const object
+- `polyris/codegen/sync_enums.py` now also emits a named-key const object
   `export const TASK_STATUS = { SUCCESS: 'success', ... } as const` in
   `ui/src/generated/enums.ts` (from the canonical `TaskStatus` Enum).
 - `ui/src/utils/constants.ts` no longer hand-maintains `TASK_STATUS` — it
@@ -708,12 +1119,12 @@ SFN change.
 ### Chore
 
 - Repo-wide ruff cleanup: fixed 36 pre-existing lint findings outside the
-  `slsflow/` package (F841 unused locals in snapshot/integration tests and two
+  `polyris/` package (F841 unused locals in snapshot/integration tests and two
   codegen scripts, E712 `== True` comparisons, F811 duplicate imports, E401,
   F541). No behavior change; snapshot tests confirm step registrations intact.
 - **Gated ruff repo-wide so this can't recur:** `make lint` now runs
   `ruff check .` (was syntax-only), and CI's lint step widened from
-  `ruff check slsflow/` to `ruff check .` — the original gap that let lint debt
+  `ruff check polyris/` to `ruff check .` — the original gap that let lint debt
   accumulate in tests/codegen/ui.
 
 ## v83.0 (0.83.0) - 2026-05-29
@@ -792,12 +1203,12 @@ option defaults to `off`).
 
 ### Added
 
-- **`slsflow.upstream_resolver`** — pure cross-pipeline tiered resolver:
+- **`polyris.upstream_resolver`** — pure cross-pipeline tiered resolver:
   `resolve_plan` returns dependency-ordered tiers (deepest upstream first),
   with cycle detection, diamond dedup, `smart`/`force` reuse modes, collected
   warnings, and per-item `dag_hash` recording (ADR #89 R5). Tiering is
   O(V+E) via Kahn propagation.
-- **`slsflow.partitions.partitions_covering`** — intersecting-window
+- **`polyris.partitions.partitions_covering`** — intersecting-window
   partition mapping (ADR #87): 1↔1 for equal granularity, the covering set
   for cross-granularity (e.g. one daily target over 24 hourly upstream).
 - **`upstream` backfill option** (`off`/`smart`/`force`, top-level, asset
@@ -865,9 +1276,9 @@ new one** — in-flight executions under the old template are not retroactively
 fixed.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.80.1.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.80.1.zip
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 ```
 
 ## v80.0 (0.80.0) - 2026-05-28
@@ -880,13 +1291,13 @@ drifted. Now: one authority, one typed accessor, one CI parity check.
 
 ### Added
 
-- **`slsflow.backfill_status`** — the single Python authority for the
+- **`polyris.backfill_status`** — the single Python authority for the
   terminal-status rule: `finalize_status(completed, failed, *, canceled)`
   and `all_map_done(total, completed, failed)`. Documents the counter
   semantics (total = to-run count; skipped is pre-flight, never in the
   done-check).
 - **Backfill status parity drift check** —
-  `slsflow.codegen.check_backfill_status_parity` (`make
+  `polyris.codegen.check_backfill_status_parity` (`make
   check-backfill-parity`). Verifies the bulk_backfill SFN Finalize JSONata
   encodes the same rule as the canonical Python function, and that it
   never references `skipped` in the aggregate (ADR #82 guard). Enforced via
@@ -899,7 +1310,7 @@ drifted. Now: one authority, one typed accessor, one CI parity check.
 - **BackfillStatus set SSoT completed** — removed the manual class-level
   `BackfillStatus.TERMINAL`/`.ACTIVE`/`.ALL` (duplicated the codegen
   `BACKFILL_TERMINAL_STATUSES`/`BACKFILL_ACTIVE_STATUSES`; `.ALL` was dead).
-  All 6 consumers migrated to the generated, slsflow-sourced sets — the
+  All 6 consumers migrated to the generated, polyris-sourced sets — the
   terminal/active sets now have a single source, matching the TaskStatus
   migration (ADR #77).
 - **`models/` layer** — `BackfillRecord` extracted from `dal/backfills_repo.py`
@@ -915,7 +1326,7 @@ drifted. Now: one authority, one typed accessor, one CI parity check.
   `TaskStatus` is a superset so re-export is non-breaking. `_shared`/
   `evaluate_deps` keep their classes manual (standalone-test resilience) but
   dead members were removed and a new guard,
-  `slsflow.codegen.check_shared_constants` (run by `make sync-constants`),
+  `polyris.codegen.check_shared_constants` (run by `make sync-constants`),
   verifies they never drift from canonical. The old text-based sync-constants
   check was replaced with this value-based one.
 
@@ -963,13 +1374,13 @@ drifted. Now: one authority, one typed accessor, one CI parity check.
 
 ### Deploy
 
-Backend-only (console_api Lambda; the SDK `slsflow` is bundled). No UI
+Backend-only (console_api Lambda; the SDK `polyris` is bundled). No UI
 changes. No API contract or behavior change for valid inputs.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.80.0.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.80.0.zip
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 ```
 
 ## v79.10 (0.79.10) - 2026-05-28
@@ -1027,9 +1438,9 @@ eligibility test.
 Backend-only (console_api Lambda). No UI changes.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.10.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.10.zip
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 ```
 
 ## v79.9 (0.79.9) - 2026-05-28
@@ -1101,9 +1512,9 @@ self-corrects. New backfills work immediately.
 Backend-only (console_api Lambda). No UI changes.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.9.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.9.zip
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 ```
 
 ### Sanity
@@ -1178,9 +1589,9 @@ cell / task) since they all share one `BackfillModal`.
 UI-only release. No backend changes.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.8.zip
-cd ui && npm run build && ../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.8.zip
+cd ui && npm run build && ../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity
@@ -1264,9 +1675,9 @@ one place. Canonical icon: **Rewind** (Mike's choice).
 UI-only release. No backend changes.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.7.zip
-cd ui && npm run build && ../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.7.zip
+cd ui && npm run build && ../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity
@@ -1285,9 +1696,9 @@ from "generator" to "drift checker" after investigation (ADR #78).
 
 ### Added
 
-- **`slsflow/codegen/check_sfn_templates.py`** — scans all
+- **`polyris/codegen/check_sfn_templates.py`** — scans all
   `sam/sfn_templates/**/*.json` and validates embedded status
-  string literals against canonical `slsflow.constants.TaskStatus`.
+  string literals against canonical `polyris.constants.TaskStatus`.
   Catches:
   - Typos in JSONata `$status = "value"` writes.
   - Status values removed from canonical but still referenced
@@ -1351,8 +1762,8 @@ Pure infrastructure release — no Lambda code changed. CI will
 gain the new `check-sfn-templates` step.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.6.zip
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.6.zip
 # No backend or UI rebuild needed; this is repo tooling.
 # If CI was previously running gates manually, add:
 make check-sfn-templates  # alongside existing make targets
@@ -1395,7 +1806,7 @@ Completes the backend SSoT enum migration deferred in ADR #72:
 ### Behavior impact
 
 `TASK_TERMINAL_STATUSES` now includes both `'success'` and
-`'succeeded'` (canonical from `slsflow.constants` had both;
+`'succeeded'` (canonical from `polyris.constants` had both;
 hand-written backend only had `'success'`). Tests updated to
 reflect new set membership.
 
@@ -1428,9 +1839,9 @@ Backend-only. All 5 helper Lambdas + console_api need the new
 `constants_generated.py` in their deploy artifact.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.5.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.5.zip
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 ```
 
 ### Sanity
@@ -1481,9 +1892,9 @@ Backend-only. All 5 Lambdas (4 helpers + console_api) ship with
 identical `logger.py`.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.4.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.4.zip
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 ```
 
 ### Sanity
@@ -1574,11 +1985,11 @@ Backend-only release (no UI changes). All 5 helper Lambdas need to
 be redeployed.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.3.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ symlink check
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.3.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 ```
 
 UI deploy not required for this release.
@@ -1675,13 +2086,13 @@ Stage 6 of the multi-release alignment plan — **per-partition retry**
 Full deploy (backend route extension + frontend button + new CSS).
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.2.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ symlink check
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.2.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 cd ../ui && npm run build
-../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity after deploy
@@ -1783,13 +2194,13 @@ during the rolling deploy window — the `partitions` field has a
 legacy fallback in `BackfillDetailPage` for that case.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.1.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ symlink check
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.1.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 cd ../ui && npm run build
-../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity after deploy
@@ -1825,22 +2236,22 @@ Stage 4 of the multi-release alignment plan — **SSoT enums codegen**
 of enum definitions across SDK, Lambdas, and frontend.
 
 This is a **minor version bump** because the canonical contract
-location moved (slsflow/constants.py is now authoritative for status
+location moved (polyris/constants.py is now authoritative for status
 enums) and a new codegen module ships in the SDK.
 
 ### Added
 
-- **`slsflow/constants.py` extended** with 7 enum families lifted into
+- **`polyris/constants.py` extended** with 7 enum families lifted into
   the SDK as canonical: `PipelineStatus`, `ExecutionStatus`,
   `BackfillStatus`, `BackfillCascade`, `BackfillGranularity`,
   `StalenessStatus`, `AssetOperator`. Plus derived sets
   (`EXECUTION_STATUS_CANONICAL`, `BACKFILL_TERMINAL_STATUSES`,
   `BACKFILL_ACTIVE_STATUSES`) and `normalize_execution_status` helper
   (lifted from v0.78.14 Lambda code).
-- **`slsflow/codegen/` module** — new SDK submodule. Houses code
+- **`polyris/codegen/` module** — new SDK submodule. Houses code
   generators that produce derived artifacts from canonical sources.
-- **`slsflow/codegen/sync_enums.py`** — generator that imports
-  `slsflow.constants` (NOT regex-parses) and writes:
+- **`polyris/codegen/sync_enums.py`** — generator that imports
+  `polyris.constants` (NOT regex-parses) and writes:
   - `sam/lambdas/_shared/constants_generated.py`
   - `sam/lambdas/console_api/constants_generated.py`
   - `ui/src/generated/enums.ts`
@@ -1864,7 +2275,7 @@ enums) and a new codegen module ships in the SDK.
   longer defined inline. Re-exported from `@/generated/enums`. Plus
   `BACKFILL_TERMINAL_STATUSES`, `TASK_TERMINAL_STATUSES` constants.
 - **Frontend is fully SSoT.** Any new enum value or rename now flows:
-  edit `slsflow/constants.py` → `make generate-enums` → frontend
+  edit `polyris/constants.py` → `make generate-enums` → frontend
   types auto-update.
 
 ### Not changed (deliberate)
@@ -1887,7 +2298,7 @@ enums) and a new codegen module ships in the SDK.
 
 ```bash
 # 1. Edit canonical
-vi slsflow/constants.py
+vi polyris/constants.py
 
 # 2. Regenerate
 make generate-enums
@@ -1922,13 +2333,13 @@ Lambda but is unused at runtime by this release — they're additive).
 Frontend deploy required (build picks up new `generated/enums.ts`).
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.79.0.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ symlink check
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.79.0.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 cd ../ui && npm run build
-../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity after deploy
@@ -2033,13 +2444,13 @@ DDB, plus a `'success'` legacy form. Now canonicalized at the boundary.
 Full deploy needed (backend + frontend).
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.78.14.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ symlink check
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.78.14.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 cd ../ui && npm run build
-../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity after deploy
@@ -2111,12 +2522,12 @@ and filter logic narrowing.
 Frontend-only. No backend changes.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.78.13.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ symlink check
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.78.13.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
 cd ui && npm run build
-../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity after deploy
@@ -2214,10 +2625,10 @@ util.
 Frontend-only. No backend changes.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.78.12.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ symlink check
-cd ui && npm run build && ../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.78.12.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
+cd ui && npm run build && ../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity checks after deploy
@@ -2299,12 +2710,12 @@ Nothing.
 Full deploy needed (backend + frontend changes).
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.78.11.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ verify symlink
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.78.11.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ verify symlink
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile slsflow-dev
-cd ../ui && npm run build && ../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
+cd ../ui && npm run build && ../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ### Sanity after deploy
@@ -2329,7 +2740,7 @@ Following v0.78.9 honest audit measuring philosophy against actual
 code. The section now matches reality, not aspiration.
 
 - **CLI argparse handlers exception** added to Python style block.
-  `cmd_*` functions in `slsflow/cli.py` may omit docstrings when they
+  `cmd_*` functions in `polyris/cli.py` may omit docstrings when they
   just unpack argparse args and delegate to documented functions.
   Argparse help text IS the user-facing doc.
 - **Refined 12-Factor logs paragraph**. Explicit: `console_api`
@@ -2339,7 +2750,7 @@ code. The section now matches reality, not aspiration.
   tracked in BACKLOG, not silently swept under rug. CloudWatch
   captures stdout regardless so logs are visible; the gap is
   parse-ability for alarms.
-- **CLI tool exception** explicit. `slsflow/cli.py`, `register.py`,
+- **CLI tool exception** explicit. `polyris/cli.py`, `register.py`,
   `init.py`, `output.py`, `ai/*` use `print()` correctly — CLI tools
   ARE the event stream output, not log producers. Don't migrate them.
 - **ErrorBoundary class component exception**. React's error boundary
@@ -2356,7 +2767,7 @@ code. The section now matches reality, not aspiration.
 
 New section: "🧹 Philosophy compliance gaps (v0.78.9 audit)". Four
 entries with cost estimates and apply-when guidance:
-- Migrate 5 Lambdas from `print()` to `slsflow.logger`
+- Migrate 5 Lambdas from `print()` to `polyris.logger`
 - Docstring pass on `cmd_*` CLI handlers
 - Inline-style cleanup in `AssetLineageFlow.tsx` (3 occurrences)
 - Icon-only button ARIA audit
@@ -2389,7 +2800,7 @@ Documentation-only release. No behavior changes.
 ### Added
 
 - **CLAUDE.md — "Coding Philosophy" section** between Core Principles
-  and What is SLSFlow. Captures the broader style frame underlying
+  and What is Polyris. Captures the broader style frame underlying
   the 12 Core Principles:
   - **Python**: PEP 8 + Google Python Style Guide (surface) + Zen of
     Python PEP 20 (taste) + 12-Factor App (architecture, with
@@ -2408,7 +2819,7 @@ Documentation-only release. No behavior changes.
 
 ### Internal
 
-- Version bumped to 0.78.9 across pyproject.toml, slsflow/__init__.py,
+- Version bumped to 0.78.9 across pyproject.toml, polyris/__init__.py,
   ui/package.json for version-consistency check.
 
 ### Tests
@@ -2525,12 +2936,12 @@ BACKLOG: investigate why `Finalize` step skips in some cases.
 Frontend-only changes (CSS + UI logic). No backend deploy needed.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.78.8.zip
-ls -la sam/lambdas/console_api/slsflow   # ⚠️ verify symlink
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.78.8.zip
+ls -la sam/lambdas/console_api/polyris   # ⚠️ verify symlink
 cd ui
 npm run build
-../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 After deploy, hard-refresh in light mode to verify status pills are
@@ -2658,15 +3069,15 @@ v0.78.5 deploy review, and adds one feature (pipeline filter combobox).
 Frontend-only changes. No backend deploy needed.
 
 ```bash
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.78.7.zip
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.78.7.zip
 # ⚠️ Verify symlink
-ls -la sam/lambdas/console_api/slsflow
-# If 16 bytes: cd sam/lambdas/console_api && rm -f slsflow && ln -s ../../../slsflow slsflow
+ls -la sam/lambdas/console_api/polyris
+# If 16 bytes: cd sam/lambdas/console_api && rm -f polyris && ln -s ../../../polyris polyris
 
 cd ui
 npm run build
-../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 ## v78.6 (0.78.6) - 2026-05-27
@@ -2712,16 +3123,16 @@ This release requires **both backend and frontend deploy**:
 
 ```bash
 # Backend (CloudFront function change requires SAM deploy)
-cd /home/makskoval/my/sam/slsflow
-unzip -o ~/Downloads/slsflow-0.78.6.zip
-ls -la sam/lambdas/console_api/slsflow  # verify symlink
+cd /home/makskoval/my/sam/polyris
+unzip -o ~/Downloads/polyris-0.78.6.zip
+ls -la sam/lambdas/console_api/polyris  # verify symlink
 cd sam
-sam build && sam deploy --profile slsflow-dev
+sam build && sam deploy --profile polyris-dev
 
 # Frontend
 cd ../ui
 npm run build
-../sam/deploy-ui.sh slsflow-dev us-east-1 ./out --profile slsflow-dev
+../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
 ```
 
 After both ship, hard-refresh the browser (CloudFront invalidation
@@ -2910,7 +3321,7 @@ except the `estimated_sfn_cost_usd` field removal (see "Removed" below).
   reconciliation + budgets) is a coherent Pro-tier feature spec'd in
   BACKLOG; shipping it as a complete workflow rather than half-
   delivering an estimate. ADR #62. Partial supersession of ADR #53.
-- **`slsflow.partitions.PartitionRange.cost_estimate()`** SDK method.
+- **`polyris.partitions.PartitionRange.cost_estimate()`** SDK method.
   Recoverable from git tag v0.78.1 if/when Pro re-introduces.
 - **`dal/ddb_schema.py BackfillCols.ESTIMATED_SFN_COST_USD`** constant.
 - **`TestCostEstimate`** class in `tests/sdk/test_partitions.py` (5 tests
@@ -3019,7 +3430,7 @@ with a single seed-driven flow.
   Replaces `/api/pipeline-backfill`, `/api/pipeline-force-trigger`, `/api/assets/backfill`.
 - New `GET /api/backfills`, `GET /api/backfills/by-id`, `POST /api/backfills/cancel`,
   `POST /api/backfills/retry-failed`.
-- New `slsflow-bulk-backfill` Standard SFN with Map iteration over partitions,
+- New `polyris-bulk-backfill` Standard SFN with Map iteration over partitions,
   cooperative cancel via DDB status check at each iteration, child SFN sync
   invocation with 24h timeout and retry (per ADR #54).
 - New `backfills_repo` DAL with sentinel pipeline_name + record_type
@@ -3034,9 +3445,9 @@ with a single seed-driven flow.
   `week_of_year`/`is_reprocess` removed (ADR #51).
 
 #### SDK
-- New `slsflow.granularity` — `infer_cron_cadence()` per ADR #52 (standard
+- New `polyris.granularity` — `infer_cron_cadence()` per ADR #52 (standard
   cron, AWS rate(), shorthand).
-- New `slsflow.partitions.PartitionRange` per ADR #58 — granularity-aware
+- New `polyris.partitions.PartitionRange` per ADR #58 — granularity-aware
   partition key formatting, range expansion, cross-granularity translation,
   cost estimation with 5000-partition hard limit.
 
@@ -3056,10 +3467,10 @@ with a single seed-driven flow.
 - Header: new `Backfills` nav tab; keyboard shortcut `5`.
 
 #### CLI
-- New `slsflow backfill pipeline NAME --start ... --end ...` command.
-- New `slsflow backfill asset NAME --start ... --end ... --cascade ...` command.
-- New `slsflow backfills list/show/cancel/retry-failed` commands.
-- Configuration via `SLSFLOW_API_URL` + optional `SLSFLOW_API_TOKEN` env vars.
+- New `polyris backfill pipeline NAME --start ... --end ...` command.
+- New `polyris backfill asset NAME --start ... --end ... --cascade ...` command.
+- New `polyris backfills list/show/cancel/retry-failed` commands.
+- Configuration via `POLYRIS_API_URL` + optional `POLYRIS_API_TOKEN` env vars.
 
 #### Migration notes
 - Old `useBackfillMutation` / `useAssetBackfillMutation` removed in UI.
@@ -3090,8 +3501,8 @@ them. v0.78.0 now honors these end-to-end:
   don't fire. Used by isolated backfills.
 - **`cascade='all'` (cascade_all)** — forwarded through the chain to
   the notify helpers (consultation point for broader downstream).
-- **Lambda packaging** — `sam/lambdas/console_api/slsflow` is a
-  committed symlink to the repo-root `slsflow/` package. SAM's default
+- **Lambda packaging** — `sam/lambdas/console_api/polyris` is a
+  committed symlink to the repo-root `polyris/` package. SAM's default
   Python builder follows the symlink, packaging the SDK as a normal
   subdirectory of the Lambda artifact. Zero-setup: `git clone` restores
   the symlink, `sam build && sam deploy` works as expected. No
@@ -3168,7 +3579,7 @@ concept that didn't carry forward.
 - 713 UI tests pass (+32 covering 4 previously-untested components and
   the active-backfill badge).
 - 12 e2e backfill tests (`tests/e2e/test_backfill.py`, marked `@smoke`,
-  skip-if-no-`SLSFLOW_API_URL`).
+  skip-if-no-`POLYRIS_API_URL`).
 - All gates green: `cfn-lint`, JSONata compile (617 expressions), `tsc --strict`.
 
 ## v77.2 (0.77.2) - 2026-05-19
@@ -3241,8 +3652,8 @@ exception type — so a single jq query against CloudWatch surfaces
 them. Return values are preserved unchanged — the goal is visibility,
 not behavior change.
 
-The other 6 silent excepts in `slsflow/ai/*` and 1 in
-`slsflow/config.py` are SDK-side, lower-priority, and tracked in
+The other 6 silent excepts in `polyris/ai/*` and 1 in
+`polyris/config.py` are SDK-side, lower-priority, and tracked in
 BACKLOG for a follow-up pass.
 
 #### Fix 4: Dead CSS cleanup — 119 classes, ~700 lines removed
@@ -3297,10 +3708,10 @@ the verifier intentionally kept.
 
 All gates green:
 
-- `ruff check slsflow/ sam/lambdas/` — 0 errors
+- `ruff check polyris/ sam/lambdas/` — 0 errors
 - `cfn-lint sam/template.yaml` — 0 errors
 - `make check-versions` — 0.77.2 consistent across `pyproject.toml`,
-  `slsflow/__init__.py`, `ui/package.json`, `ui/package-lock.json`
+  `polyris/__init__.py`, `ui/package.json`, `ui/package-lock.json`
 - `make sync-constants` — `_shared` ↔ console_api in sync
 - `make smoke-pipelines` — all 6 `dag.py` import
 - Python tests: 712 passed + 16 skipped (SDK / backend / integration)
@@ -3349,7 +3760,7 @@ All gates green:
 - `CHANGELOG.md` — this entry
 
 **Version (4 files):**
-- `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`,
+- `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`,
   `ui/package-lock.json` — 0.77.1 → 0.77.2
 
 #### Deferred to backlog (intentionally not in this release)
@@ -3369,7 +3780,7 @@ All gates green:
   — refactor, not fix; do next time we land a feature touching it
 - Large UI component splits (`AssetMatrixView` 825 lines,
   `AssetLineageFlow` 798, `AssetsView` 775) — same rationale
-- 6 silent excepts in `slsflow/ai/*` and 1 in `slsflow/config.py`
+- 6 silent excepts in `polyris/ai/*` and 1 in `polyris/config.py`
   — SDK-side, lower priority than the Lambda ones fixed here
 
 ---
@@ -3480,7 +3891,7 @@ lies for long.
 
 #### What's new
 
-**Asset DSL** (`slsflow/assets.py`):
+**Asset DSL** (`polyris/assets.py`):
   - New `granularity` kwarg: `"hourly" | "daily" | "weekly" | "monthly"`
     (IDE autocompletes via `Literal` type).
   - New `partition_start` kwarg (optional) — must match granularity format.
@@ -3507,7 +3918,7 @@ Asset("acme/hourly_events", granularity="hourly")
     `<0.25` → critical.
   - UI binds result to per-row badge with hover tooltip.
 
-**Glue auto-detect** (`slsflow-deploy`):
+**Glue auto-detect** (`polyris-deploy`):
   - Reads Glue `PartitionKeys` for `from_glue_table`-backed assets,
     infers granularity from naming conventions.
   - Advisory only — declared value wins; mismatches print warnings:
@@ -3920,7 +4331,7 @@ release as the howto preserves the rule's force.
 - `ui/src/components/AssetDetailPage.tsx` — full rewrite as
   orchestrator. 1124 → 376 lines. Public API (props) unchanged.
 - `docs/reference/DESIGN_DECISIONS.md` — ADR #48 added.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`,
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`,
   `ui/package-lock.json` → `0.75.8`.
 
 ### Verification
@@ -4023,7 +4434,7 @@ of paying it back explicitly rather than letting it compound.
   same way internally.
 - `ui/src/components/DAGGraphFlow.test.tsx` — obsolete "untestable"
   comment replaced with cross-reference to `DAGTaskNode.test.tsx`.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`,
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`,
   `ui/package-lock.json` → `0.75.7`.
 
 #### Verification
@@ -4248,12 +4659,12 @@ shared fixture file.
 
 #### `Asset.to_ddl()` is now a thin dispatcher
 
-`slsflow/assets.py:Asset.to_ddl()` validates dialect + schema, then
+`polyris/assets.py:Asset.to_ddl()` validates dialect + schema, then
 delegates to a module-private `_render_glue_ddl(asset)` helper at the
 end of the same file. Public API unchanged; behavior unchanged. The
 helper is kept at module scope (rather than as a method on Asset or
 in a separate module) so when Phase 2 fires, extracting it to
-`slsflow/renderers/glue.py` is one `git mv` plus an import update.
+`polyris/renderers/glue.py` is one `git mv` plus an import update.
 
 #### TS mirror extracted to `ui/src/utils/ddl-glue.ts`
 
@@ -4311,7 +4722,7 @@ The design decision document captures the three-phase roadmap:
 - **Phase 1 (current):** mirror code + parity tests + extracted
   helpers. We are here.
 - **Phase 2 (trigger: second dialect lands):** move helpers to
-  `slsflow/renderers/`, design `Renderer` Protocol *after* seeing
+  `polyris/renderers/`, design `Renderer` Protocol *after* seeing
   the second dialect's requirements, split UI strategy (mirror
   common formats, route uncommon ones through a new backend
   endpoint).
@@ -4339,7 +4750,7 @@ stabilizing their Adapter Protocol.
 
 **Changed**
 
-- `slsflow/assets.py` —
+- `polyris/assets.py` —
   - `Asset.to_ddl()` is a thin dispatcher: validation + delegation to
     `_render_glue_ddl(self)`.
   - New `_render_glue_ddl(asset)` module-private helper at end of file
@@ -4349,7 +4760,7 @@ stabilizing their Adapter Protocol.
   - Removes the inline 32-line `renderDDL()` function.
   - Copy button call site uses `renderGlueDDL({ assetName, glueTable, ... })`.
 - `docs/reference/DESIGN_DECISIONS.md` — ADR #46 added.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`,
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`,
   `ui/package-lock.json` → `0.75.4`.
 
 #### Verification
@@ -4529,7 +4940,7 @@ Pure frontend polish — safe to deploy without coordinating SDK upgrades.
 
 ### Glue Catalog terminology + IAM/LF docs aligned with actual AWS
 
-A user-driven review surfaced terminology drift between SLSFlow's
+A user-driven review surfaced terminology drift between Polyris's
 documentation and AWS's actual three-level Glue Data Catalog model
 (Account → Database → Table) plus Athena's four-level UI hierarchy
 (Data source → Catalog → Database → Table). This release tightens
@@ -4590,7 +5001,7 @@ Replaced the terse `glue_table`/`glue_catalog`/`glue_region` field
 descriptions with a precise mapping to AWS Glue API parameters
 (`DatabaseName`, `Name`, `CatalogId`, `region_name`) and a callout
 that Athena's four-level UI hierarchy is Athena-side, not Glue, so
-SLSFlow targets Glue directly and federated catalogs are out of scope.
+Polyris targets Glue directly and federated catalogs are out of scope.
 
 #### `docs/features/ASSETS.md` — full mapping table + IAM checklist
 
@@ -4622,7 +5033,7 @@ ADR #45 grew two new sections:
 
 **Changed**
 
-- `slsflow/assets.py` — error message corrected; docstring rewritten
+- `polyris/assets.py` — error message corrected; docstring rewritten
   with full Glue-API and Athena mapping.
 - `pipelines/acme/daily/dag.py` — `glue_table` → `test.example`;
   comment rewritten with three-level addressing model.
@@ -4636,7 +5047,7 @@ ADR #45 grew two new sections:
   guidance, Athena callout.
 - `docs/reference/DESIGN_DECISIONS.md` — ADR #45 expanded with
   Athena and Lake Formation sub-sections.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`,
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`,
   `ui/package-lock.json` → `0.75.2`.
 
 #### Verification
@@ -4782,13 +5193,13 @@ already covers the most common misconfiguration.
 
 **Changed**
 
-- `slsflow/assets.py` —
+- `polyris/assets.py` —
   - `Asset.__init__` accepts `glue_region: str = ""`.
   - `glue_table` is structurally validated at construction time.
   - `Asset.to_dict()` serializes `glue_region`.
   - `Asset.from_glue_table()` persists `region` into `glue_region`,
     smart default name with `catalog_id` prefix.
-- `slsflow/generators.py` — outlet serialization includes `glue_region`.
+- `polyris/generators.py` — outlet serialization includes `glue_region`.
 - `sam/lambdas/console_api/config.py` —
   - New `get_glue_client(region)` factory with per-region cache.
   - `Dict` typing import added.
@@ -4824,7 +5235,7 @@ already covers the most common misconfiguration.
   Sync sections updated for cross-region; new explanation of the
   cross-account default-name strategy.
 - `docs/reference/DESIGN_DECISIONS.md` — ADR #45 added.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`,
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`,
   `ui/package-lock.json` → `0.75.1`.
 
 #### Verification
@@ -4844,11 +5255,11 @@ already covers the most common misconfiguration.
 
 Builds on v0.74.x foundations to make typed schemas useful beyond the Schema
 tab. New SDK methods (`print_schema`, `to_ddl`, `to_jsonschema`, `from_iceberg`),
-deploy-time conflict detection in `slsflow-validate`, cross-pipeline conflict
+deploy-time conflict detection in `polyris-validate`, cross-pipeline conflict
 surfacing in the UI, schema summary on Overview, friendly Glue error messages,
 and a Copy-as-X toolbar on the Schema tab.
 
-#### `slsflow.normalize_schema` rejects duplicate column names
+#### `polyris.normalize_schema` rejects duplicate column names
 
 Catalog systems (Glue, Iceberg, BigQuery) all reject duplicate column names,
 but until v0.74.1 a user could declare two columns with the same name and
@@ -4928,8 +5339,8 @@ escaping. `to_jsonschema` covers all 21 SDK types, marks non-nullable columns
 as `required`, and folds `Optional[T]` semantics into JSON Schema's
 `type: ["x", "null"]` union.
 
-The JSON-Schema converter lives module-level in `slsflow.schema` as
-`_slsflow_type_to_jsonschema(t, nullable)` so backend tooling can reuse it
+The JSON-Schema converter lives module-level in `polyris.schema` as
+`_polyris_type_to_jsonschema(t, nullable)` so backend tooling can reuse it
 without importing from `assets`.
 
 #### `Asset.from_iceberg(iceberg_table)` shortcut
@@ -4945,13 +5356,13 @@ iceberg_table = catalog.load_table('analytics.orders')
 orders = Asset.from_iceberg(iceberg_table, name='retail/orders')
 ```
 
-`pyiceberg` is NOT a slsflow dependency — the user already has it (otherwise
+`pyiceberg` is NOT a polyris dependency — the user already has it (otherwise
 they have no Iceberg table to pass). We duck-type access via `.schema()` and
 `.as_arrow()`, raise a clear `AttributeError` if the object doesn't look
 like a `pyiceberg.table.Table`. Default name falls back to the Iceberg
 identifier (`"namespace.tablename"`), mirroring `from_glue_table`.
 
-#### `slsflow-validate` — cross-pipeline schema consistency
+#### `polyris-validate` — cross-pipeline schema consistency
 
 `validate_all` now runs `validate_schema_consistency(all_dags)` and adds the
 results to the warnings list. Two checks:
@@ -5075,15 +5486,15 @@ Click feedback uses a check icon for ~1.5s. Falls back to the legacy
 
 **Changed**
 
-- `slsflow/schema.py` —
+- `polyris/schema.py` —
   - `normalize_schema` rejects duplicates with position-tagged ValueError.
   - New `Column.__repr__` (default-eliding).
-  - New `_slsflow_type_to_jsonschema(t, nullable)` for JSON Schema export.
-- `slsflow/assets.py` —
+  - New `_polyris_type_to_jsonschema(t, nullable)` for JSON Schema export.
+- `polyris/assets.py` —
   - New methods: `print_schema()`, `to_ddl()`, `to_jsonschema()`.
   - New classmethod: `from_iceberg(iceberg_table, name=None, **kwargs)`.
   - Imports the new module-level JSON-Schema helper from `schema`.
-- `slsflow/validation.py` —
+- `polyris/validation.py` —
   - `DAGInfo` gains `outlet_schemas: Dict[str, List[Dict]]`.
   - `extract_dag_info` populates outlet schemas from real Asset instances.
   - New `validate_schema_consistency(all_dags)`; called from `validate_all`.
@@ -5111,7 +5522,7 @@ Click feedback uses a check icon for ~1.5s. Falls back to the legacy
   humanization, Copy buttons).
 - `ui/src/styles/modules/_assets.css` — styles for the conflict banner,
   schema summary card, copy buttons, and structured Glue error.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`,
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`,
   `ui/package-lock.json` → `0.75.0`.
 
 #### Verification
@@ -5144,7 +5555,7 @@ references shipped in v0.74.0, but the method itself did not. v0.74.1
 implements it as a thin wrapper over `from_pyarrow`:
 
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 # Local file
 orders = Asset.from_parquet("samples/orders.parquet", name="retail/orders")
@@ -5175,7 +5586,7 @@ sibling constructors.
 
 The console_api `_build_assets_from_pipelines` route previously broke
 schema-conflict ties by column count (`len(new_schema) > len(existing_schema)`).
-That contradicted `slsflow.schema.schema_richness`, which has scored
+That contradicted `polyris.schema.schema_richness`, which has scored
 constraints (PK, partition, NOT NULL, UNIQUE, description) since v0.72.0
 and is unit-tested in the SDK. Concrete miss: a producer pipeline with a
 typed schema (`primary_key=True`, `nullable=False`) and a consumer pipeline
@@ -5184,14 +5595,14 @@ would win because the count tied.
 
 Fix is paired:
 
-- **`slsflow/schema.py`** — new `dict_schema_richness(list_of_dicts)`
+- **`polyris/schema.py`** — new `dict_schema_richness(list_of_dicts)`
   function. Same scoring as `schema_richness` but operates on the
   serialized dict shape (saves a `column_from_dict` round-trip on every
   pipeline build). Tested for parity: round-tripping a Column list through
   `column_to_dict` produces identical scores under both functions.
 - **`sam/lambdas/console_api/utils.py`** — wire-format twin of the SDK
   function, inlined because the Lambda does not ship with the SDK package.
-  `_SCHEMA_COLUMN_DEFAULTS` mirrors `slsflow.schema._COLUMN_DEFAULTS`;
+  `_SCHEMA_COLUMN_DEFAULTS` mirrors `polyris.schema._COLUMN_DEFAULTS`;
   divergence between the two would surface as a backend-vs-SDK disagreement
   on conflict winners. CLAUDE.md Principle #1 (single source of truth)
   applies — any future change to `_COLUMN_DEFAULTS` must update both.
@@ -5214,13 +5625,13 @@ practice the schemas declared for the same asset across pipelines are
 typically either identical or one is a subset; the tied-with-richer-other-side
 case is rare. If this trade-off ever bites in production, lift the function
 to a lexicographic `(column_count, constraint_count)` comparison in a
-follow-up — both `slsflow.schema` and `console_api.utils` would need to
+follow-up — both `polyris.schema` and `console_api.utils` would need to
 move together (the parity test below catches drift).
 
 #### SDK ↔ Lambda parity test for `dict_schema_richness`
 
 `_COLUMN_DEFAULTS` and `dict_schema_richness` are duplicated by necessity
-across `slsflow/schema.py` and `sam/lambdas/console_api/utils.py` (the
+across `polyris/schema.py` and `sam/lambdas/console_api/utils.py` (the
 Lambda does not ship with the SDK package). The duplication is mitigated
 by a new pytest module — `tests/integration/test_sdk_lambda_parity.py` —
 which:
@@ -5291,7 +5702,7 @@ identically-named text elsewhere on the page.
   fallback is convenient for prototyping but produces CamelCase asset
   names with no group, which surprises users when assets show up
   ungrouped on the Assets page).
-- `slsflow/adapters/pyarrow_.py` — module docstring updated; the
+- `polyris/adapters/pyarrow_.py` — module docstring updated; the
   `from_parquet` line is now accurate, not aspirational.
 - `pyproject.toml` — `[pyarrow]` extra comment matches the actual
   shipped helpers.
@@ -5310,10 +5721,10 @@ identically-named text elsewhere on the page.
 
 **Changed**
 
-- `slsflow/assets.py` — `Asset.from_parquet` classmethod added (with
+- `polyris/assets.py` — `Asset.from_parquet` classmethod added (with
   basename-as-default name fallback); dead `glue_table` kwarg guard removed.
-- `slsflow/schema.py` — `dict_schema_richness` added; export updated.
-- `slsflow/adapters/pyarrow_.py` — docstring fix.
+- `polyris/schema.py` — `dict_schema_richness` added; export updated.
+- `polyris/adapters/pyarrow_.py` — docstring fix.
 - `sam/lambdas/console_api/utils.py` — `dict_schema_richness` (Lambda
   twin) + `_SCHEMA_COLUMN_DEFAULTS` constant.
 - `sam/lambdas/console_api/routes/assets.py` — uses
@@ -5329,7 +5740,7 @@ identically-named text elsewhere on the page.
   richness-aware tie-break.
 - `docs/features/ASSETS.md`, `pyproject.toml`, `CHANGELOG.md`,
   `docs/reference/DESIGN_DECISIONS.md`.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`,
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`,
   `ui/package-lock.json` → `0.74.1`.
 
 #### Verification
@@ -5373,7 +5784,7 @@ DuckDB through a single optional dependency.
 #### New API
 
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 # 1. From any pyarrow.Schema — Iceberg, Parquet, BigQuery, Polars, Pandas, DuckDB
 import pyarrow.parquet as pq
@@ -5409,30 +5820,30 @@ explicitly to a `from_*` constructor is rejected with a clear TypeError.
 #### Optional dependencies
 
 ```bash
-pip install 'slsflow[pyarrow]'   # for from_pyarrow
-pip install 'slsflow[pydantic]'  # for from_pydantic
-pip install 'slsflow[all]'       # everything, including AI providers
+pip install 'polyris[pyarrow]'   # for from_pyarrow
+pip install 'polyris[pydantic]'  # for from_pydantic
+pip install 'polyris[all]'       # everything, including AI providers
 ```
 
-`import slsflow` succeeds without either installed. Calling a `from_*`
+`import polyris` succeeds without either installed. Calling a `from_*`
 without its peer dependency raises a clear ImportError that names the
 exact extra to install. `from_glue_table` uses the existing required
 `boto3` dependency; no extra needed.
 
 #### Type-mapping highlights
 
-  - **pyarrow → slsflow:** unsigned ints collapse to same-width signed
+  - **pyarrow → polyris:** unsigned ints collapse to same-width signed
     (uint64 → bigint with overflow at the top of the range);
     `dictionary` and `fixed_size_list` collapse to their underlying
     types; `timestamp(tz=...)` becomes `tz_aware=True`, `timestamp()`
     becomes `tz_aware=False`.
-  - **pydantic → slsflow:** `int` maps to `bigint` (Python int is
+  - **pydantic → polyris:** `int` maps to `bigint` (Python int is
     unbounded); `Decimal` maps to `decimal(38, 9)` as the safe portable
     landing; `Optional[T]` and fields with defaults become
     `nullable=True`; nested models become `struct(...)`; enums and
     `Literal[...]` become `string`.
-  - **Glue → slsflow:** reuses the existing `type_from_string` parser
-    (ADR #42) so any type slsflow can emit can be read back from Glue
+  - **Glue → polyris:** reuses the existing `type_from_string` parser
+    (ADR #42) so any type polyris can emit can be read back from Glue
     without a second parser; `Comment` becomes `description`;
     `PartitionKeys` are merged in with `partition_key=True`.
 
@@ -5440,19 +5851,19 @@ exact extra to install. `from_glue_table` uses the existing required
 
 **New**
 
-- `slsflow/adapters/__init__.py` — package marker.
-- `slsflow/adapters/pyarrow_.py` — `pyarrow_to_columns` and
+- `polyris/adapters/__init__.py` — package marker.
+- `polyris/adapters/pyarrow_.py` — `pyarrow_to_columns` and
   `columns_to_pyarrow` (round-trippable for the lossless types; lossy
   documented). ~270 lines including docstrings.
-- `slsflow/adapters/pydantic_.py` — `pydantic_to_columns`. Walks Python
+- `polyris/adapters/pydantic_.py` — `pydantic_to_columns`. Walks Python
   type annotations including Union, list, dict, nested BaseModel, Enum,
   Literal. ~220 lines.
-- `slsflow/adapters/glue.py` — `glue_table_to_columns`. Thin wrapper
+- `polyris/adapters/glue.py` — `glue_table_to_columns`. Thin wrapper
   around `boto3.client('glue').get_table()` plus the existing
   `type_from_string` parser. ~110 lines.
 - `tests/sdk/test_adapters_pyarrow.py` — 65 tests: leaf types
   (parametrized over 18 pyarrow types), tz-aware vs ntz, nested types,
-  nullability, round-trip across all 19 lossless slsflow types,
+  nullability, round-trip across all 19 lossless polyris types,
   documented-lossy round-trip, `Asset.from_pyarrow` integration.
 - `tests/sdk/test_adapters_pydantic.py` — 28 tests: leaf types
   (int/float/str/bytes/bool/date/datetime/Decimal/UUID), nullability
@@ -5467,7 +5878,7 @@ exact extra to install. `from_glue_table` uses the existing required
 
 **Changed**
 
-- `slsflow/assets.py` — three new classmethods: `Asset.from_pyarrow`,
+- `polyris/assets.py` — three new classmethods: `Asset.from_pyarrow`,
   `Asset.from_pydantic`, `Asset.from_glue_table`. Each delegates to the
   corresponding adapter. Lazy-imports the adapter so `Asset` itself
   never pulls pyarrow/pydantic at import time.
@@ -5476,7 +5887,7 @@ exact extra to install. `from_glue_table` uses the existing required
   for CI test runs.
 - `docs/features/ASSETS.md` — new "Constructing Assets from Existing
   Schema Sources" subsection with examples for all three constructors.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json` →
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json` →
   `0.74.0`.
 
 #### Verification
@@ -5583,7 +5994,7 @@ no code changes required.
   `.adp-spinning` ruleset for the new panel.
 - `docs/features/ASSETS.md` — new "Glue Catalog Sync (on-demand)"
   subsection under Schema Declaration.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json` →
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json` →
   `0.73.0`.
 
 #### Verification
@@ -5622,7 +6033,7 @@ outlier and has open issues asking for stricter typing.
 #### New API
 
 ```python
-from slsflow import Asset, Column, types as t
+from polyris import Asset, Column, types as t
 
 orders = Asset(
     name="retail/orders",
@@ -5649,7 +6060,7 @@ Constraint fields on `Column`: `nullable` (default `True`), `primary_key`,
 - `schema=[{"name": "col", "type": "bigint"}]` still works.
 - All forms can be mixed in one schema declaration.
 - All three forms normalize to `List[Column]` internally via a single
-  `slsflow.schema.normalize_schema()` function.
+  `polyris.schema.normalize_schema()` function.
 - Wire format on disk: defaults are omitted, so a legacy declaration produces
   byte-identical JSON. All 60 ASL snapshot tests pass without regeneration.
 
@@ -5664,7 +6075,7 @@ Previously this was silent last-writer-wins.
 
 **New**
 
-- `slsflow/schema.py` — type classes (21), factory functions, `Column`
+- `polyris/schema.py` — type classes (21), factory functions, `Column`
   dataclass, `normalize_schema`, `column_to_dict`/`column_from_dict`,
   `to_glue_string`/`type_from_string`, `schema_richness`. ~570 lines including
   docstrings and `__all__`.
@@ -5677,16 +6088,16 @@ Previously this was silent last-writer-wins.
 
 **Changed**
 
-- `slsflow/assets.py` — `Asset.__init__` calls `normalize_schema(schema)`;
+- `polyris/assets.py` — `Asset.__init__` calls `normalize_schema(schema)`;
   `Asset.schema` is always `List[Column]` internally; `Asset.to_dict()` uses
   `[column_to_dict(c) for c in self.schema]`. Private `_serialize_schema()`
   method removed (deduplication; logic now lives once in `schema.py`).
   Docstring rewritten with new typed examples and explicit backward-compat note.
-- `slsflow/generators.py` — `_serialize_outlet()` uses `column_to_dict`
+- `polyris/generators.py` — `_serialize_outlet()` uses `column_to_dict`
   instead of the removed `asset._serialize_schema()` method.
-- `slsflow/__init__.py` — exports `Column`, `Schema`, `SlsflowType`, and
-  re-exports `slsflow.schema` as `slsflow.types` for ergonomic factory access
-  (`from slsflow import types as t; t.bigint()`).
+- `polyris/__init__.py` — exports `Column`, `Schema`, `PolyrisType`, and
+  re-exports `polyris.schema` as `polyris.types` for ergonomic factory access
+  (`from polyris import types as t; t.bigint()`).
 - `sam/lambdas/console_api/routes/assets.py` — `_build_assets_from_pipelines`
   splits schema field out of the last-writer-wins enrichment loop and adds
   conflict detection (richer-wins + warning).
@@ -5712,7 +6123,7 @@ Previously this was silent last-writer-wins.
   reference example. Trigger: this session's near-miss where a 570-line
   custom type system was almost built from scratch before checking the
   ecosystem first.
-- Version: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json` →
+- Version: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json` →
   `0.72.0`.
 
 #### Verification
@@ -5799,8 +6210,8 @@ record:
 The single remaining typed `except: pass` in `executions.py:320` is
 intentional — it's the idempotency pattern around
 `executions_repo.conditional_check_exception` (Principle #3) and stays
-silent on purpose. Two CLI paths (`slsflow/deploy.py:360` SystemExit
-recovery, `slsflow/ai/cli.py:573` arg parsing) are out of scope.
+silent on purpose. Two CLI paths (`polyris/deploy.py:360` SystemExit
+recovery, `polyris/ai/cli.py:573` arg parsing) are out of scope.
 
 #### `backfill.py` — Principle #38 cleanup (4 sites)
 
@@ -5828,10 +6239,10 @@ around per-provider initialization. Provider constructors only raise
 `ConnectionError` (Ollama unreachable), so all five now use
 `(ImportError, ValueError, ConnectionError)`:
 
-- `slsflow/ai/providers.py:593` (Groq), `:608` (Anthropic), `:621` (OpenAI),
+- `polyris/ai/providers.py:593` (Groq), `:608` (Anthropic), `:621` (OpenAI),
   `:631` (Ollama), `:644` (Gemini).
 
-Two more in `slsflow/ai/core.py`:
+Two more in `polyris/ai/core.py`:
 
 - `:469` `save_pipeline` filesystem writes → `(OSError, ValueError)`.
 - `:533` `list_pipelines` per-file parse → `(OSError, UnicodeDecodeError)`.
@@ -5997,7 +6408,7 @@ the same regex strip used by CI so `make lint` now succeeds locally.
 **Docs / tooling:**
 - `CLAUDE.md` — ADR #41 added to Key ADRs table
 - `Makefile` — lint target now strips `${var}` substitutions
-- `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json` — version bump
+- `pyproject.toml`, `polyris/__init__.py`, `ui/package.json` — version bump
 
 ### Tests
 
@@ -6278,7 +6689,7 @@ the edge.
 cd sam && sam deploy
 
 # Wait for CloudFormation status = UPDATE_COMPLETE (~3-5 minutes)
-aws cloudformation describe-stacks --stack-name slsflow-dev \
+aws cloudformation describe-stacks --stack-name polyris-dev \
   --query 'Stacks[0].StackStatus'
 
 # 2. Deploy frontend with path-based routes
@@ -6323,10 +6734,10 @@ If anything breaks in production:
 1. AWS Console → CloudFront → distribution → Behaviors → Edit Default
 2. Remove Function association
 3. Save → automatic deploy (~5 min for edge propagation)
-4. Redeploy `slsflow_baseline_v70_18.tar.gz`
+4. Redeploy `polyris_baseline_v70_18.tar.gz`
 
 **Option B — redeploy v0.70.18 (~10 minutes):**
-1. Extract `slsflow_baseline_v70_18.tar.gz`
+1. Extract `polyris_baseline_v70_18.tar.gz`
 2. `cd sam && sam deploy` (will remove Function from template)
 3. Wait UPDATE_COMPLETE
 4. `cd ui && npm ci && npm run build && ./deploy.sh`
@@ -6463,7 +6874,7 @@ they form a paper trail when something goes wrong.
   - Backend + Integration: 163 passed
   - Console API: 82 passed (10 new DAL + 19 new helper + 8 new orphan + 45 existing utils)
 - `make check-versions` clean
-- `python -m py_compile` clean across slsflow/, sam/lambdas/, pipelines/
+- `python -m py_compile` clean across polyris/, sam/lambdas/, pipelines/
 
 ### Migration notes
 
@@ -6837,8 +7248,8 @@ After v0.70.9 fixed root viewport (`.app { height: 100vh }`), several inner cont
 **Testing:**
 - All 323 backend/SDK tests pass
 - `cfn-lint sam/template.yaml` — 0 errors
-- Version consistency: `pyproject.toml` = `slsflow/__init__.py` = `ui/package.json` = 0.70.8
-- UI tests (`vitest`) — must be run by maintainer after pull (CI skips when no SLSFLOW_API_URL)
+- Version consistency: `pyproject.toml` = `polyris/__init__.py` = `ui/package.json` = 0.70.8
+- UI tests (`vitest`) — must be run by maintainer after pull (CI skips when no POLYRIS_API_URL)
 
 ---
 
@@ -6862,7 +7273,7 @@ After v0.70.9 fixed root viewport (`.app { height: 100vh }`), several inner cont
 
 **Cleanup (Rule #1 — No duplication, Rule #7 — Finish what you start):**
 - `ASSET_REGISTRY_TABLE` env var removed from `sam/lambdas/console_api/tests/conftest.py` (table was removed in v70.6 per ADR #39)
-- Build artifacts excluded from archive: `slsflow.egg-info/`, `ui/next-env.d.ts`, `ui/tsconfig.tsbuildinfo`
+- Build artifacts excluded from archive: `polyris.egg-info/`, `ui/next-env.d.ts`, `ui/tsconfig.tsbuildinfo`
 
 **CLAUDE.md (Rule #9 — Docs up to date):**
 - Key ADRs table updated: corrected ADR numbers, added #28, #35, #38
@@ -6871,7 +7282,7 @@ After v0.70.9 fixed root viewport (`.app { height: 100vh }`), several inner cont
 **Testing:**
 - All 323 tests pass (169 SDK + 154 backend)
 - `cfn-lint sam/template.yaml` — 0 errors
-- Version consistency: `pyproject.toml` = `slsflow/__init__.py` = `ui/package.json` = 0.70.7
+- Version consistency: `pyproject.toml` = `polyris/__init__.py` = `ui/package.json` = 0.70.7
 
 ---
 
@@ -6929,34 +7340,34 @@ After v0.70.9 fixed root viewport (`.app { height: 100vh }`), several inner cont
 
 ## v70.5 (0.70.5) - 2026-04-10
 
-### Breaking: Pulumi removed — migration to slsflow-deploy
+### Breaking: Pulumi removed — migration to polyris-deploy
 
-- `slsflow/pulumi.py` — removed
+- `polyris/pulumi.py` — removed
 - `docs/deployment/PULUMI.md` — removed
 - `tests/sdk/test_registration_provider.py` — removed
 - `Pulumi.yaml` removed from all `pipelines/`
 - All 6 demo pipelines updated — no `import pulumi`, no `deploy(dag, infra)`
-- `slsflow-init` — now generates a CFN-ready template (without Pulumi)
-- `slsflow-ai` — generates code without Pulumi boilerplate
-- `slsflow/deploy.py` — Pulumi mocking removed (no longer needed)
-- `slsflow/validation.py` — Pulumi mocking removed
-- Docs — all `pulumi up` replaced with `slsflow-deploy`
+- `polyris-init` — now generates a CFN-ready template (without Pulumi)
+- `polyris-ai` — generates code without Pulumi boilerplate
+- `polyris/deploy.py` — Pulumi mocking removed (no longer needed)
+- `polyris/validation.py` — Pulumi mocking removed
+- Docs — all `pulumi up` replaced with `polyris-deploy`
 
-**Migration:** replace `pulumi up` with `slsflow-deploy` in pipelines.
-Remove from `__main__.py`: `import pulumi`, `from slsflow.pulumi import...`, `deploy(dag, infra)`.
+**Migration:** replace `pulumi up` with `polyris-deploy` in pipelines.
+Remove from `__main__.py`: `import pulumi`, `from polyris.pulumi import...`, `deploy(dag, infra)`.
 
 ---
 
 ## v70.4 (0.70.4) - 2026-04-10
 
-### New: `slsflow-deploy` — CloudFormation pipeline deployment
+### New: `polyris-deploy` — CloudFormation pipeline deployment
 
-- `slsflow/deploy.py` — new module, parallel alternative to Pulumi
-- `slsflow-deploy` CLI command (entry point in pyproject.toml)
+- `polyris/deploy.py` — new module, parallel alternative to Pulumi
+- `polyris-deploy` CLI command (entry point in pyproject.toml)
 - Generates a CFN template from the DAG (SFN + LogGroup + EventBridge)
 - Deploys via `aws cloudformation deploy`
 - After deploy, registers the pipeline via SFN (register_only=true)
-- Reads config from SSM `/slsflow/{stage}/` — the same source as Pulumi
+- Reads config from SSM `/polyris/{stage}/` — the same source as Pulumi
 - Pulumi remains fully functional — both options supported
 - `docs/deployment/DEPLOY.md` — documentation
 
@@ -7011,12 +7422,12 @@ Remove from `__main__.py`: `import pulumi`, `from slsflow.pulumi import...`, `de
 - Replaced `from_terraform_state()` with `from_ssm()` — infrastructure ARNs now written to SSM Parameter Store by Terraform automatically after `tofu apply`
 - Switched to OpenTofu (`tofu`) — S3 native locking via `use_lockfile = true`, no DynamoDB needed
 - Single S3 bucket for both Terraform and Pulumi state
-- Added `terraform/modules/slsflow/vercel.tf` — Vercel project and env variables managed by Terraform (optional)
+- Added `terraform/modules/polyris/vercel.tf` — Vercel project and env variables managed by Terraform (optional)
 - Terraform `shared/` now structured as a reusable module
 
 ### Configuration
-- Removed `[tool.slsflow.terraform_state]` section from `pyproject.toml`
-- Removed `[tool.slsflow.accounts]` section — use full ARN strings with `STAGE` directly
+- Removed `[tool.polyris.terraform_state]` section from `pyproject.toml`
+- Removed `[tool.polyris.accounts]` section — use full ARN strings with `STAGE` directly
 - Removed `config.arn()` and `config.accounts` — explicit ARNs are more transparent
 - Removed `state_bucket` property from `config.py`
 - Minimal `pyproject.toml`: only `namespace`, `region`, `roles`
@@ -7070,7 +7481,7 @@ Total snapshot tests: 60 (33 Task + 27 Step), 28 golden files.
 
 ### Version Sync
 
-Unified versioning across all packages. `pyproject.toml`, `slsflow/__init__.py`, and `ui/package.json` now share the same version string. CI enforces consistency — version mismatch fails the build.
+Unified versioning across all packages. `pyproject.toml`, `polyris/__init__.py`, and `ui/package.json` now share the same version string. CI enforces consistency — version mismatch fails the build.
 
 Previous state: backend at 0.68.1, UI at 47.1.0, CHANGELOG at v69.3.
 
@@ -7142,7 +7553,7 @@ Exception: `health.py` circuit_breaker table — separate monitoring table, no r
 
 **Migrated all tests to pytest-mock** (`mocker` fixture). Project-wide standard: `pytest-mock>=3.0.0` (ADR #26). 12 test files migrated from `unittest.mock` → `mocker.patch()`, `mocker.MagicMock()`. Benefits: auto-cleanup via fixture lifecycle, no `with` blocks or decorator stacks, consistent style across all 448 tests.
 
-Exceptions: `slsflow/validation.py` (runtime Pulumi module spoofing), `test_registration_provider.py` (`sys.modules` bootstrap).
+Exceptions: `polyris/validation.py` (runtime Pulumi module spoofing), `test_registration_provider.py` (`sys.modules` bootstrap).
 
 **Fixed 30 broken tests** caused by DAL migration (v69.3) and pipelines split (v69.2):
 
@@ -7188,11 +7599,11 @@ Files removed: `routes/pipelines.py`
 - `sfn_templates/helpers/register_on_create/` (213 lines)
 
 **Terraform/CloudFormation pipeline providers removed:**
-- `slsflow/terraform.py` (495 lines) — `generate()` for full TF project
-- `slsflow/cloudformation.py` (239 lines) — `generate()` for CFN/SAM templates
+- `polyris/terraform.py` (495 lines) — `generate()` for full TF project
+- `polyris/cloudformation.py` (239 lines) — `generate()` for CFN/SAM templates
 - `generators.py`: `generate_terraform()` (276 lines), `generate_cloudformation()` (249 lines), `generate_terraform_vars()` (43 lines)
 - CLI flags: `--terraform`, `--cloudformation`, `--cfn`, `--sam`, `--vars`
-- `slsflow-init`: `--terraform`, `--cfn` scaffolding templates
+- `polyris-init`: `--terraform`, `--cfn` scaffolding templates
 - AI assistant: `/iac` command, `--iac` flag (now Pulumi-only)
 
 **Total removed:** ~1,900 lines code, 14 AWS resources. All pipelines deploy via Pulumi.
@@ -7209,7 +7620,7 @@ Each execution now snapshots its DAG structure to DynamoDB (`tokens_table`) at s
 - Response includes `dag_source` field: `'snapshot'` | `'registry'` | `'inferred'`
 - New `generate_dag_hash()` utility — deterministic 8-char SHA256 of DAG structure
 
-Files changed: `slsflow/generators.py`, `terraform/shared/lambdas/console_api/routes/pipelines.py`, `terraform/shared/outputs.tf`
+Files changed: `polyris/generators.py`, `terraform/shared/lambdas/console_api/routes/pipelines.py`, `terraform/shared/outputs.tf`
 
 ### Pulumi Dynamic Provider for Pipeline Registration
 
@@ -7222,7 +7633,7 @@ Replaced implicit EventBridge-based registration with explicit Pulumi lifecycle 
 
 New Pulumi exports after `pulumi up`: `{dag_id}_registered`, `{dag_id}_dag_hash`, `{dag_id}_tasks`, `{dag_id}_assets`, `{dag_id}_group`
 
-Files changed: `slsflow/pulumi.py`
+Files changed: `polyris/pulumi.py`
 
 ### UI: "Stop Task" Terminology Fix
 
@@ -7251,7 +7662,7 @@ Three categories of fixes to prevent duplicate operations from retries, double-c
 - **Deterministic timeline event keys**: `record_manual_decision()` now uses `hashlib.md5(execution_name+decision)` suffix instead of `uuid4()`, so retries overwrite the same event item instead of creating duplicates.
 - **UI action debounce**: Modal confirm button shows "Working…" and disables during API calls. Cancel and close also blocked while pending. Prevents double-click on Run Pipeline, Restart, Skip, Fail, Mark Success, Stop.
 
-Files changed: `routes/pipelines.py`, `routes/tasks.py`, `routes/slack.py`, `task_actions.py`, `utils.py`, `slsflow/local.py`, `slsflow/register.py`, `ui/src/hooks/usePipelineActions.jsx`, `ui/src/components/Modal.jsx`, `ui/src/App.jsx`, `ui/src/contexts/AppContext.jsx`
+Files changed: `routes/pipelines.py`, `routes/tasks.py`, `routes/slack.py`, `task_actions.py`, `utils.py`, `polyris/local.py`, `polyris/register.py`, `ui/src/hooks/usePipelineActions.jsx`, `ui/src/components/Modal.jsx`, `ui/src/App.jsx`, `ui/src/contexts/AppContext.jsx`
 
 ## v68 (0.68.0) - 2026-02-19
 
@@ -7466,7 +7877,7 @@ When a task is in `waiting` state, the Dependencies section now shows:
 Links were empty because ARNs weren't available on failure path:
 - **wrapper_execution_arn**: Added to Wrapper `Prepare_Inputs` (passes `$states.context.Execution.Id` through to run_task)
 - **task_execution_arn**: All 7 task runner Catch outputs now extract `ExecutionArn` from `error.Cause` JSON (sync:2 format)
-- **UI console link**: Added `SLSFlow Console` link to PD alerts (uses `console_url_override` / Vercel URL)
+- **UI console link**: Added `Polyris Console` link to PD alerts (uses `console_url_override` / Vercel URL)
   - URL format: `{ui_url}/?pipeline={name}&task={name}&date={date}`
   - Conditional: omitted if `console_url_override` not set
 - Zero additional state transitions — all changes in existing Pass/Catch outputs
@@ -7533,8 +7944,8 @@ Both are simple HTTP POST workflows (~5 states) — Express pricing is ~10x chea
 - `terraform/shared/sfn_templates/helpers/interactive_choice_slack/sfn.tpl.json` — dynamic CC mentions
 - `terraform/shared/main.tf` — module wiring, default_slack_mentions
 - `terraform/shared/variables.tf` — default_slack_mentions variable
-- `slsflow/dag.py` — slack_mentions validation
-- `slsflow/generators.py` — slack_mentions formatting at compile time
+- `polyris/dag.py` — slack_mentions validation
+- `polyris/generators.py` — slack_mentions formatting at compile time
 - `tests/test_alerting.py` — 74 tests
 - `docs/architecture/ARCHITECTURE.md` — updated failure flow diagrams
 - `docs/features/DSL.md` — slack_mentions documentation
@@ -7704,9 +8115,9 @@ alerts={
   - Self-trigger cycle prevention
   - Uses subscription data directly (no extra DynamoDB GetItem)
   
-- **`slsflow-validate` CLI command** — Cross-pipeline validation
+- **`polyris-validate` CLI command** — Cross-pipeline validation
   ```bash
-  slsflow-validate --dir ./pipelines
+  polyris-validate --dir ./pipelines
   # Checks for asset cycles between DAGs
   ```
   
@@ -7745,7 +8156,7 @@ alerts={
 
 - **Pipeline name duplication bug**
   - Fixed: `pipeline_name` now uses `dag_id` instead of `StateMachine.Name`
-  - Previously: `myorg-dev-slsflow-acme-daily` (full SFN name with namespace)
+  - Previously: `myorg-dev-polyris-acme-daily` (full SFN name with namespace)
   - Now: `acme-daily` (clean dag_id)
   - Requires re-deploy of all pipelines to fix existing duplicates
 
@@ -7836,7 +8247,7 @@ To switch from CloudFront to Vercel:
   - MFA support (TOTP) - configurable as OFF/OPTIONAL/ON
   - Strong password policies (12+ chars, mixed case, numbers, symbols)
 - **Login Page** (`LoginPage.jsx`)
-  - Clean UI matching slsflow design system
+  - Clean UI matching polyris design system
   - Email/password sign in
   - New password setup flow (first login)
   - MFA verification
@@ -7873,7 +8284,7 @@ To switch from CloudFront to Vercel:
 ## v51.8 - 2026-01-27
 
 ### Added (AI Assistant)
-- **slsflow-ai CLI** — AI-powered pipeline generation from natural language (FREE!)
+- **polyris-ai CLI** — AI-powered pipeline generation from natural language (FREE!)
   - Smart provider: Groq (cloud) → Ollama (local) fallback
   - Interactive mode with `/generate`, `/debug`, `/help` commands
   - **NEW: `/example [name]`** — Show production-ready examples (basic, parallel, cleanup, asset, wait_for, glue)
@@ -7883,14 +8294,14 @@ To switch from CloudFront to Vercel:
   - Auto-setup on first run (downloads model, prompts for Groq key)
   - Comprehensive knowledge base (~300 lines of DSL documentation)
   - 6 production-ready examples built-in
-- **Local testing module** (`slsflow.local`)
+- **Local testing module** (`polyris.local`)
   - `validate(dag)` — Check DAG structure and ASL validity
   - `dry_run(dag)` — Preview execution plan without running
   - `run(dag, mock=True)` — Simulate execution locally
   - `run(dag, localstack=True)` — Run against LocalStack
 - **Multi-IaC deployment modules**
-  - `slsflow.terraform` — Generate Terraform configuration
-  - `slsflow.cloudformation` — Generate CloudFormation/SAM templates
+  - `polyris.terraform` — Generate Terraform configuration
+  - `polyris.cloudformation` — Generate CloudFormation/SAM templates
 
 ### Documentation
 - Complete rewrite of AI_ASSISTANT.md
@@ -8071,7 +8482,7 @@ To switch from CloudFront to Vercel:
 ### Fixed
 - **Pipeline name tooltip**: Added title attribute to pipeline name in sidebar for showing full name on hover when truncated
 
-All notable changes to slsflow are documented in this file.
+All notable changes to polyris are documented in this file.
 
 ## [v36.95] - 2026-01-15
 
@@ -8231,7 +8642,7 @@ All notable changes to slsflow are documented in this file.
 ## [v36.70] - 2026-01-13
 
 ### Changed
-- Module default namespace = `"slsflow"` (for standalone use)
+- Module default namespace = `"polyris"` (for standalone use)
 - All module calls in `main.tf` now explicitly pass `namespace = var.namespace`
 
 ---

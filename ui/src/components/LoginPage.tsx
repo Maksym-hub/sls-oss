@@ -1,13 +1,13 @@
 /**
  * Login Page Component
  * 
- * Provides authentication UI for slsflow Console with support for:
+ * Provides authentication UI for polyris Console with support for:
  * - Email/password sign in
  * - New password setup (first login)
  * - MFA verification (if enabled)
  * - Password reset flow
  * 
- * Styled to match the slsflow Console design system.
+ * Styled to match the polyris Console design system.
  * 
  * @module components/LoginPage
  */
@@ -596,7 +596,7 @@ export function LoginPage() {
                         <div className="lp-login-logo-icon">
                             <Zap size={28} />
                         </div>
-                        <span>slsflow</span>
+                        <span>polyris</span>
                     </div>
                     <h1 className="lp-login-title">Console</h1>
                     <p className="lp-login-subtitle">

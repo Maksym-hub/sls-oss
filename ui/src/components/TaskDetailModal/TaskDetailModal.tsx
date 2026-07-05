@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { formatDate, buildAwsConsoleUrl, getUpstreamCount, getDownstreamCount } from '../../utils';
 import { logger } from '../../utils/logger';
-import { useKeyboardShortcuts, SHORTCUTS } from '../../hooks';
+import { useKeyboardShortcuts } from '../../hooks';
 import { 
     StatusIcon, 
     CheckCircle2, 

@@ -378,7 +378,7 @@ class TestStatusCategories:
     """Verify status category definitions.
 
     v0.79.5 (ADR #77) — sets are now imported from canonical
-    slsflow/constants.py via generated module-level constants. The
+    polyris/constants.py via generated module-level constants. The
     canonical TaskStatus enum includes both 'success' (legacy/Airflow 2
     form) and 'succeeded' (Airflow 3 form), so the terminal/success
     sets contain both.

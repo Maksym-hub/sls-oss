@@ -1,15 +1,15 @@
 # Local Testing
 
-Test slsflow pipelines locally without deploying to AWS.
+Test polyris pipelines locally without deploying to AWS.
 
 ## Quick Start
 
 ```python
-from slsflow import DAG, task
-from slsflow.local import validate, dry_run, run
+from polyris import DAG, task
+from polyris.local import validate, dry_run, run
 
 # Define your pipeline
-with DAG("my-pipeline", schedule="@daily", alerts={"slack": "#alerts"}) as dag:
+with DAG("my-pipeline", schedule="@daily") as dag:
     @task.sfn(arn="arn:aws:states:...")
     def extract(): pass
     
@@ -36,7 +36,7 @@ Validates:
 - Alerts are configured
 
 ```python
-from slsflow.local import validate
+from polyris.local import validate
 
 result = validate(dag)
 # Returns: {'valid': True, 'errors': [], 'warnings': [], 'info': {...}}
@@ -56,7 +56,7 @@ result = validate(dag)
 Shows what would happen without executing:
 
 ```python
-from slsflow.local import dry_run
+from polyris.local import dry_run
 
 dry_run(dag)
 dry_run(dag, show_asl=True)     # Also show Step Functions JSON
@@ -101,7 +101,7 @@ graph LR
 Simulates pipeline execution locally:
 
 ```python
-from slsflow.local import run
+from polyris.local import run
 
 # Simple mock
 result = run(dag, mock=True)
@@ -150,7 +150,7 @@ docker run -d -p 4566:4566 localstack/localstack
 ```
 
 ```python
-from slsflow.local import run
+from polyris.local import run
 
 result = run(dag, localstack=True)
 # or with custom endpoint:
@@ -230,7 +230,7 @@ Recommended test structure:
 # tests/test_my_pipeline.py
 import pytest
 from my_pipeline import dag
-from slsflow.local import validate, dry_run, run
+from polyris.local import validate, dry_run, run
 
 class TestMyPipeline:
     def test_validation(self):

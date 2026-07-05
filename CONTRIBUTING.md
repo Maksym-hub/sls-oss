@@ -1,4 +1,4 @@
-# Contributing to slsflow
+# Contributing to polyris
 
 ## Prerequisites
 
@@ -31,8 +31,9 @@ No AWS credentials needed for running tests locally (uses pytest-mock `mocker` f
 ### 1. Clone and Setup
 
 ```bash
-git clone https://github.com/YOUR_ORG/slsflow.git
-cd slsflow
+# TODO(release): replace `polyris` with the real GitHub org before publishing
+git clone https://github.com/polyris/polyris.git
+cd polyris
 
 # Python dependencies (for SDK development)
 pip install -e ".[dev]"
@@ -74,8 +75,8 @@ cd ui
 # Copy environment template
 cp .env.example .env.local
 
-# Edit .env.local:
-# API_GATEWAY_URL=https://xxx.execute-api.us-east-1.amazonaws.com/api
+# Edit .env.local — full invoke URL incl. stage and /api:
+# NEXT_PUBLIC_API_URL=https://xxx.execute-api.us-east-1.amazonaws.com/dev/api
 # NEXT_PUBLIC_AUTH_ENABLED=false
 
 # Start dev server
@@ -84,7 +85,7 @@ npm run dev
 ```
 
 **Note:** UI needs a backend API. Options:
-1. Point to deployed dev environment (set `API_GATEWAY_URL` in `.env.local`)
+1. Point to a deployed environment (set `NEXT_PUBLIC_API_URL` in `.env.local`; see `docs/operations/UI.md`)
 2. Run with mock data (not yet implemented)
 
 ---
@@ -92,9 +93,8 @@ npm run dev
 ## Project Structure
 
 ```
-slsflow/
-├── slsflow/              # Python SDK - the DSL users write pipelines with
-│   ├── ai/               # AI assistant (slsflow-ai CLI)
+polyris/
+├── polyris/              # Python SDK - the DSL users write pipelines with
 │   ├── dag.py            # DAG class
 │   ├── task.py           # @task decorators
 │   ├── generators.py     # Step Functions JSON generation
@@ -175,20 +175,19 @@ PYTHONPATH=. pytest test_evaluate_deps.py::TestCheckTriggerRule -v
 
 ## Common Tasks
 
-> **Open-core & skills.** slsflow is open-core with **three tiers**: free
+> **Open-core & skills.** polyris is open-core with **three tiers**: free
 > (open-source), **Team** and **Enterprise** (both paid, hosted). Proprietary code
 > lives per tier under `ui/src/ee/{team,enterprise}/` and
 > `console_api/ee/{team,enterprise}/`; everything else is public and the public
 > build ships without `ee/`. Two boundaries: **free↔paid** is a physical strip;
-> **Team↔Enterprise** is a runtime entitlement (`SLSFLOW_TIER` + `can()`). Before
+> **Team↔Enterprise** is a runtime entitlement (`POLYRIS_TIER` + `can()`). Before
 > adding a feature, decide the tier (authoring/basic-read = free; ops/intervention
-> = Team; governance/cost/SSO = Enterprise). The checklists below are summaries —
-> for the full step-by-step **including the tier decision and the OSS build guard**,
-> use the Claude Code skills in [`.claude/skills/`](.claude/skills):
-> **`tier-and-entitlements`** (the tier model + adding a tier or Enterprise
-> feature), **`add-ui-feature`**, **`add-backend-route`**, **`add-aws-service`**.
-> See the "Open-core UI surface" and "API Routes" sections of `CLAUDE.md` for the
-> mechanism (ADR #97/#98/#99/#100).
+> = Team; governance/cost/SSO = Enterprise). The checklists below cover the free
+> (public) surface. The **`add-aws-service`** skill in
+> [`.claude/skills/`](.claude/skills) walks adding a new AWS service to the DSL.
+> See ADR #97 (plugin route registration), #98 (open-core split structure), and
+> #99 (UI open-core exclusion) in `docs/reference/` for the mechanism behind the
+> open-core UI surface and API route registration.
 
 ### Adding a New Task Status
 
@@ -200,13 +199,15 @@ PYTHONPATH=. pytest test_evaluate_deps.py::TestCheckTriggerRule -v
 
 ### Adding a New API Endpoint
 
-See the **`add-backend-route`** skill for the full flow. In short:
+Free (public) routes live in `console_api/routes/`. In short:
 
-1. Decide the tier: read → `console_api/routes/`; mutation/ops → `console_api/ee/team/`
-2. Add a `register(router)` module with `router.add(METHOD, path, handler)`
-3. Wire it: free → `ROUTE_MODULES` in `console_api/main.py`; Team → `ee/team` `MODULES`
-4. Tests with `pytest-mock` in `console_api/tests/` (free) or `ee/team/tests/` (Team)
-5. Document in `docs/operations/API.md`
+1. Add a `register(router)` module with `router.add(METHOD, path, handler)`
+2. Wire it into `ROUTE_MODULES` in `console_api/main.py`
+3. Tests with `pytest-mock` in `console_api/tests/`
+4. Document in `docs/operations/API.md`
+
+The plugin registration pattern is described in ADR #97. (Paid Team/Enterprise
+routes follow the same `register(router)` seam in the private repo.)
 
 ### Modifying Step Functions
 
@@ -222,7 +223,7 @@ See the **`add-backend-route`** skill for the full flow. In short:
 
 ## Sign your commits (DCO)
 
-slsflow uses the [Developer Certificate of Origin](DCO) — by signing off you
+polyris uses the [Developer Certificate of Origin](DCO) — by signing off you
 certify you wrote the patch or otherwise have the right to contribute it under the
 project's Apache-2.0 license. **Every commit must be signed off**, and CI enforces
 it (`.github/workflows/dco.yml`):
@@ -236,7 +237,7 @@ The sign-off name/email must match your commit author identity.
 
 > **DCO vs CLA.** The DCO is a lightweight provenance check; contributions come in
 > under the same Apache-2.0 license (inbound = outbound). It deliberately does
-> **not** ask you to assign rights. Because slsflow's paid tiers are built from
+> **not** ask you to assign rights. Because polyris's paid tiers are built from
 > *separate* code — not from contributions to the open core — a heavier Contributor
 > License Agreement is **not** required today. If relicensing optionality on
 > contributed core code is ever needed, a CLA (e.g. via cla-assistant) would be
@@ -257,6 +258,8 @@ The sign-off name/email must match your commit author identity.
 
 ## Getting Help
 
+- **Code of Conduct:** See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — all contributors are expected to follow it.
+- **Reporting a vulnerability:** See [SECURITY.md](SECURITY.md) — please report security issues privately, not via public issues.
 - **Architecture questions:** See `docs/architecture/`
 - **API reference:** See `docs/operations/API.md`
-- **Slack:** #slsflow-dev
+- **Slack:** #polyris-dev

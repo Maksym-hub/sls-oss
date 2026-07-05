@@ -6,8 +6,8 @@ import { UserMenu } from './UserMenu';
 import { toDateString, viewFromPathname } from '../utils';
 import { useAppStore } from '../stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
-import { useBackfillsListQuery } from '../hooks/queries';
-import type { ViewTabProps } from '@/types';
+import { paidSurface } from '@/ee-active.generated';
+import { ViewTab } from './ViewTab';
 import { 
     Workflow, 
     Package, 
@@ -20,10 +20,10 @@ import {
     Moon,
     Zap,
     ChevronRight,
+    History,
     Menu,
     X
 } from 'lucide-react';
-import { ActionIcons } from '@/utils/icons';
 
 interface HeaderProps {
     apiConnected: boolean;
@@ -58,11 +58,11 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
 
     const switchView = (view: string) => router.push(`/${view}/`);
 
-    // Active backfill count for the nav badge. Polls every 5s (handled by
-    // useBackfillsListQuery's refetchInterval for 'active' filter). Falls
-    // back to 0 silently on error — header should never crash on query.
-    const activeBackfillsQuery = useBackfillsListQuery('active');
-    const activeBackfillCount = activeBackfillsQuery.data?.length ?? 0;
+    // Backfills nav: the paid build ships BackfillNavTab (with a live active-count
+    // badge that polls /api/backfills). In OSS that slot is empty, so we render a
+    // plain static tab instead — it navigates to the /backfills "coming soon" page
+    // (mirroring Assets) and does NOT poll. Either way there is a Backfills tab.
+    const BackfillNavTab = paidSurface.BackfillNavTab;
 
     return (
         <header className="header" role="banner">
@@ -76,7 +76,7 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
             {/* Logo */}
             <div className="hdr-logo">
                 <div className="hdr-logo-icon"><Zap size={20} /></div>
-                slsflow Console
+                polyris Console
             </div>
 
             {/* Breadcrumbs */}
@@ -108,13 +108,19 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
                     icon={<Activity size={16} />}
                     label="All Runs"
                 />
-                <ViewTab
-                    active={mainView === 'backfills'}
-                    onClick={() => switchView('backfills')}
-                    icon={<ActionIcons.backfill size={16} />}
-                    label="Backfills"
-                    badge={activeBackfillCount}
-                />
+                {BackfillNavTab ? (
+                    <BackfillNavTab
+                        active={mainView === 'backfills'}
+                        onClick={() => switchView('backfills')}
+                    />
+                ) : (
+                    <ViewTab
+                        active={mainView === 'backfills'}
+                        onClick={() => switchView('backfills')}
+                        icon={<History size={16} />}
+                        label="Backfills"
+                    />
+                )}
             </nav>
 
             {/* Header Controls */}
@@ -251,29 +257,6 @@ function Breadcrumbs() {
                 </>
             )}
         </nav>
-    );
-}
-
-/**
- * ViewTab - Single tab in the view switcher
- */
-function ViewTab({ active, onClick, icon, label, badge }: ViewTabProps) {
-    return (
-        <div
-            className={`nav-pill nav-pill--md ${active ? 'active' : ''}`}
-            onClick={onClick}
-            title={label}
-            role="tab"
-            tabIndex={0}
-            aria-selected={active}
-            aria-label={badge ? `${label} (${badge} active)` : label}
-            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
-        >
-            {icon} <span className="hdr-nav-pill-label">{label}</span>
-            {badge && badge > 0 ? (
-                <span className="nav-pill-badge" aria-hidden="true">{badge}</span>
-            ) : null}
-        </div>
     );
 }
 

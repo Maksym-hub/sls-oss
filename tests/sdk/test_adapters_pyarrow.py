@@ -1,4 +1,4 @@
-"""Tests for slsflow.adapters.pyarrow_ — pyarrow.Schema ↔ List[Column]."""
+"""Tests for polyris.adapters.pyarrow_ — pyarrow.Schema ↔ List[Column]."""
 from __future__ import annotations
 
 import pytest
@@ -7,16 +7,16 @@ import pytest
 # `pytest tests/sdk/` runnable on a base-deps-only install.
 pa = pytest.importorskip("pyarrow")
 
-from slsflow import schema as s
-from slsflow.adapters.pyarrow_ import (
+from polyris import schema as s
+from polyris.adapters.pyarrow_ import (
     columns_to_pyarrow,
     pyarrow_to_columns,
 )
-from slsflow.schema import Column
+from polyris.schema import Column
 
 
 # =============================================================================
-# pyarrow → slsflow
+# pyarrow → polyris
 # =============================================================================
 
 class TestPyarrowToColumns:
@@ -28,7 +28,7 @@ class TestPyarrowToColumns:
         (pa.int64(),    s.bigint()),
         (pa.uint8(),    s.tinyint()),    # documented collapse
         (pa.uint64(),   s.bigint()),
-        (pa.float16(),  s.float_()),     # widens (no float16 in slsflow)
+        (pa.float16(),  s.float_()),     # widens (no float16 in polyris)
         (pa.float32(),  s.float_()),
         (pa.float64(),  s.double()),
         (pa.bool_(),    s.boolean()),
@@ -120,7 +120,7 @@ class TestPyarrowToColumns:
 
 
 # =============================================================================
-# slsflow → pyarrow
+# polyris → pyarrow
 # =============================================================================
 
 class TestColumnsToPyarrow:
@@ -185,7 +185,7 @@ class TestColumnsToPyarrow:
 
 class TestRoundTrip:
 
-    @pytest.mark.parametrize("slsflow_type", [
+    @pytest.mark.parametrize("polyris_type", [
         s.tinyint(), s.smallint(), s.integer(), s.bigint(),
         s.float_(), s.double(), s.boolean(),
         s.decimal(10, 2), s.decimal(38, 0),
@@ -195,12 +195,12 @@ class TestRoundTrip:
         s.map_(s.string(), s.bigint()),
         s.struct(x=s.bigint(), y=s.string()),
     ])
-    def test_round_trip_preserves_type(self, slsflow_type):
-        original = [Column('c', slsflow_type)]
+    def test_round_trip_preserves_type(self, polyris_type):
+        original = [Column('c', polyris_type)]
         pa_schema = columns_to_pyarrow(original)
         restored = pyarrow_to_columns(pa_schema)
-        assert restored[0].type == slsflow_type, (
-            f"Round-trip changed: {slsflow_type!r} -> {restored[0].type!r}"
+        assert restored[0].type == polyris_type, (
+            f"Round-trip changed: {polyris_type!r} -> {restored[0].type!r}"
         )
 
     @pytest.mark.parametrize("lossy_type,collapses_to", [
@@ -224,7 +224,7 @@ class TestRoundTrip:
 class TestAssetFromPyarrow:
 
     def test_basic_construction(self):
-        from slsflow import Asset
+        from polyris import Asset
         pa_schema = pa.schema([
             pa.field('id', pa.int64()),
             pa.field('amount', pa.decimal128(10, 2)),
@@ -236,7 +236,7 @@ class TestAssetFromPyarrow:
         assert a.schema[1].type == s.decimal(10, 2)
 
     def test_passes_kwargs_through(self):
-        from slsflow import Asset
+        from polyris import Asset
         pa_schema = pa.schema([pa.field('id', pa.int64())])
         a = Asset.from_pyarrow(
             pa_schema,
@@ -250,7 +250,7 @@ class TestAssetFromPyarrow:
         assert a.description == 'Test'
 
     def test_rejects_explicit_schema_kwarg(self):
-        from slsflow import Asset
+        from polyris import Asset
         pa_schema = pa.schema([pa.field('id', pa.int64())])
         with pytest.raises(TypeError, match='from_pyarrow'):
             Asset.from_pyarrow(pa_schema, name='x', schema=[])
@@ -276,7 +276,7 @@ class TestAssetFromParquet:
         return str(path)
 
     def test_reads_schema_from_local_parquet(self, tmp_path):
-        from slsflow import Asset
+        from polyris import Asset
         pa_schema = pa.schema([
             pa.field('id', pa.int64()),
             pa.field('amount', pa.decimal128(10, 2)),
@@ -294,7 +294,7 @@ class TestAssetFromParquet:
         assert a.schema[2].type == s.timestamp(tz_aware=True)
 
     def test_passes_kwargs_through(self, tmp_path):
-        from slsflow import Asset
+        from polyris import Asset
         pa_schema = pa.schema([pa.field('id', pa.int64())])
         path = self._write_parquet(tmp_path, pa_schema)
 
@@ -310,7 +310,7 @@ class TestAssetFromParquet:
         assert a.description == 'Test'
 
     def test_rejects_explicit_schema_kwarg(self, tmp_path):
-        from slsflow import Asset
+        from polyris import Asset
         pa_schema = pa.schema([pa.field('id', pa.int64())])
         path = self._write_parquet(tmp_path, pa_schema)
         with pytest.raises(TypeError, match='from_parquet'):
@@ -323,7 +323,7 @@ class TestAssetFromParquet:
         from_glue_table (db.table). Convenient for prototypes; production
         code should pass an explicit name.
         """
-        from slsflow import Asset
+        from polyris import Asset
         pa_schema = pa.schema([pa.field('id', pa.int64())])
         # Place the file at a known stem so we can assert on it.
         sub = tmp_path / "ignored_dir"
@@ -339,7 +339,7 @@ class TestAssetFromParquet:
 
     def test_explicit_name_wins_over_fallback(self, tmp_path):
         """Explicit `name=` is not overridden by the basename fallback."""
-        from slsflow import Asset
+        from polyris import Asset
         pa_schema = pa.schema([pa.field('id', pa.int64())])
         path = self._write_parquet(tmp_path, pa_schema)  # writes "sample.parquet"
         a = Asset.from_parquet(path, name='retail/orders')
@@ -350,14 +350,14 @@ class TestAssetFromParquet:
     def test_missing_pyarrow_extra_raises_clear_error(self, tmp_path, mocker):
         """When pyarrow is unavailable, the lazy import should surface a
         clear ImportError that names the extra to install."""
-        from slsflow import Asset
+        from polyris import Asset
         # Patch the lazy importer to simulate a missing pyarrow install.
         mocker.patch(
-            'slsflow.adapters.pyarrow_._require_pyarrow',
+            'polyris.adapters.pyarrow_._require_pyarrow',
             side_effect=ImportError(
-                "pyarrow is required for slsflow.adapters.pyarrow_. "
-                "Install with:  pip install 'slsflow[pyarrow]'"
+                "pyarrow is required for polyris.adapters.pyarrow_. "
+                "Install with:  pip install 'polyris[pyarrow]'"
             ),
         )
-        with pytest.raises(ImportError, match=r"slsflow\[pyarrow\]"):
+        with pytest.raises(ImportError, match=r"polyris\[pyarrow\]"):
             Asset.from_parquet('whatever.parquet', name='x')

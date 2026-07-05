@@ -43,15 +43,34 @@ class TestRunTaskAlertingFlow:
     def setup(self):
         self.rt = load('run_task')
 
-    def test_save_error_goes_to_backfill_check(self):
-        """Save_Error_Waiting → Check_Is_Backfill (not Interactive_Slack)."""
+    def test_save_error_goes_to_decision_timeout(self):
+        """Save_Error_Waiting → Get_Decision_Timeout (which reads the global wait
+        timeout from the registry before the failure branch, ADR #103 1b), then
+        on to Check_Is_Backfill."""
         state = self.rt['States']['Save_Error_Waiting']
-        assert state['Next'] == 'Check_Is_Backfill'
+        assert state['Next'] == 'Get_Decision_Timeout'
+        # and that state leads into the backfill check
+        assert self.rt['States']['Get_Decision_Timeout']['Next'] == 'Check_Is_Backfill'
 
-    def test_save_error_catch_goes_to_backfill_check(self):
-        """Save_Error_Waiting catch → Check_Is_Backfill (graceful)."""
+    def test_save_error_catch_goes_to_decision_timeout(self):
+        """Save_Error_Waiting catch → Get_Decision_Timeout (graceful)."""
         state = self.rt['States']['Save_Error_Waiting']
+        assert state['Catch'][0]['Next'] == 'Get_Decision_Timeout'
+
+    def test_get_decision_timeout_reads_global_settings(self):
+        """Get_Decision_Timeout reads the reserved __global_settings__ registry
+        record and assigns decision_timeout_seconds (default 18000 on miss)."""
+        state = self.rt['States']['Get_Decision_Timeout']
+        assert state['Resource'] == 'arn:aws:states:::dynamodb:getItem'
+        assert state['Arguments']['Key']['pipeline_name']['S'] == '__global_settings__'
+        assert 'decision_timeout_seconds' in state['Assign']
+        # graceful: catch still continues to the backfill check
         assert state['Catch'][0]['Next'] == 'Check_Is_Backfill'
+
+    def test_wait_for_decision_uses_assigned_timeout(self):
+        """Wait_For_Decision reads the assigned variable, not a hardcoded value."""
+        state = self.rt['States']['Wait_For_Decision']
+        assert 'decision_timeout_seconds' in str(state['Seconds'])
 
     def test_backfill_skips_to_wait_for_decision(self):
         """Backfill runs skip alerting but still wait for user decision via UI."""
@@ -60,37 +79,33 @@ class TestRunTaskAlertingFlow:
         assert state['Choices'][0]['Next'] == 'Wait_For_Decision'
         assert 'is_backfill' in state['Choices'][0]['Condition']
 
-    def test_backfill_default_goes_to_slack_check(self):
-        """Non-backfill runs proceed to Check_Has_Slack."""
+    def test_backfill_default_goes_to_interactive_slack(self):
+        """Non-backfill runs proceed directly to Interactive_Slack. No per-channel gate:
+        the notify Lambda self-reads alert_config from DDB and no-ops when unconfigured."""
         state = self.rt['States']['Check_Is_Backfill']
-        assert state['Default'] == 'Check_Has_Slack'
+        assert state['Default'] == 'Interactive_Slack'
 
-    def test_slack_check_routes_correctly(self):
-        """Check_Has_Slack: Slack configured → Interactive_Slack, else → Check_Has_PagerDuty."""
-        state = self.rt['States']['Check_Has_Slack']
-        assert state['Type'] == 'Choice'
-        assert state['Choices'][0]['Next'] == 'Interactive_Slack'
-        assert 'alerts.slack' in state['Choices'][0]['Condition']
-        assert state['Default'] == 'Check_Has_PagerDuty'
+    def test_wrapper_alert_gates_removed(self):
+        """ADR #103 Stage 2: the deprecated wrapper-field Choice gates
+        (Check_Has_Slack / Check_Has_PagerDuty) are gone — config lives in DDB alert_config."""
+        assert 'Check_Has_Slack' not in self.rt['States']
+        assert 'Check_Has_PagerDuty' not in self.rt['States']
 
-    def test_interactive_slack_goes_to_pagerduty_check(self):
-        """Interactive_Slack → Check_Has_PagerDuty (not Wait_For_Decision)."""
+    def test_interactive_slack_goes_to_pagerduty(self):
+        """Interactive_Slack → Send_PagerDuty_Alert. Both channels attempted unconditionally;
+        each notifier no-ops if its channel is unconfigured (or absent in the OSS build)."""
         state = self.rt['States']['Interactive_Slack']
-        assert state['Next'] == 'Check_Has_PagerDuty'
+        assert state['Next'] == 'Send_PagerDuty_Alert'
 
-    def test_slack_failure_goes_to_pagerduty_check(self):
-        """Save_Slack_Failed → Check_Has_PagerDuty."""
+    def test_slack_failure_goes_to_pagerduty(self):
+        """Save_Slack_Failed → Send_PagerDuty_Alert (both Next and Catch)."""
         state = self.rt['States']['Save_Slack_Failed']
-        assert state['Next'] == 'Check_Has_PagerDuty'
-        assert state['Catch'][0]['Next'] == 'Check_Has_PagerDuty'
+        assert state['Next'] == 'Send_PagerDuty_Alert'
+        assert state['Catch'][0]['Next'] == 'Send_PagerDuty_Alert'
 
-    def test_pagerduty_check_routes_correctly(self):
-        """Check_Has_PagerDuty: PD configured → Send, else → Wait_For_Decision."""
-        state = self.rt['States']['Check_Has_PagerDuty']
-        assert state['Type'] == 'Choice'
-        assert state['Choices'][0]['Next'] == 'Send_PagerDuty_Alert'
-        assert 'alerts.pagerduty' in state['Choices'][0]['Condition']
-        assert state['Default'] == 'Wait_For_Decision'
+    def test_run_task_reads_no_wrapper_alerts_field(self):
+        """ADR #103 Stage 2: no state in run_task reads the deprecated wrapper `alerts` field."""
+        assert 'states.input.alerts' not in json.dumps(self.rt)
 
     def test_pagerduty_alert_goes_to_wait(self):
         """Send_PagerDuty_Alert → Wait_For_Decision."""
@@ -107,23 +122,23 @@ class TestRunTaskAlertingFlow:
         state = self.rt['States']['Send_PagerDuty_Alert']
         assert 'Retry' in state
 
-    def test_pagerduty_alert_uses_alerter_arn(self):
-        """Send_PagerDuty_Alert calls pagerduty_alerter SFN."""
+    def test_pagerduty_alert_invokes_notify_lambda(self):
+        """Send_PagerDuty_Alert invokes the notify Lambda with the live action
+        (Stage 2: the posting moved out of the pagerduty_alerter helper SFN)."""
         state = self.rt['States']['Send_PagerDuty_Alert']
-        assert '${pagerduty_alerter_arn}' in state['Arguments']['StateMachineArn']
+        assert state['Resource'] == 'arn:aws:states:::lambda:invoke'
+        assert '${notify_function_arn}' in state['Arguments']['FunctionName']
+        assert state['Arguments']['Payload']['action'] == 'live_pagerduty'
 
-    def test_pagerduty_alert_passes_severity(self):
-        """PagerDuty alert includes severity from alerts config.
-
-        Note: Input is a JSONata $string(...) expression because
-        PagerDutyAlerterSfn is EXPRESS and we use aws-sdk:sfn:startSyncExecution
-        which requires Input as a string (CLAUDE.md SFN Pitfall #2).
-        """
+    def test_pagerduty_alert_passes_pipeline_name(self):
+        """The notify Lambda reads severity/routing_key from alert_config by
+        pipeline_name (Stage 2), so the payload carries pipeline_name + failure,
+        not the severity inline."""
         state = self.rt['States']['Send_PagerDuty_Alert']
-        inp = state['Arguments']['Input']
-        assert isinstance(inp, str)
-        assert "'severity'" in inp
-        assert 'alerts.pagerduty' in inp
+        payload = state['Arguments']['Payload']
+        assert 'pipeline_name' in payload
+        assert 'pipeline_name' in payload['failure']
+        assert 'task_name' in payload['failure']
 
     def test_pagerduty_alert_preserves_input(self):
         """Send_PagerDuty_Alert preserves input via Output."""
@@ -140,40 +155,8 @@ class TestRunTaskAlertingFlow:
 # run_task — DDB alerts_json persistence
 # ============================================================
 
-class TestRunTaskAlertsInDDB:
-    """Verify alerts config is stored in DDB for restart."""
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        self.rt = load('run_task')
-
-    def test_update_status_running_stores_alerts(self):
-        """Update_Status_Running writes alerts_json to DDB."""
-        state = self.rt['States']['Update_Status_Running']
-        assert 'alerts_json' in state['Arguments']['UpdateExpression']
-
-    def test_alerts_json_expression_value(self):
-        """alerts_json uses $string to serialize alerts object."""
-        state = self.rt['States']['Update_Status_Running']
-        vals = state['Arguments']['ExpressionAttributeValues']
-        assert ':alerts_json' in vals
-        val = vals[':alerts_json']['S']
-        assert '$string' in val
-        assert 'alerts' in val
-
-    def test_alerts_json_has_fallback(self):
-        """alerts_json falls back to empty object if alerts missing."""
-        state = self.rt['States']['Update_Status_Running']
-        val = state['Arguments']['ExpressionAttributeValues'][':alerts_json']['S']
-        assert '{}' in val
-
-
-# ============================================================
-# run_task — all failure paths reach Check_Is_Backfill
-# ============================================================
-
 class TestRunTaskFailurePathsConverge:
-    """Every task type's Catch → Save_Error_Waiting → Check_Is_Backfill."""
+    """Every task type's Catch → Check_Should_Retry → (exhausted) Save_Error_Waiting → Check_Is_Backfill."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
@@ -184,9 +167,12 @@ class TestRunTaskFailurePathsConverge:
         'Run_Task_ECS', 'Run_Task_Athena', 'Run_Task_EMR', 'Run_Task_Batch'
     ])
     def test_task_catch_goes_to_save_error(self, task_state):
-        """All Run_Task_* states catch to Save_Error_Waiting."""
+        """All Run_Task_* states catch to the retry decision (ADR #106), which on
+        exhausted retries converges to Save_Error_Waiting (the failure entry)."""
         state = self.rt['States'][task_state]
-        assert state['Catch'][0]['Next'] == 'Save_Error_Waiting'
+        assert state['Catch'][0]['Next'] == 'Check_Should_Retry'
+        # exhausted retries must still converge to the existing failure path
+        assert self.rt['States']['Check_Should_Retry']['Default'] == 'Save_Error_Waiting'
 
 
 # ============================================================
@@ -225,23 +211,95 @@ class TestRunTaskPathTracing:
         assert 'Send_PagerDuty_Alert' not in full, "Backfill must not send PagerDuty"
         assert 'Wait_For_Decision' not in full, "Backfill must not wait"
 
-    def test_no_alerts_path(self):
-        """No alerts configured: Save_Error → ... → Check_Has_Slack → Check_Has_PagerDuty → Wait."""
+    def test_non_backfill_path_attempts_both_channels(self):
+        """ADR #103 Stage 2: a non-backfill failure always traverses both notify states
+        (Interactive_Slack → Send_PagerDuty_Alert) before waiting. Each notifier no-ops at
+        runtime when its channel is unconfigured — channel selection is no longer a SFN branch."""
         path = self._follow_default_path('Save_Error_Waiting')
         assert 'Check_Is_Backfill' in path
-        assert 'Check_Has_Slack' in path
-        assert 'Check_Has_PagerDuty' in path
+        assert 'Interactive_Slack' in path
+        assert 'Send_PagerDuty_Alert' in path
         assert 'Wait_For_Decision' in path
-        assert 'Interactive_Slack' not in path, "No Slack = no Interactive_Slack"
-        assert 'Send_PagerDuty_Alert' not in path, "No PD = no Send_PagerDuty"
+        assert 'Check_Has_Slack' not in path
+        assert 'Check_Has_PagerDuty' not in path
 
-    def test_slack_only_path(self):
-        """Slack configured, no PD: Interactive_Slack → Check_Has_PagerDuty(default) → Wait."""
-        # After Interactive_Slack succeeds → Check_Has_PagerDuty
-        state = self.rt['States']['Interactive_Slack']
-        assert state['Next'] == 'Check_Has_PagerDuty'
-        pd_state = self.rt['States']['Check_Has_PagerDuty']
-        assert pd_state['Default'] == 'Wait_For_Decision'
+    def test_alert_subpath_ordering(self):
+        """Interactive_Slack → Send_PagerDuty_Alert → Wait_For_Decision (sequential, both best-effort)."""
+        assert self.rt['States']['Interactive_Slack']['Next'] == 'Send_PagerDuty_Alert'
+        assert self.rt['States']['Send_PagerDuty_Alert']['Next'] == 'Wait_For_Decision'
+
+
+# ============================================================
+# run_task — retry loop <-> human-in-the-loop composition
+# ============================================================
+
+class TestRetryLoopComposesWithHumanDecision:
+    """ADR #106/#107: the auto-retry loop and the human-in-the-loop decision
+    (Slack Skip/Restart/Fail) compose SEQUENTIALLY and in ISOLATION.
+
+    Auto-retries run and exhaust inside a single wrapper execution; only once the
+    counter is exhausted does the failure reach Save_Error_Waiting and the decision
+    flow. The human 'Restart' is applied out-of-band (console API resolves the
+    pipeline task token) and re-runs the pipeline task as a *fresh* wrapper execution,
+    so retry_attempt is re-initialised at 0 — never mutated by the decision flow.
+    These invariants guard that separation."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.rt = load('run_task')
+
+    # the only states allowed to read/write the retry counter
+    RETRY_LOOP_STATES = {
+        'Prepare_Task_Input', 'Check_Should_Retry', 'Wait_Before_Retry', 'Increment_Retry',
+    }
+
+    @classmethod
+    def _targets(cls, body):
+        """Every Next/Default transition target anywhere inside a state body
+        (covers Choices and Catch, not just the top-level Next)."""
+        out = set()
+        if isinstance(body, dict):
+            for k, v in body.items():
+                if k in ('Next', 'Default') and isinstance(v, str):
+                    out.add(v)
+                else:
+                    out |= cls._targets(v)
+        elif isinstance(body, list):
+            for it in body:
+                out |= cls._targets(it)
+        return out
+
+    def test_retry_exhaustion_hands_off_to_decision_flow(self):
+        """Exhausted retries fall through Check_Should_Retry's Default into the
+        human-decision entry — retries happen strictly BEFORE any human decision."""
+        assert self.rt['States']['Check_Should_Retry']['Default'] == 'Save_Error_Waiting'
+
+    def test_decision_flow_never_touches_retry_counter(self):
+        """No state outside the retry loop references retry_attempt, so the decision
+        flow (and a human Restart) can neither read nor reset the auto-retry counter."""
+        for name, body in self.rt['States'].items():
+            if name in self.RETRY_LOOP_STATES:
+                continue
+            assert 'retry_attempt' not in json.dumps(body), \
+                f"{name} references retry_attempt — breaks retry/HITL isolation"
+
+    def test_only_dispatch_and_increment_reenter_the_task(self):
+        """Check_Task_Type (task dispatch) is re-entered ONLY by the initial dispatch
+        (Prepare_Task_Input) and the retry increment (Increment_Retry). No decision-flow
+        state loops back into the task, so a human Restart cannot race the counter
+        mid-flight — it can only arrive as a brand-new execution."""
+        feeders = {n for n, b in self.rt['States'].items()
+                   if 'Check_Task_Type' in self._targets(b)}
+        assert feeders == {'Prepare_Task_Input', 'Increment_Retry'}, \
+            f"unexpected re-dispatch into the task from: {feeders - {'Prepare_Task_Input', 'Increment_Retry'}}"
+
+    def test_counter_reset_precedes_first_dispatch(self):
+        """retry_attempt is initialised to 0 in Prepare_Task_Input, which runs before the
+        first Check_Task_Type — so every fresh execution, including a human Restart, starts
+        the retry loop clean."""
+        prep = self.rt['States']['Prepare_Task_Input']
+        assert '"retry_attempt"' in json.dumps(prep['Assign'])
+        assert prep['Next'] == 'Check_Task_Type'
 
 
 # ============================================================
@@ -265,10 +323,10 @@ class TestFailureHandlerUpstreamFailed:
         assert state['Choices'][0]['Next'] == 'Check_Orchestration_Token'
         assert 'UpstreamFailed' in state['Choices'][0]['Condition']
 
-    def test_non_upstream_goes_to_slack(self):
-        """Normal failure → Check_Slack_Alert."""
+    def test_non_upstream_goes_to_send_alerts(self):
+        """Normal failure → Send_Alerts (ADR #103 Stage-1: one Lambda call)."""
         state = self.fh['States']['Check_Is_Upstream_Failed']
-        assert state['Default'] == 'Check_Slack_Alert'
+        assert state['Default'] == 'Send_Alerts'
 
     def test_notify_dependents_goes_to_upstream_check(self):
         """Notify_Dependents → Check_Is_Upstream_Failed."""
@@ -312,20 +370,37 @@ class TestFailureHandlerNoPagerDuty:
         assert 'pagerduty_resolver_arn' not in content
         assert 'Resolve_PagerDuty' not in content
 
-    def test_slack_goes_to_orchestration_token(self):
-        """Send_Slack_Alert → Check_Orchestration_Token."""
-        state = self.fh['States']['Send_Slack_Alert']
-        assert state['Next'] == 'Check_Orchestration_Token'
+    def test_send_alerts_state_present(self):
+        """ADR #103 Stage-1: one Send_Alerts state replaces the 3-state fan-out."""
+        assert 'Send_Alerts' in self.fh['States']
 
-    def test_record_slack_failure_goes_to_orchestration_token(self):
-        """Record_Slack_Failure → Check_Orchestration_Token."""
-        state = self.fh['States']['Record_Slack_Failure']
-        assert state['Next'] == 'Check_Orchestration_Token'
+    def test_old_slack_chain_removed(self):
+        """The hard-wired Slack chain is gone (channels are data now)."""
+        for name in ['Check_Slack_Alert', 'Send_Slack_Alert', 'Record_Slack_Failure']:
+            assert name not in self.fh['States'], f"{name} should be removed"
 
-    def test_no_slack_goes_to_orchestration_token(self):
-        """Check_Slack_Alert Default → Check_Orchestration_Token."""
-        state = self.fh['States']['Check_Slack_Alert']
-        assert state['Default'] == 'Check_Orchestration_Token'
+    def test_old_fanout_states_removed(self):
+        """The 3 SFN alert states collapsed into the Lambda (Stage-1)."""
+        for name in ['Get_Alert_Config', 'Has_Channels', 'Fan_Out_Alerts']:
+            assert name not in self.fh['States'], f"{name} should be gone"
+
+    def test_send_alerts_invokes_notify_lambda(self):
+        """Send_Alerts is a single Lambda invoke (the Lambda fans out itself)."""
+        state = self.fh['States']['Send_Alerts']
+        assert 'lambda:invoke' in state['Resource']
+        assert '${notify_function_arn}' in json.dumps(state)
+
+    def test_send_alerts_passes_pipeline_and_failure(self):
+        """The Lambda gets pipeline_name + the failure; it reads config itself."""
+        payload = self.fh['States']['Send_Alerts']['Arguments']['Payload']
+        assert 'pipeline_name' in payload
+        assert 'failure' in payload
+
+    def test_send_alerts_never_blocks_callback(self):
+        """Delivery problems must not block the orchestration callback."""
+        state = self.fh['States']['Send_Alerts']
+        assert state['Next'] == 'Check_Orchestration_Token'
+        assert state['Catch'][0]['Next'] == 'Check_Orchestration_Token'
 
 
 # ============================================================
@@ -333,56 +408,31 @@ class TestFailureHandlerNoPagerDuty:
 # ============================================================
 
 class TestFailureHandlerSlackNoButtons:
-    """Verify failure_handler Slack sends empty token (Restart Only, no Skip/Fail)."""
+    """ADR #103: failure_handler no longer sends Slack directly, so the old
+    "empty token to suppress buttons on a dead task" concern moves to the notify
+    Lambda. Interactive buttons remain only in run_task's Interactive_Slack
+    (live tasks), which is unchanged."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
         self.fh = load('failure_handler')
 
-    def test_slack_sends_empty_token(self):
-        """Slack alert has empty token → Interactive Slack sends 'Restart Only' message."""
-        inp = self.fh['States']['Send_Slack_Alert']['Arguments']['Input']
-        assert inp['token'] == '', "Token must be empty to prevent buttons on dead task"
+    def test_failure_handler_has_no_interactive_slack(self):
+        """No waitForTaskToken Slack in failure_handler — a failed task is dead,
+        nothing to interact with. Fan-out delivers a plain notification."""
+        content = json.dumps(self.fh)
+        assert 'Send_Slack_Alert' not in content
+        assert 'waitForTaskToken' not in content
+
+    def test_send_alerts_failure_context_has_no_token(self):
+        """The failure context passed to notify carries no orchestration token —
+        notifiers post a plain message, not interactive buttons."""
+        payload = self.fh['States']['Send_Alerts']['Arguments']['Payload']
+        assert 'token' not in payload['failure']
 
 
 # ============================================================
 # restart_task — alerts field
-# ============================================================
-
-class TestRestartTaskAlerts:
-    """Verify restart_task passes alerts from DDB to new wrapper."""
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        self.rst = load('restart_task')
-
-    def test_wrapper_input_has_alerts(self):
-        """Start_New_Wrapper input includes alerts field."""
-        state = self.rst['States']['Start_New_Wrapper']
-        inp = state['Arguments']['Input']
-        assert 'alerts' in inp, "alerts must be in wrapper input"
-
-    def test_alerts_reads_from_ddb(self):
-        """alerts field reads from DDB alerts_json."""
-        state = self.rst['States']['Start_New_Wrapper']
-        alerts = state['Arguments']['Input']['alerts']
-        assert 'alerts_json' in alerts, "Must read from alerts_json DDB field"
-
-    def test_alerts_parses_json(self):
-        """alerts field uses $parse to deserialize JSON string."""
-        state = self.rst['States']['Start_New_Wrapper']
-        alerts = state['Arguments']['Input']['alerts']
-        assert '$parse' in alerts, "Must parse JSON string back to object"
-
-    def test_alerts_fallback_empty(self):
-        """alerts falls back to {} if alerts_json not in DDB."""
-        state = self.rst['States']['Start_New_Wrapper']
-        alerts = state['Arguments']['Input']['alerts']
-        assert '{}' in alerts, "Must fall back to empty object"
-
-
-# ============================================================
-# main.tf — pagerduty_alerter_arn wiring
 # ============================================================
 
 class TestMainTFWiring:
@@ -396,61 +446,47 @@ class TestMainTFWiring:
         with open(main_tf) as f:
             self.content = f.read()
 
-    def test_run_task_has_pagerduty_alerter(self):
-        """RunTaskHelperSfn DefinitionSubstitutions has pagerduty_alerter_arn."""
-        # Find RunTaskHelperSfn block and check its DefinitionSubstitutions
+    def test_run_task_invokes_notify_not_alerter(self):
+        """Stage 3: RunTaskHelperSfn no longer references the deleted
+        pagerduty_alerter; it passes notify_function_arn instead (Stage 2 wiring)."""
         idx = self.content.find('RunTaskHelperSfn:')
         assert idx != -1, "RunTaskHelperSfn not found in SAM template"
         block = self.content[idx:idx+3000]
-        assert 'pagerduty_alerter_arn' in block, "pagerduty_alerter_arn not in RunTaskHelperSfn"
+        assert 'pagerduty_alerter_arn' not in block, "alerter ref should be gone (Stage 3)"
+        assert 'notify_function_arn' in block, "notify_function_arn must be present"
 
     def test_failure_handler_no_pagerduty_alerter(self):
-        """FailureHandlerSfn has pagerduty_resolver but NOT pagerduty_alerter_arn."""
-        import re as _re
+        """FailureHandlerSfn does not reference the deleted pagerduty_alerter;
+        it sends alerts via the notify Lambda (Send_Alerts, Stage 1a)."""
         idx = self.content.find('FailureHandlerSfn:')
         assert idx != -1, "FailureHandlerSfn not found in SAM template"
-        # Bound block to just this resource (stop at next top-level resource)
-        end = _re.search(r'\n  [A-Z]\w+:', self.content[idx+100:])
-        block = self.content[idx:idx+100+(end.start() if end else 1500)]
-        # failure_handler uses resolver (to resolve alerts) not alerter (to create them)
-        assert 'pagerduty_resolver_arn' in block, "pagerduty_resolver_arn should be in FailureHandlerSfn"
-        assert 'pagerduty_alerter_arn' not in block, "pagerduty_alerter_arn should NOT be in FailureHandlerSfn"
+        block = self.content[idx:idx+3000]
+        assert 'pagerduty_alerter_arn' not in block
 
-
-# ============================================================
-# Cross-template consistency
-# ============================================================
 
 class TestCrossTemplateConsistency:
     """Verify templates are consistent with each other."""
 
     def test_run_task_pagerduty_dedup_matches_wrapper_resolve(self):
-        """PagerDuty dedup_key format in run_task must match resolver format."""
+        """Live alert (run_task) and resolve (wrapper) must produce the same PD
+        dedup_key. Both now invoke the notify Lambda, which builds the key from
+        failure.{pipeline_name,task_name,date}; so both payloads must carry those
+        three fields in failure (the Lambda derives pipeline/task/date identically)."""
+        import json as _json
+        import re as _re
         rt = load('run_task')
-        # run_task uses alerter SFN which builds:
-        # dedup_key = pipeline_name + '/' + task_name + '/' + date
-        rt_input = rt['States']['Send_PagerDuty_Alert']['Arguments']['Input']
-        assert 'pipeline_name' in json.dumps(rt_input)
-        assert 'task_name' in json.dumps(rt_input)
-
-        # Resolver in wrapper uses same fields
-        wrapper_path = os.path.join(TEMPLATES, 'dependency_wrapper', 'sfn.tpl.json')
-        with open(wrapper_path) as f:
-            wrapper = json.load(f)
-        resolve_state = wrapper['States']['Resolve_PagerDuty']
-        resolve_input = resolve_state['Arguments']['Input']
-        assert 'pipeline_name' in json.dumps(resolve_input)
-        assert 'task_name' in json.dumps(resolve_input)
-
-    def test_alerts_json_roundtrip(self):
-        """run_task writes $string(alerts), restart_task reads $parse(alerts_json)."""
-        rt = load('run_task')
-        val = rt['States']['Update_Status_Running']['Arguments']['ExpressionAttributeValues'][':alerts_json']['S']
-        assert '$string' in val, "Write side must serialize with $string"
-
-        rst = load('restart_task')
-        alerts = rst['States']['Start_New_Wrapper']['Arguments']['Input']['alerts']
-        assert '$parse' in alerts, "Read side must deserialize with $parse"
+        # dependency_wrapper lives one level up from helpers/, load it directly.
+        _dw_path = os.path.join(TEMPLATES, 'dependency_wrapper', 'sfn.tpl.json')
+        _dw_raw = open(_dw_path).read()
+        _dw_clean = _re.sub(r'\{%[^%]*%\}', 'J', _re.sub(r'\$\{[a-z_]+\}', '0', _dw_raw))
+        dw = _json.loads(_dw_clean)
+        live = rt['States']['Send_PagerDuty_Alert']['Arguments']['Payload']['failure']
+        resolve = dw['States']['Resolve_PagerDuty']['Arguments']['Payload']['failure']
+        for field in ('pipeline_name', 'task_name'):
+            assert field in live, f'live missing {field}'
+            assert field in resolve, f'resolve missing {field}'
+        # date drives the dedup key — both must reference input.date
+        assert 'date' in live and 'date' in resolve
 
     def test_failure_handler_all_states_reachable(self):
         """All failure_handler states reachable from StartAt."""
@@ -530,147 +566,6 @@ class TestCrossTemplateConsistency:
 # Slack mentions — DSL validation
 # ============================================================
 
-class TestSlackMentionsDSL:
-    """Verify DAG validates slack_mentions correctly."""
-
-    def test_valid_user_id(self):
-        """User ID accepted."""
-        from slsflow import DAG
-        dag = DAG('test', schedule=None, alerts={"slack": "#ch", "slack_mentions": ["U04ABCDEF"]})
-        assert dag.alerts['slack_mentions'] == ["U04ABCDEF"]
-
-    def test_valid_group_id(self):
-        """User group ID accepted."""
-        from slsflow import DAG
-        dag = DAG('test', schedule=None, alerts={"slack": "#ch", "slack_mentions": ["S04ABCDEF"]})
-        assert dag.alerts['slack_mentions'] == ["S04ABCDEF"]
-
-    def test_valid_with_at_prefix(self):
-        """@-prefixed IDs accepted."""
-        from slsflow import DAG
-        dag = DAG('test', schedule=None, alerts={"slack": "#ch", "slack_mentions": ["@U04ABCDEF", "@S04ABCDEF"]})
-        assert len(dag.alerts['slack_mentions']) == 2
-
-    def test_valid_here_and_channel(self):
-        """'here' and 'channel' accepted."""
-        from slsflow import DAG
-        dag = DAG('test', schedule=None, alerts={"slack": "#ch", "slack_mentions": ["here", "channel"]})
-        assert len(dag.alerts['slack_mentions']) == 2
-
-    def test_valid_mixed(self):
-        """Mix of user ID, group ID, and special keywords."""
-        from slsflow import DAG
-        dag = DAG('test', schedule=None, alerts={
-            "slack": "#ch",
-            "slack_mentions": ["U04ABCDEF", "S04ABCDEF", "here"]
-        })
-        assert len(dag.alerts['slack_mentions']) == 3
-
-    def test_invalid_not_list(self):
-        """Non-list slack_mentions rejected."""
-        from slsflow import DAG
-        with pytest.raises(ValueError, match="must be a list"):
-            DAG('test', schedule=None, alerts={"slack": "#ch", "slack_mentions": "U123"})
-
-    def test_invalid_bad_prefix(self):
-        """Invalid ID prefix rejected."""
-        from slsflow import DAG
-        with pytest.raises(ValueError, match="Invalid slack_mentions"):
-            DAG('test', schedule=None, alerts={"slack": "#ch", "slack_mentions": ["X123"]})
-
-    def test_invalid_non_string_item(self):
-        """Non-string items rejected."""
-        from slsflow import DAG
-        with pytest.raises(ValueError, match="must be strings"):
-            DAG('test', schedule=None, alerts={"slack": "#ch", "slack_mentions": [123]})
-
-    def test_empty_list_valid(self):
-        """Empty list is valid (uses default)."""
-        from slsflow import DAG
-        dag = DAG('test', schedule=None, alerts={"slack": "#ch", "slack_mentions": []})
-        assert dag.alerts['slack_mentions'] == []
-
-    def test_no_mentions_valid(self):
-        """No slack_mentions key at all is valid."""
-        from slsflow import DAG
-        dag = DAG('test', schedule=None, alerts={"slack": "#ch"})
-        assert 'slack_mentions' not in dag.alerts
-
-
-# ============================================================
-# Slack mentions — Generator formatting
-# ============================================================
-
-class TestSlackMentionsGenerator:
-    """Verify generators.py formats mentions into Slack markup."""
-
-    def _generate_and_extract(self, alerts):
-        from slsflow import DAG, task
-        from slsflow.generators import generate_step_function_json
-
-        with DAG('test-mentions', schedule=None, alerts=alerts) as dag:
-            @task.sfn(arn='arn:aws:states:us-east-1:123:stateMachine:test')
-            def t1():
-                pass
-            t1()
-
-        sfn_json = generate_step_function_json(dag)
-        sfn = json.loads(sfn_json)
-
-        # Find slack_mentions_formatted in wrapper input
-        for name, state in sfn['States'].items():
-            if state.get('Type') == 'Parallel':
-                for branch in state.get('Branches', []):
-                    for sn, ss in branch.get('States', {}).items():
-                        inp = ss.get('Arguments', {}).get('Input', {})
-                        if 'slack_mentions_formatted' in inp:
-                            return inp['slack_mentions_formatted']
-        return None
-
-    def test_user_id_formatted(self):
-        """User ID → <@U...>"""
-        result = self._generate_and_extract({"slack": "#ch", "slack_mentions": ["U04ABCDEF"]})
-        assert result == "<@U04ABCDEF>"
-
-    def test_group_id_formatted(self):
-        """Group ID → <!subteam^S...>"""
-        result = self._generate_and_extract({"slack": "#ch", "slack_mentions": ["S04ABCDEF"]})
-        assert result == "<!subteam^S04ABCDEF>"
-
-    def test_here_formatted(self):
-        """'here' → <!here>"""
-        result = self._generate_and_extract({"slack": "#ch", "slack_mentions": ["here"]})
-        assert result == "<!here>"
-
-    def test_channel_formatted(self):
-        """'channel' → <!channel>"""
-        result = self._generate_and_extract({"slack": "#ch", "slack_mentions": ["channel"]})
-        assert result == "<!channel>"
-
-    def test_at_prefix_stripped(self):
-        """@U... prefix handled correctly."""
-        result = self._generate_and_extract({"slack": "#ch", "slack_mentions": ["@U04ABCDEF"]})
-        assert result == "<@U04ABCDEF>"
-
-    def test_mixed_formatted(self):
-        """Mix of types formatted and joined with spaces."""
-        result = self._generate_and_extract({
-            "slack": "#ch",
-            "slack_mentions": ["U04ABCDEF", "S04ABCDEF", "here"]
-        })
-        assert result == "<@U04ABCDEF> <!subteam^S04ABCDEF> <!here>"
-
-    def test_empty_list_empty_string(self):
-        """Empty mentions list → empty string."""
-        result = self._generate_and_extract({"slack": "#ch", "slack_mentions": []})
-        assert result == ""
-
-    def test_no_mentions_empty_string(self):
-        """No slack_mentions → empty string."""
-        result = self._generate_and_extract({"slack": "#ch"})
-        assert result == ""
-
-
 # ============================================================
 # Slack mentions — SFN template flow
 # ============================================================
@@ -678,44 +573,33 @@ class TestSlackMentionsGenerator:
 class TestSlackMentionsTemplateFlow:
     """Verify slack_mentions flows through SFN templates."""
 
-    def test_run_task_passes_mentions_to_slack(self):
-        """run_task Interactive_Slack input includes slack_mentions."""
+    def test_run_task_interactive_slack_invokes_notify(self):
+        """Interactive_Slack now invokes the notify Lambda (Stage 2). Mentions and
+        channel come from alert_config read by the Lambda, so the payload carries
+        pipeline_name + console_api_endpoint + failure, not mentions inline."""
         rt = load('run_task')
-        inp = rt['States']['Interactive_Slack']['Arguments']['Input']
-        assert 'slack_mentions' in inp
-        assert 'slack_mentions_formatted' in inp['slack_mentions']
+        state = rt['States']['Interactive_Slack']
+        assert state['Resource'] == 'arn:aws:states:::lambda:invoke'
+        payload = state['Arguments']['Payload']
+        assert payload['action'] == 'interactive_slack'
+        assert 'pipeline_name' in payload
+        assert 'console_api_endpoint' in payload
 
-    def test_failure_handler_passes_mentions_to_slack(self):
-        """failure_handler Send_Slack_Alert input includes slack_mentions."""
+    def test_failure_handler_send_alerts_passes_pipeline(self):
+        """ADR #103 Stage-1: failure_handler no longer routes channel/config in the
+        SFN — it passes pipeline_name + failure, and the notify Lambda reads the
+        config (incl. mentions) from the registry itself."""
         fh = load('failure_handler')
-        inp = fh['States']['Send_Slack_Alert']['Arguments']['Input']
-        assert 'slack_mentions' in inp
-        assert 'slack_mentions_formatted' in inp['slack_mentions']
-
-    def test_interactive_slack_uses_mentions_in_full_message(self):
-        """Send_Full_Slack_Message uses slack_mentions in CC line."""
-        isl = load('interactive_choice_slack')
-        content = json.dumps(isl['States']['Send_Full_Slack_Message'])
-        assert 'slack_mentions' in content
-        assert 'responsible_for' not in content
-
-    def test_interactive_slack_uses_mentions_in_restart_message(self):
-        """Send_Restart_Only_Message uses slack_mentions in CC line."""
-        isl = load('interactive_choice_slack')
-        content = json.dumps(isl['States']['Send_Restart_Only_Message'])
-        assert 'slack_mentions' in content
-        assert 'responsible_for' not in content
-
-    def test_interactive_slack_prepare_has_fallback(self):
-        """Prepare_Slack_Message falls back to default_slack_mentions."""
-        isl = load('interactive_choice_slack')
-        output = isl['States']['Prepare_Slack_Message']['Output']
-        assert 'default_slack_mentions' in output
-        assert 'slack_mentions' in output
+        payload = fh['States']['Send_Alerts']['Arguments']['Payload']
+        assert 'pipeline_name' in payload
+        assert 'failure' in payload
+        # the old per-channel routing + Slack chain are gone from the SFN
+        assert 'Send_Slack_Alert' not in fh['States']
+        assert 'Fan_Out_Alerts' not in fh['States']
 
     def test_no_hardcoded_responsible_for_anywhere(self):
         """No template references responsible_for_data_pipeline_ops."""
-        for name in ['run_task', 'failure_handler', 'interactive_choice_slack']:
+        for name in ['run_task', 'failure_handler']:
             data = load(name)
             content = json.dumps(data)
             assert 'responsible_for_data_pipeline_ops' not in content, \
@@ -726,79 +610,32 @@ class TestSlackMentionsTemplateFlow:
 # PagerDuty alerter — links to AWS Console
 # ============================================================
 
-class TestPagerDutyAlerterLinks:
-    """Verify PD alerter includes clickable links to SFN executions."""
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        self.pa = load('pagerduty_alerter')
-
-    def test_payload_has_links(self):
-        """Build_Alert_Payload output includes 'links' key."""
-        output = self.pa['States']['Build_Alert_Payload']['Output']
-        assert "'links'" in output or '"links"' in output
-
-    def test_task_sfn_link(self):
-        """Links include Task SFN Execution."""
-        output = self.pa['States']['Build_Alert_Payload']['Output']
-        assert 'Task SFN Execution' in output
-
-    def test_wrapper_sfn_link(self):
-        """Links include Wrapper SFN Execution."""
-        output = self.pa['States']['Build_Alert_Payload']['Output']
-        assert 'Wrapper SFN Execution' in output
-
-    def test_aws_console_url_pattern(self):
-        """Links use correct AWS Console URL pattern."""
-        output = self.pa['States']['Build_Alert_Payload']['Output']
-        assert 'console.aws.amazon.com/states/home' in output
-
-    def test_empty_arn_handled(self):
-        """Empty task_execution_arn produces no task link (conditional)."""
-        output = self.pa['States']['Build_Alert_Payload']['Output']
-        assert "$taskArn != ''" in output
-        assert "$wrapperArn != ''" in output
-
-    def test_uses_aws_region_var(self):
-        """Uses ${aws_region} template var for console URLs."""
-        content = json.dumps(self.pa)
-        assert '${aws_region}' in content
-
-
-class TestRunTaskPassesArnsToAlerter:
-    """Verify run_task passes execution ARNs to PD alerter for links."""
+class TestRunTaskPagerDutyPayload:
+    """Stage 2: run_task invokes the notify Lambda for the live PD alert. The
+    Lambda reads alert_config from the registry and builds the PD payload itself,
+    so run_task only passes pipeline_name + failure context (execution ARNs are no
+    longer threaded through — the Lambda resolves links from the failure)."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
         self.rt = load('run_task')
 
-    def test_passes_task_execution_arn(self):
-        """Send_PagerDuty_Alert input includes task_execution_arn.
+    def test_invokes_notify_with_live_action(self):
+        state = self.rt['States']['Send_PagerDuty_Alert']
+        assert state['Resource'] == 'arn:aws:states:::lambda:invoke'
+        assert state['Arguments']['Payload']['action'] == 'live_pagerduty'
 
-        Input is a JSONata $string(...) expression (Express SFN via startSyncExecution).
-        """
-        inp = self.rt['States']['Send_PagerDuty_Alert']['Arguments']['Input']
-        assert isinstance(inp, str)
-        assert "'task_execution_arn'" in inp
+    def test_payload_carries_failure_context(self):
+        payload = self.rt['States']['Send_PagerDuty_Alert']['Arguments']['Payload']
+        failure = payload['failure']
+        for field in ('pipeline_name', 'task_name', 'execution_name', 'error', 'date'):
+            assert field in failure, f'failure missing {field}'
 
-    def test_passes_wrapper_execution_arn(self):
-        """Send_PagerDuty_Alert input includes wrapper_execution_arn."""
-        inp = self.rt['States']['Send_PagerDuty_Alert']['Arguments']['Input']
-        assert isinstance(inp, str)
-        assert "'wrapper_execution_arn'" in inp
+    def test_payload_passes_pipeline_name_for_config_read(self):
+        # The Lambda reads alert_config by pipeline_name, so it must be present.
+        payload = self.rt['States']['Send_PagerDuty_Alert']['Arguments']['Payload']
+        assert 'pipeline_name' in payload
 
-    def test_arns_have_existence_check(self):
-        """ARN fields use $exists() for graceful handling."""
-        inp = self.rt['States']['Send_PagerDuty_Alert']['Arguments']['Input']
-        assert isinstance(inp, str)
-        # Both ARN fields must guard with $exists(...)
-        assert inp.count('$exists($states.input.task_execution_arn)') >= 1
-        assert inp.count('$exists($states.input.wrapper_execution_arn)') >= 1
-
-
-# ============================================================
-# Canonical Output (upstream data passing)
-# ============================================================
 
 class TestCanonicalOutput:
     """Verify canonical output: stable key for upstream reads, survives incremental backfill."""

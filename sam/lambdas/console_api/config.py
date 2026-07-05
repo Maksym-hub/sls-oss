@@ -17,6 +17,7 @@ from typing import Dict
 # ============================================
 _dynamodb = None
 _sfn = None
+_lambda = None
 _logs = None
 _cloudwatch = None
 _s3 = None
@@ -39,6 +40,16 @@ def _get_sfn():
         import boto3
         _sfn = boto3.client('stepfunctions')
     return _sfn
+
+
+def _get_lambda():
+    """Lazy init Lambda client (used to invoke the notify Lambda for directed
+    actions like PagerDuty resolve — ADR #103 Stage 2)."""
+    global _lambda
+    if _lambda is None:
+        import boto3
+        _lambda = boto3.client('lambda')
+    return _lambda
 
 
 def _get_logs():
@@ -120,6 +131,11 @@ class _LazySFN:
         return getattr(_get_sfn(), name)
 
 
+class _LazyLambda:
+    def __getattr__(self, name):
+        return getattr(_get_lambda(), name)
+
+
 class _LazyLogs:
     def __getattr__(self, name):
         return getattr(_get_logs(), name)
@@ -143,6 +159,7 @@ class _LazyGlue:
 # Export lazy proxies (same interface as before)
 dynamodb = _LazyDynamoDB()
 sfn = _LazySFN()
+lambda_client = _LazyLambda()
 logs = _LazyLogs()
 cloudwatch = _LazyCloudWatch()
 s3 = _LazyS3()

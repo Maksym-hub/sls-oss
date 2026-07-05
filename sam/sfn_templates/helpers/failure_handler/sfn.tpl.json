@@ -1,5 +1,5 @@
 {
-  "Comment": "Handle task/wrapper failures: update DynamoDB, emit event, send alerts, callback to pipeline",
+  "Comment": "Failure handler: record status, notify dependents (System 2), fan out alerts to enabled channels (ADR #103), then callback parent orchestration.",
   "QueryLanguage": "JSONata",
   "StartAt": "Ensure_Pipeline_Execution_Short",
   "States": {
@@ -45,15 +45,25 @@
           ":taskArn": {
             "S": "{% $exists($states.input.task_execution_arn) ? $states.input.task_execution_arn : '' %}"
           },
-          ":s1": { "S": "success" },
-          ":s2": { "S": "skipped" },
-          ":s3": { "S": "stopped" },
-          ":s4": { "S": "aborted" },
-          ":s5": { "S": "upstream_failed" }
+          ":s1": {
+            "S": "success"
+          },
+          ":s2": {
+            "S": "skipped"
+          },
+          ":s3": {
+            "S": "stopped"
+          },
+          ":s4": {
+            "S": "aborted"
+          },
+          ":s5": {
+            "S": "upstream_failed"
+          }
         }
       },
       "Output": "{% $states.input %}",
-      "Next": "Emit_Failure_Event",
+      "Next": "Notify_Dependents",
       "Retry": [
         {
           "ErrorEquals": [
@@ -74,48 +84,6 @@
             "States.ALL"
           ],
           "Comment": "Status update failed - continue with notifications anyway",
-          "Output": "{% $states.input %}",
-          "Next": "Emit_Failure_Event"
-        }
-      ]
-    },
-    "Emit_Failure_Event": {
-      "Type": "Task",
-      "Comment": "Emit task.failed event for monitoring/alerting",
-      "Resource": "arn:aws:states:::events:putEvents",
-      "Arguments": {
-        "Entries": [
-          {
-            "Source": "pipeline.tasks",
-            "DetailType": "task.failed",
-            "Detail": {
-              "task_name": "{% $states.input.task_name %}",
-              "execution_name": "{% $states.input.execution_name %}",
-              "date": "{% $states.input.date %}",
-              "error": "{% $states.input.error_truncated %}",
-              "slack_channel": "{% $states.input.slack_channel %}"
-            }
-          }
-        ]
-      },
-      "Output": "{% $states.input %}",
-      "Next": "Notify_Dependents",
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "IntervalSeconds": 2,
-          "MaxAttempts": 2,
-          "BackoffRate": 2.0
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "Comment": "Monitoring event failure must not block orchestration",
           "Output": "{% $states.input %}",
           "Next": "Notify_Dependents"
         }
@@ -171,101 +139,32 @@
           "Next": "Check_Orchestration_Token"
         }
       ],
-      "Default": "Check_Slack_Alert"
+      "Default": "Send_Alerts"
     },
-    "Check_Slack_Alert": {
-      "Type": "Choice",
-      "Comment": "Check if Slack alerts are configured",
-      "Choices": [
-        {
-          "Condition": "{% $exists($states.input.alerts.slack) and $states.input.alerts.slack != '' %}",
-          "Next": "Send_Slack_Alert"
-        }
-      ],
-      "Default": "Check_Orchestration_Token"
-    },
-    "Send_Slack_Alert": {
+    "Send_Alerts": {
       "Type": "Task",
-      "Comment": "Send Slack notification via interactive helper (no buttons — task is dead)",
-      "Resource": "arn:aws:states:::states:startExecution",
+      "Comment": "Send failure alerts via the notify Lambda (ADR #103, Stage-1 consolidation). The Lambda reads alert_config from the registry and fans out over enabled channels itself; an empty/missing config is a clean no-op. Never fails the handler \u2014 delivery problems are swallowed by the Lambda.",
+      "Resource": "arn:aws:states:::lambda:invoke",
       "Arguments": {
-        "StateMachineArn": "${slack_alerter_arn}",
-        "Input": {
-          "execution_name": "{% $states.input.execution_name %}",
-          "task_name": "{% $states.input.task_name %}",
+        "FunctionName": "${notify_function_arn}",
+        "Payload": {
           "pipeline_name": "{% $exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown' %}",
-          "slack_channel": "{% $states.input.alerts.slack %}",
-          "slack_mentions": "{% $exists($states.input.slack_mentions_formatted) and $states.input.slack_mentions_formatted != '' ? $states.input.slack_mentions_formatted : '' %}",
-          "error": "{% $states.input.error_truncated %}",
-          "date": "{% $states.input.date %}",
-          "token": "",
-          "task_execution_arn": "{% $exists($states.input.task_execution_arn) ? $states.input.task_execution_arn : '' %}",
-          "wrapper_executionArn": "{% $exists($states.input.wrapper_execution_arn) ? $states.input.wrapper_execution_arn : '' %}"
-        }
-      },
-      "Output": "{% $states.input %}",
-      "Next": "Check_Orchestration_Token",
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "StepFunctions.ExecutionLimitExceeded",
-            "States.Timeout"
-          ],
-          "IntervalSeconds": 5,
-          "MaxAttempts": 2,
-          "BackoffRate": 2,
-          "JitterStrategy": "FULL"
-        }
-      ],
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.ALL"
-          ],
-          "Comment": "Slack alert failed - record and continue",
-          "Output": "{% $states.input %}",
-          "Next": "Record_Slack_Failure"
-        }
-      ]
-    },
-    "Record_Slack_Failure": {
-      "Type": "Task",
-      "Comment": "Record that Slack notification failed so UI can show warning",
-      "Resource": "arn:aws:states:::dynamodb:updateItem",
-      "Arguments": {
-        "TableName": "${tokens_table}",
-        "Key": {
-          "execution_name": {
-            "S": "{% $states.input.execution_name %}"
-          }
-        },
-        "UpdateExpression": "SET notification_failed = :nf",
-        "ExpressionAttributeValues": {
-          ":nf": {
-            "S": "slack_channel_error"
+          "failure": {
+            "task_name": "{% $states.input.task_name %}",
+            "execution_name": "{% $states.input.execution_name %}",
+            "error": "{% $states.input.error_truncated %}",
+            "date": "{% $exists($states.input.date) ? $states.input.date : '' %}"
           }
         }
       },
       "Output": "{% $states.input %}",
       "Next": "Check_Orchestration_Token",
-      "Retry": [
-        {
-          "ErrorEquals": [
-            "DynamoDB.ProvisionedThroughputExceededException",
-            "DynamoDB.ThrottlingException",
-            "States.Timeout"
-          ],
-          "IntervalSeconds": 2,
-          "MaxAttempts": 2,
-          "BackoffRate": 2
-        }
-      ],
       "Catch": [
         {
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Comment": "Recording failed - continue anyway",
+          "Comment": "Alert delivery must never block the failure callback",
           "Output": "{% $states.input %}",
           "Next": "Check_Orchestration_Token"
         }

@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"with_retries\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"flaky_task\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"flaky_task\", \"name\": \"flaky_task\"}], \"edges\": []}, \"slsflow_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"with_retries\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"flaky_task\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"flaky_task\", \"name\": \"flaky_task\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -77,7 +77,7 @@
     },
     "Check_Register_Only": {
       "Type": "Choice",
-      "Comment": "Skip task execution if register_only=true (used by slsflow-register CLI)",
+      "Comment": "Skip task execution if register_only=true (used by polyris-register CLI)",
       "Choices": [
         {
           "Condition": "{% $states.input.register_only = true %}",
@@ -121,11 +121,13 @@
                   "PARTITION_ARG": "{% $exists($states.input.variables.PARTITION_ARG) ? $states.input.variables.PARTITION_ARG : ($exists($states.input.PARTITION_ARG) ? $states.input.PARTITION_ARG : ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')))) %}",
                   "variables": "{% $exists($states.input.variables) ? $states.input.variables : {} %}",
                   "orchestration_timeout": 86400,
+                  "task_config": {
+                    "retries": 3,
+                    "retry_delay": 120
+                  },
                   "wait_before": 0,
                   "trigger_rule": "all_success",
-                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}",
-                  "alerts": {},
-                  "slack_mentions_formatted": ""
+                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
                 }
               },
               "End": true

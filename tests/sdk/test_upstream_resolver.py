@@ -1,4 +1,4 @@
-"""Tests for slsflow.upstream_resolver and partitions.partitions_covering.
+"""Tests for polyris.upstream_resolver and partitions.partitions_covering.
 
 Covers the cross-pipeline tiered resolver (ADR #88) on the intersecting-
 window mapping (ADR #87), including the production aspects beyond the
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from slsflow.partitions import partitions_covering
-from slsflow.upstream_resolver import (
+from polyris.partitions import partitions_covering
+from polyris.upstream_resolver import (
     AssetGraph,
     AssetNode,
     CycleError,

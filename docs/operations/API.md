@@ -1,4 +1,4 @@
-# slsflow REST API Reference
+# polyris REST API Reference
 
 ## Base URL
 
@@ -21,10 +21,10 @@ GET /api/pipeline/my-pipeline/status          # Wrong
 
 When auth enforcement is on (`AUTH_ENABLED=true`), every request except
 `/api/health*` and `/api/metrics` requires a bearer credential — either a
-Cognito access token (browser) or a slsflow Personal Access Token (scripts/CI):
+Cognito access token (browser) or a polyris Personal Access Token (scripts/CI):
 
 ```
-Authorization: Bearer slsf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Authorization: Bearer plrs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 Generate and manage tokens via the Console (avatar → API Tokens) or the
@@ -55,7 +55,7 @@ POST /api/tokens
 Response (`201`) — the `token` field is returned **only here**, once:
 ```json
 { "token_id": "tok_ab12cd34", "name": "ci-pipeline", "scope": "write",
-  "token": "slsf_…", "created_at": "…", "expires_at": "…", "revoked": false }
+  "token": "plrs_…", "created_at": "…", "expires_at": "…", "revoked": false }
 ```
 
 ### List tokens
@@ -179,6 +179,10 @@ Body: `{"pipeline_name": "...", "sfn_arn": "...", "dag": {...}}`
 
 ### Backfill (Unified, v0.78+)
 
+> **Team edition.** Backfill is a Team-tier capability (ADR #99/#104). These
+> `/api/backfill*` endpoints are served by the Team build; the open-source
+> Console API does not register them.
+
 Per **ADR #51**, six legacy code paths (pipeline-backfill, asset-backfill,
 force-trigger, manual run, task-level run, matrix cell click) are
 collapsed into a single endpoint:
@@ -270,7 +274,7 @@ skip_completed), `concurrent_backfill_active` (409 — active backfill running
 for the same pipeline; pass `options.allow_concurrent=true` to override),
 `throttled` (503 — retry), `misconfigured` (500), `sfn_start_failed`,
 `internal_error`. The canonical, gated list lives in
-`slsflow/constants.py` as `BACKFILL_ERROR_CODES` (ADR #94).
+`polyris/constants.py` as `BACKFILL_ERROR_CODES` (ADR #94).
 
 #### Scale boundaries (v0.78)
 

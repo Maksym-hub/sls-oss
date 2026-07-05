@@ -1,13 +1,13 @@
 # ADR #98 — Open-core split structure (proprietary roots, no symlink)
 
-> **Status:** Accepted — fully implemented. SDK split (`slsflow/ai/` →
-> `slsflow/_ee/ai/`) and backend split both done: 5 clean Team modules, the 5
+> **Status:** Accepted — fully implemented. SDK split (`polyris/ai/` →
+> `polyris/_ee/ai/`) and backend split both done: 5 clean Team modules, the 5
 > mixed modules (function-level), and `tokens` all moved to `console_api/ee/`.
 > OSS surface is exactly **16 free routes**; full build is **57**. Builds on the
 > registration seam from ADR #97.
 >
 > **Amended by ADR #100:** the team↔enterprise enforcement deferred here is decided
-> there as a *runtime entitlement* (one build, `SLSFLOW_TIER`), not a physical
+> there as a *runtime entitlement* (one build, `POLYRIS_TIER`), not a physical
 > strip. The free↔paid strip below is unchanged. With the `/api/capabilities`
 > infrastructure route added there, the full paid surface is now **58**.
 
@@ -17,7 +17,7 @@ ADR #97 made console routes self-register via an explicit list, so *what is
 registered* determines the API surface. To ship an open-core build we need
 proprietary code physically separable so the OSS build can strip it, with two
 hard constraints: **no extra symlinks** (the local `unzip` does not preserve
-them — we already nurse `console_api/slsflow`), and **no `sys.path` collisions**.
+them — we already nurse `console_api/polyris`), and **no `sys.path` collisions**.
 
 Tiers were agreed against the real 57-route surface, on the heuristic
 **authoring + basic read = free; operations / observability / intervention =
@@ -37,10 +37,10 @@ Proprietary code is stripped from the OSS build. It lives in **two roots, one pe
 runtime**, deliberately given **distinct package names** so they never clash on
 `sys.path`:
 
-1. **SDK** — `slsflow/_ee/` (a private subpackage of `slsflow`). Holds the AI
-   assistant at `slsflow/_ee/ai/`; the `slsflow-ai` entry point targets
-   `slsflow._ee.ai.cli:main`. It rides along inside the `slsflow` package the
-   Lambda already imports (via the existing `console_api/slsflow` symlink), so it
+1. **SDK** — `polyris/_ee/` (a private subpackage of `polyris`). Holds the AI
+   assistant at `polyris/_ee/ai/`; the `polyris-ai` entry point targets
+   `polyris._ee.ai.cli:main`. It rides along inside the `polyris` package the
+   Lambda already imports (via the existing `console_api/polyris` symlink), so it
    needs **no new symlink**.
 2. **Backend** — `sam/lambdas/console_api/ee/` (the `ee` top-level package, local
    to the Lambda's CodeUri). Holds the Team route modules. It is already inside
@@ -51,17 +51,17 @@ a repo-root `ee/` and the backend in `console_api/ee/` — two *top-level* `ee`
 packages. `import ee` then resolves to whichever parent dir is first on
 `sys.path`, and test suites that prepend `console_api` (e.g. `test_templates`,
 `tests/backend/conftest`) cannot share a pytest session with the SDK AI test:
-`slsflow`'s tests want one `ee`, the backend's want the other. Renaming the SDK
-side to `slsflow._ee` removes the shared name, so the AI test imports
-`slsflow._ee.ai` and is immune to any `ee` path ordering. A single shared
+`polyris`'s tests want one `ee`, the backend's want the other. Renaming the SDK
+side to `polyris._ee` removes the shared name, so the AI test imports
+`polyris._ee.ai` and is immune to any `ee` path ordering. A single shared
 repo-root `ee/` symlinked into the Lambda would also have worked, but was rejected
 to avoid a second symlink.
 
 **Dependency invariant:**
-- OSS code never imports proprietary code — neither `slsflow` core importing
-  `slsflow._ee`, nor `console_api` OSS importing `ee`.
+- OSS code never imports proprietary code — neither `polyris` core importing
+  `polyris._ee`, nor `console_api` OSS importing `ee`.
 - `ee/team/` never imports `ee/enterprise/`.
-- Proprietary code may import OSS (e.g. the AI assistant imports `slsflow`; a Team
+- Proprietary code may import OSS (e.g. the AI assistant imports `polyris`; a Team
   route imports `dal`/`routes`).
 
 **Backend registration:** `console_api/main.py` registers the OSS route modules
@@ -73,16 +73,16 @@ are split at the function level — free handlers stay in `routes/`, Team handle
 move to `ee/`; shared helpers stay OSS and `ee/` imports them.
 
 **Tests follow code:** a proprietary module's tests live under its proprietary
-root (`slsflow/_ee/tests/`, `console_api/ee/team/tests/`), so stripping the root
+root (`polyris/_ee/tests/`, `console_api/ee/team/tests/`), so stripping the root
 removes both the code and its tests — no per-file exclusion list. The Makefile/CI
-SDK target runs `slsflow/_ee/tests/`; the console_api target runs
+SDK target runs `polyris/_ee/tests/`; the console_api target runs
 `ee/team/tests/`.
 
 ## Consequences
 
-- The OSS build strips `slsflow/_ee/` and `console_api/ee/`, and drops the
-  `slsflow-ai` entry point. Two strip paths, no symlinks, no code cut from files.
-- Done: SDK (`ai` → `slsflow/_ee/ai`, entry point, test relocated) and the full
+- The OSS build strips `polyris/_ee/` and `console_api/ee/`, and drops the
+  `polyris-ai` entry point. Two strip paths, no symlinks, no code cut from files.
+- Done: SDK (`ai` → `polyris/_ee/ai`, entry point, test relocated) and the full
   backend — clean Team modules (backfill, notifications, slack, matrix, drift),
   the five mixed modules split at the function level (`pipelines_info`,
   `pipelines_actions`, `tasks`, `executions`, `assets`), and `tokens` (clean Team

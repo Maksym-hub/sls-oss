@@ -5,3 +5,11 @@
 # JWTs offline (RS256) against the pool JWKS. Pure Python (no native wheel), so
 # `sam build` works WITHOUT `--use-container`. See ADR #65.
 rsa>=4.9
+
+# polyris SDK core — provides the DSL/partition/granularity modules the console
+# imports (e.g. polyris.partitions). Previously vendored via the
+# `console_api/polyris` symlink; now pulled as a package so the repo split works
+# (ADR #102). Pin to a release tag. For local dev, `pip install -e .` from the
+# repo root shadows this with the live core.
+# TODO(maksym): replace <PUBLIC_REPO_URL> + tag once the public repo exists.
+polyris @ file:///home/makskoval/my/sam/oss/sls-oss

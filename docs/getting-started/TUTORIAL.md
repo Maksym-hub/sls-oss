@@ -1,6 +1,6 @@
 # From Zero to Production Tutorial
 
-This tutorial walks you through exploring slsflow locally, then deploying your first pipeline to AWS.
+This tutorial walks you through exploring polyris locally, then deploying your first pipeline to AWS.
 
 **Time required:** ~30 minutes (5 min local + 25 min AWS)
 
@@ -21,43 +21,43 @@ For deployment (Steps 3+):
 
 ---
 
-## Step 1: Install slsflow (2 min)
+## Step 1: Install polyris (2 min)
 
 ```bash
 mkdir my-pipelines && cd my-pipelines
 python3 -m venv .venv
 source .venv/bin/activate
-pip install slsflow
-python -c "from slsflow import DAG, task; print('✓ slsflow installed')"
+pip install polyris
+python -c "from polyris import DAG, task; print('✓ polyris installed')"
 ```
 
 ---
 
 ## Step 2: Explore the DSL Locally (5 min)
 
-No AWS account needed. Let's create a pipeline and explore what slsflow can do.
+No AWS account needed. Let's create a pipeline and explore what polyris can do.
 
 ```bash
-slsflow-init my-first-pipeline --local
+polyris-init my-first-pipeline --local
 cd my-first-pipeline
 ```
 
-This generates `pipeline.py` — a working pipeline definition with placeholder ARNs. Let's explore:
+This generates `dag.py` — a working pipeline definition with placeholder ARNs. Let's explore:
 
 ```bash
-slsflow-validate              # Validate the pipeline
-slsflow-validate -v           # Verbose: tasks, deps, ASL preview
-slsflow-output --json         # Full Step Functions JSON
-slsflow-output --mermaid      # Generate a Mermaid diagram
-slsflow-output --graph        # Show DAG as ASCII graph
+polyris-validate              # Validate the pipeline
+polyris-validate -v           # Verbose: tasks, deps, ASL preview
+polyris-output --json         # Full Step Functions JSON
+polyris-output --mermaid      # Generate a Mermaid diagram
+polyris-output --graph        # Show DAG as ASCII graph
 ```
 
 ### Edit the pipeline
 
-Open `pipeline.py` and experiment:
+Open `dag.py` and experiment:
 
 ```python
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
 
 processed = Asset("my-data/processed")
@@ -65,7 +65,6 @@ processed = Asset("my-data/processed")
 with DAG(
     dag_id="my-first-pipeline",
     schedule="@daily",
-    alerts={"slack": "#alerts"},
 ) as dag:
 
     @task.sfn(arn="arn:aws:states:us-east-1:123456789012:stateMachine:extract")
@@ -87,7 +86,7 @@ with DAG(
     extract() >> [transform(), load()]  # Fan-out
 ```
 
-Run `slsflow-validate -v` to see how your changes affect the DAG.
+Run `polyris-validate -v` to see how your changes affect the DAG.
 
 At this point you understand the DSL. Ready to deploy? Continue below.
 
@@ -144,22 +143,21 @@ Now create a real pipeline that connects to your infrastructure:
 
 ```bash
 cd ../../  # back to my-pipelines/
-slsflow-init my-first-pipeline
+polyris-init my-first-pipeline
 cd my-first-pipeline
 ```
 
 Edit `dag.py` — replace placeholder ARNs with real ones:
 
 ```python
-from slsflow import DAG, task, config
+from polyris import DAG, task, config
 import os
 
-STAGE = os.environ.get("SLSFLOW_STAGE", "dev")
+STAGE = os.environ.get("POLYRIS_STAGE", "dev")
 
 with DAG(
     dag_id="my-first-pipeline",
     schedule="@daily",
-    alerts={"slack": "#pipeline-alerts"},
 ) as dag:
 
     # Use full ARN directly — explicit and transparent
@@ -174,7 +172,7 @@ with DAG(
 
     extract() >> transform() >> load()
 
-# Deploy: slsflow-deploy --stage $STAGE
+# Deploy: polyris-deploy --stage $STAGE
 ```
 
 **Troubleshooting SSM parameters:**
@@ -186,7 +184,7 @@ with DAG(
 ## Step 6: Deploy Pipeline
 
 ```bash
-slsflow-deploy
+polyris-deploy
 ```
 
 ---
@@ -194,13 +192,13 @@ slsflow-deploy
 ## Step 7: Test Your Pipeline
 
 ### Via UI
-1. Open Console URL (from `aws cloudformation describe-stacks --stack-name slsflow-dev --query "Stacks[0].Outputs" console_url`)
+1. Open Console URL (from `aws cloudformation describe-stacks --stack-name polyris-dev --query "Stacks[0].Outputs" console_url`)
 2. Click "my-first-pipeline"
 3. Click "▶ Run"
 
 ### Via AWS Console
 1. Open Step Functions
-2. Find "mycompany-dev-slsflow-my-first-pipeline"
+2. Find "mycompany-dev-polyris-my-first-pipeline"
 3. View executions
 
 ---
@@ -230,7 +228,7 @@ See [TROUBLESHOOTING.md](../operations/TROUBLESHOOTING.md) for more.
 ```python
 import os
 
-STAGE = os.environ.get("SLSFLOW_STAGE", "dev")
+STAGE = os.environ.get("POLYRIS_STAGE", "dev")
 
 # ARNs — use full ARN strings directly
 f"arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:myorg-{STAGE}-task"

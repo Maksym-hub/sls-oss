@@ -1,6 +1,6 @@
-# SLSFlow Console
+# Polyris Console
 
-React 19 + Next.js 16 web console for monitoring and managing SLSFlow pipelines.
+React 19 + Next.js 16 web console for monitoring and managing Polyris pipelines.
 
 **Stack:** TypeScript, React Query 5 (server state), Zustand 5 (UI state), ReactFlow 11 (graphs), Tailwind 3, shadcn/ui.
 
@@ -181,7 +181,7 @@ App.tsx
 
 ```bash
 cp .env.example .env.local
-# Edit .env.local with API_GATEWAY_URL
+# Edit .env.local: NEXT_PUBLIC_API_URL=https://<id>.execute-api.<region>.amazonaws.com/<stage>/api
 
 npm install
 npm run dev     # http://localhost:3000
@@ -191,13 +191,12 @@ npm run dev     # http://localhost:3000
 
 | Variable | Where | Purpose |
 |----------|-------|---------|
-| `API_GATEWAY_URL` | Server-side only | API Gateway URL for proxy |
+| `NEXT_PUBLIC_API_URL` | Client | Full API Gateway invoke URL, incl. stage and `/api` (e.g. `…/dev/api`) |
 | `NEXT_PUBLIC_AUTH_ENABLED` | Client | Enable Cognito auth |
 | `NEXT_PUBLIC_COGNITO_USER_POOL_ID` | Client | Cognito pool ID |
 | `NEXT_PUBLIC_COGNITO_CLIENT_ID` | Client | Cognito app client ID |
 | `NEXT_PUBLIC_COGNITO_REGION` | Client | AWS region |
 
-> Existing `VITE_*` env vars are auto-mapped in `next.config.mjs` for backward compatibility.
 
 ## Build
 
@@ -209,7 +208,7 @@ npm run lint    # ESLint (0 errors required for CI)
 ## Testing
 
 ```bash
-npm test -- --run           # All 536 tests
+npm test -- --run           # All 511 tests
 npm test -- --run src/components/DAGGraphFlow.test.tsx  # Single file
 ```
 
@@ -228,9 +227,12 @@ npm test -- --run src/components/DAGGraphFlow.test.tsx  # Single file
 
 ## Deployment
 
-Push to GitHub → Vercel auto-deploys. Set `API_GATEWAY_URL` in Vercel environment variables.
+The console is a **static export** deployed to **S3 + CloudFront** via
+`./deploy.sh` (a.k.a. `sam/deploy-ui.sh`), which reads CloudFormation outputs and
+generates `config.js` with the real API Gateway URL and Cognito settings.
 
-See [docs/features/vercel-deployment.md](../docs/features/vercel-deployment.md) for full setup guide.
+See [docs/operations/UI.md](../docs/operations/UI.md) for the full guide, including
+running the UI locally against a deployed API (with and without Cognito).
 
 ## Styling Conventions
 

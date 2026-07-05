@@ -1,10 +1,10 @@
 """SDK ↔ Lambda parity for schema-related code that is intentionally duplicated
 across the package boundary.
 
-The console_api Lambda does not ship with the slsflow SDK package — it is
+The console_api Lambda does not ship with the polyris SDK package — it is
 deployed as a separate zip with its own `utils.py`. Two pieces are duplicated:
 
-  - `_COLUMN_DEFAULTS` (slsflow/schema.py) and `_SCHEMA_COLUMN_DEFAULTS`
+  - `_COLUMN_DEFAULTS` (polyris/schema.py) and `_SCHEMA_COLUMN_DEFAULTS`
     (sam/lambdas/console_api/utils.py)
   - `dict_schema_richness(...)` defined in both modules
 
@@ -61,7 +61,7 @@ def lambda_symbols() -> Dict[str, Any]:
 def sdk_symbols() -> Dict[str, Any]:
     if REPO_ROOT not in sys.path:
         sys.path.insert(0, REPO_ROOT)
-    from slsflow.schema import _COLUMN_DEFAULTS, dict_schema_richness
+    from polyris.schema import _COLUMN_DEFAULTS, dict_schema_richness
     return {
         'defaults': _COLUMN_DEFAULTS,
         'richness': dict_schema_richness,
@@ -80,7 +80,7 @@ def test_column_defaults_match(sdk_symbols, lambda_symbols):
     """
     assert sdk_symbols['defaults'] == lambda_symbols['defaults'], (
         "Drift detected. Update both:\n"
-        "  - slsflow/schema.py::_COLUMN_DEFAULTS\n"
+        "  - polyris/schema.py::_COLUMN_DEFAULTS\n"
         "  - sam/lambdas/console_api/utils.py::_SCHEMA_COLUMN_DEFAULTS\n"
         f"SDK:    {sdk_symbols['defaults']}\n"
         f"Lambda: {lambda_symbols['defaults']}"

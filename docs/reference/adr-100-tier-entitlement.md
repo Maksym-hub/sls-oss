@@ -15,7 +15,7 @@
 ## Context
 
 ADR #98 made the **free↔paid** boundary physical: proprietary code lives under a
-distinct root (`console_api/ee/`, `slsflow/_ee/`, `ui/src/ee/`) and "what is in
+distinct root (`console_api/ee/`, `polyris/_ee/`, `ui/src/ee/`) and "what is in
 the build" decides the tier. ADR #99 extended the same physical mechanism to the
 UI. Both also **pre-declared** the directory invariant `ee/team/ never imports
 ee/enterprise/` but left the team↔enterprise *enforcement* deferred — at the time
@@ -66,7 +66,7 @@ FEATURES = { "execution.controls": "team", "asset.lineage": "team",
 # tier -> caps, with enterprise inheriting team
 ```
 
-**Deployment tier.** A single value per stack: `SLSFLOW_TIER` (env var, declared
+**Deployment tier.** A single value per stack: `POLYRIS_TIER` (env var, declared
 in the console_api Lambda's `Environment.Variables` in `sam/template.yaml`, with a
 matching template parameter). It is read once via `config`; there is no per-org
 lookup.
@@ -115,7 +115,7 @@ Until a real on-prem customer exists, we do not build per-tier artifacts.
   new build, no new pipeline.
 - **Adding a tier:** add one tier→capabilities entry in the registry. No new
   build.
-- **Upgrading a deployment Team→Enterprise:** change `SLSFLOW_TIER`. No redeploy
+- **Upgrading a deployment Team→Enterprise:** change `POLYRIS_TIER`. No redeploy
   of a different artifact.
 - **Current state:** per ADR #98 all paid code is **Team**; `ee/enterprise/` is
   empty on both runtimes. So `@requires` and `can()` apply to **0** features

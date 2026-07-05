@@ -3,7 +3,7 @@ Drift guard for backend constants (v0.79.0, ADR #72).
 
 The hand-written enum classes in console_api/constants.py (TaskStatus,
 TriggerRule, BackfillStatus, etc.) MUST stay in sync with the canonical
-source slsflow/constants.py. The generator (slsflow.codegen.sync_enums)
+source polyris/constants.py. The generator (polyris.codegen.sync_enums)
 produces constants_generated.py from canonical; this test asserts the
 hand-written ones agree.
 
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..
 
 import constants as backend  # console_api/constants.py
 import constants_generated as gen  # generated mirror
-from slsflow import constants as canonical
+from polyris import constants as canonical
 
 
 class TestEnumDrift:
@@ -39,7 +39,7 @@ class TestEnumDrift:
         missing = backend_values - canonical_values
         assert not missing, (
             f"Backend TaskStatus has values not in canonical: {missing}. "
-            f"Add them to slsflow/constants.py or remove from backend."
+            f"Add them to polyris/constants.py or remove from backend."
         )
 
     def test_trigger_rule_values_match_canonical(self):
@@ -85,12 +85,12 @@ class TestEnumDrift:
         # The generator must produce identical bytes on re-run; CI also
         # checks this via `make check-generate-enums`, but unit test
         # gives early feedback.
-        from slsflow.codegen.sync_enums import check_all
+        from polyris.codegen.sync_enums import check_all
         changes = check_all()
         drifted = [str(p) for p, changed in changes.items() if changed]
         assert not drifted, (
-            f"Generated enum files out of sync with slsflow/constants.py: "
-            f"{drifted}. Run: python -m slsflow.codegen.sync_enums"
+            f"Generated enum files out of sync with polyris/constants.py: "
+            f"{drifted}. Run: python -m polyris.codegen.sync_enums"
         )
 
     def test_normalize_execution_status_in_sync(self):

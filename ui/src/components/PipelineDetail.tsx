@@ -13,7 +13,8 @@ import { useToast, useKeyboardShortcuts, SHORTCUTS } from '../hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/queryClient';
 import { paidSurface } from '@/ee-active.generated';
-import type { PipelineActions, PipelineActionsParams } from '@/ee-contract';
+import { PipelineActionsProvider } from '@/components/PipelineActionsProvider';
+import type { PipelineActions, PipelineActionsParams } from '@/types';
 import { 
     usePipelineDetailQuery,
     usePipelineExecutionsQuery,
@@ -121,6 +122,7 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
     );
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- derive countdown flag from the latest tasks
         setHasActiveCountdown(tasks.some(
             t => ['deps_ready', 'waiting_delay'].includes(t.status) && Number(t.wait_before || 0) > 0
         ));
@@ -146,13 +148,14 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
     const showToast = (message: string, type = 'info') => toast.show(message, type);
 
     const queryClient = useQueryClient();
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- manual useCallback kept intentionally
     const handleRefresh = React.useCallback(() => {
         queryClient.invalidateQueries({ queryKey: queryKeys.pipelines });
         if (pipeline?.name) queryClient.invalidateQueries({ queryKey: ['pipeline', pipeline.name] });
     }, [queryClient, pipeline?.name]);
 
-    // Team-tier pipeline action provider (absent in the OSS build) — ADR #99.
-    const PipelineActionsProvider = paidSurface.PipelineActionsProvider;
+    // Pipeline action provider — free (ADR #110): task/execution intervention
+    // ships in every build, so the provider is always present (no OSS gating).
     const actionParams: PipelineActionsParams = {
         selectedPipeline: pipeline,
         selectedTask,
@@ -454,9 +457,11 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
         </>
     );
 
-    return PipelineActionsProvider
-        ? <PipelineActionsProvider params={actionParams}>{(actions) => content(actions)}</PipelineActionsProvider>
-        : content(null);
+    return (
+        <PipelineActionsProvider params={actionParams}>
+            {(actions) => content(actions)}
+        </PipelineActionsProvider>
+    );
 }
 
 /**

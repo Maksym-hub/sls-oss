@@ -119,7 +119,7 @@
                         "S": "{% $states.input.execution_name %}"
                     }
                 },
-                "UpdateExpression": "SET #s = :status, running_at = :running_at, run_task_helper_arn = :helper_arn, task_run_id = :task_run_id, attempt = :attempt, alerts_json = :alerts_json, slack_mentions_formatted = :slack_mentions_formatted, task_arn = :task_arn, task_type = :task_type",
+                "UpdateExpression": "SET #s = :status, running_at = :running_at, run_task_helper_arn = :helper_arn, task_run_id = :task_run_id, attempt = :attempt, task_arn = :task_arn, task_type = :task_type",
                 "ExpressionAttributeNames": {
                     "#s": "status"
                 },
@@ -138,12 +138,6 @@
                     },
                     ":attempt": {
                         "N": "{% $string($exists($states.input.attempt) ? $states.input.attempt : 1) %}"
-                    },
-                    ":alerts_json": {
-                        "S": "{% $string($exists($states.input.alerts) ? $states.input.alerts : {}) %}"
-                    },
-                    ":slack_mentions_formatted": {
-                        "S": "{% $exists($states.input.slack_mentions_formatted) ? $states.input.slack_mentions_formatted : '' %}"
                     },
                     ":task_arn": {
                         "S": "{% $exists($states.input.task_arn) ? $states.input.task_arn : '' %}"
@@ -309,6 +303,9 @@
         "Prepare_Task_Input": {
             "Type": "Pass",
             "Comment": "Compute date variables (like backfill) and build final task input with upstream context",
+            "Assign": {
+                "retry_attempt": "{% 0 %}"
+            },
             "Output": "{% ( $cd := $states.input.current_date; $dt := $toMillis($cd & 'T00:00:00Z'); $dateVars := { 'current_date': $cd, 'PARTITION_ARG': $exists($states.input.PARTITION_ARG) ? $states.input.PARTITION_ARG : $cd, 'date_iso': $cd, 'date_compact': $replace($cd, '-', ''), 'date_slash': $substring($cd,0,4) & '/' & $substring($cd,5,2) & '/' & $substring($cd,8,2), 'date_underscore': $replace($cd, '-', '_'), 'year': $substring($cd, 0, 4), 'month': $substring($cd, 5, 2), 'day': $substring($cd, 8, 2), 'day_of_week': (['thursday','friday','saturday','sunday','monday','tuesday','wednesday'])[$floor($dt / 86400000) % 7], 'previous_date': $fromMillis($dt - 86400000, '[Y0001]-[M01]-[D01]'), 'next_date': $fromMillis($dt + 86400000, '[Y0001]-[M01]-[D01]'), 'minus_7_days': $fromMillis($dt - 604800000, '[Y0001]-[M01]-[D01]'), 'minus_14_days': $fromMillis($dt - 1209600000, '[Y0001]-[M01]-[D01]'), 'minus_30_days': $fromMillis($dt - 2592000000, '[Y0001]-[M01]-[D01]'), 'minus_7_days_compact': $replace($fromMillis($dt - 604800000, '[Y0001]-[M01]-[D01]'), '-', ''), 'minus_30_days_compact': $replace($fromMillis($dt - 2592000000, '[Y0001]-[M01]-[D01]'), '-', ''), 'partition_key': $exists($states.input.partition_key) ? $states.input.partition_key : $cd, 'backfill_id': $exists($states.input.backfill_id) ? $states.input.backfill_id : '', 'is_backfill': $exists($states.input.is_backfill) ? $states.input.is_backfill : false, 'ALLOW_UNSUCCESSFUL_SPIDER_RUN': 'True' }; $vars := $exists($states.input.variables) ? $states.input.variables : {}; $merged := $merge([$dateVars, $vars]); $states.input ~> |$| {'variables': $merged, 'upstream': $exists($states.input.upstream) ? $states.input.upstream : {}} | ) %}",
             "Next": "Check_Task_Type"
         },
@@ -362,7 +359,7 @@
                         "States.ALL"
                     ],
                     "Output": "{% ( $errObj := $states.errorOutput; $errStr := $string($errObj); $truncErr := $length($errStr) > 50000 ? $substring($errStr, 0, 50000) & '...[truncated]' : $errStr; $causeStr := $exists($errObj.Cause) ? $string($errObj.Cause) : ''; $taskArn := $contains($causeStr, 'ExecutionArn') ? ($parsed := $parse($causeStr); $exists($parsed.ExecutionArn) ? $parsed.ExecutionArn : '') : ''; $states.input ~> |$| {'error': $truncErr, 'error_obj': $errObj, 'task_execution_arn': $taskArn} | ) %}",
-                    "Next": "Save_Error_Waiting"
+                    "Next": "Check_Should_Retry"
                 }
             ],
             "Next": "Save_Success",
@@ -383,9 +380,12 @@
             "Type": "Task",
             "Comment": "Execute Lambda function directly",
             "Resource": "arn:aws:states:::lambda:invoke",
+            "Credentials": {
+                "RoleArn": "{% $substring($states.input.cross_account_role, 0, 4) = 'arn:' ? $states.input.cross_account_role : '${same_account_role_arn}' %}"
+            },
             "Arguments": {
                 "FunctionName": "{% $states.input.task_arn %}",
-                "Payload": "{% $merge([{'current_date': $states.input.current_date, 'PARTITION_ARG': $states.input.PARTITION_ARG}, $exists($states.input.variables) ? $states.input.variables : {}, $exists($states.input.upstream) and $count($keys($states.input.upstream)) > 0 ? {'upstream': $states.input.upstream} : {}]) %}"
+                "Payload": "{% $merge([$exists($states.input.task_config.payload) ? $states.input.task_config.payload : {}, {'current_date': $states.input.current_date, 'PARTITION_ARG': $states.input.PARTITION_ARG}, $exists($states.input.variables) ? $states.input.variables : {}, $exists($states.input.upstream) and $count($keys($states.input.upstream)) > 0 ? {'upstream': $states.input.upstream} : {}]) %}"
             },
             "Output": "{% ( $raw := $exists($states.result.Payload) ? $string($states.result.Payload) : '{}'; $truncated := $length($raw) > 200000 ? '{\"_truncated\":true,\"_size\":' & $string($length($raw)) & '}' : $raw; $states.input ~> |$| {'task_output': $truncated, 'task_execution_arn': ''} | ) %}",
             "Catch": [
@@ -394,7 +394,7 @@
                         "States.ALL"
                     ],
                     "Output": "{% ( $errObj := $states.errorOutput; $errStr := $string($errObj); $truncErr := $length($errStr) > 50000 ? $substring($errStr, 0, 50000) & '...[truncated]' : $errStr; $causeStr := $exists($errObj.Cause) ? $string($errObj.Cause) : ''; $taskArn := $contains($causeStr, 'ExecutionArn') ? ($parsed := $parse($causeStr); $exists($parsed.ExecutionArn) ? $parsed.ExecutionArn : '') : ''; $states.input ~> |$| {'error': $truncErr, 'error_obj': $errObj, 'task_execution_arn': $taskArn} | ) %}",
-                    "Next": "Save_Error_Waiting"
+                    "Next": "Check_Should_Retry"
                 }
             ],
             "Next": "Save_Success",
@@ -417,10 +417,10 @@
             "Type": "Task",
             "Comment": "Execute Glue job (sync - waits for completion)",
             "Resource": "arn:aws:states:::glue:startJobRun.sync",
-            "Arguments": {
-                "JobName": "{% $states.input.task_config.job_name %}",
-                "Arguments": "{% $exists($states.input.task_config.arguments) ? $states.input.task_config.arguments : {} %}"
+            "Credentials": {
+                "RoleArn": "{% $substring($states.input.cross_account_role, 0, 4) = 'arn:' ? $states.input.cross_account_role : '${same_account_role_arn}' %}"
             },
+            "Arguments": "{% $merge([{'JobName': $states.input.task_config.job_name, 'Arguments': $exists($states.input.task_config.arguments) ? $states.input.task_config.arguments : {}}, $exists($states.input.task_config.worker_type) ? {'WorkerType': $states.input.task_config.worker_type, 'NumberOfWorkers': $states.input.task_config.number_of_workers} : {}, $exists($states.input.task_config.allocated_capacity) ? {'AllocatedCapacity': $states.input.task_config.allocated_capacity} : {}]) %}",
             "Output": "{% ( $raw := $string($states.result); $truncated := $length($raw) > 200000 ? '{\"_truncated\":true,\"_size\":' & $string($length($raw)) & '}' : $raw; $states.input ~> |$| {'task_output': $truncated, 'task_execution_arn': $exists($states.result.JobRunId) ? $states.result.JobRunId : ''} | ) %}",
             "Catch": [
                 {
@@ -428,7 +428,7 @@
                         "States.ALL"
                     ],
                     "Output": "{% ( $errObj := $states.errorOutput; $errStr := $string($errObj); $truncErr := $length($errStr) > 50000 ? $substring($errStr, 0, 50000) & '...[truncated]' : $errStr; $causeStr := $exists($errObj.Cause) ? $string($errObj.Cause) : ''; $taskArn := $contains($causeStr, 'ExecutionArn') ? ($parsed := $parse($causeStr); $exists($parsed.ExecutionArn) ? $parsed.ExecutionArn : '') : ''; $states.input ~> |$| {'error': $truncErr, 'error_obj': $errObj, 'task_execution_arn': $taskArn} | ) %}",
-                    "Next": "Save_Error_Waiting"
+                    "Next": "Check_Should_Retry"
                 }
             ],
             "Next": "Save_Success"
@@ -437,19 +437,10 @@
             "Type": "Task",
             "Comment": "Execute ECS/Fargate task (sync - waits for completion)",
             "Resource": "arn:aws:states:::ecs:runTask.sync",
-            "Arguments": {
-                "Cluster": "{% $states.input.task_config.cluster %}",
-                "TaskDefinition": "{% $states.input.task_config.task_definition %}",
-                "LaunchType": "{% $exists($states.input.task_config.launch_type) ? $states.input.task_config.launch_type : 'FARGATE' %}",
-                "NetworkConfiguration": {
-                    "AwsvpcConfiguration": {
-                        "Subnets": "{% $states.input.task_config.subnets %}",
-                        "SecurityGroups": "{% $exists($states.input.task_config.security_groups) ? $states.input.task_config.security_groups : [] %}",
-                        "AssignPublicIp": "{% $exists($states.input.task_config.assign_public_ip) ? $states.input.task_config.assign_public_ip : 'DISABLED' %}"
-                    }
-                },
-                "Overrides": "{% $exists($states.input.task_config.overrides) ? $states.input.task_config.overrides : {} %}"
+            "Credentials": {
+                "RoleArn": "{% $substring($states.input.cross_account_role, 0, 4) = 'arn:' ? $states.input.cross_account_role : '${same_account_role_arn}' %}"
             },
+            "Arguments": "{% $merge([{'Cluster': $states.input.task_config.cluster, 'TaskDefinition': $states.input.task_config.task_definition, 'LaunchType': $exists($states.input.task_config.launch_type) ? $states.input.task_config.launch_type : 'FARGATE', 'Overrides': $exists($states.input.task_config.overrides) ? $states.input.task_config.overrides : {}}, ($exists($states.input.task_config.subnets) and $count($states.input.task_config.subnets) > 0) ? {'NetworkConfiguration': {'AwsvpcConfiguration': {'Subnets': $states.input.task_config.subnets, 'SecurityGroups': $exists($states.input.task_config.security_groups) ? $states.input.task_config.security_groups : [], 'AssignPublicIp': $exists($states.input.task_config.assign_public_ip) ? $states.input.task_config.assign_public_ip : 'DISABLED'}}} : {}]) %}",
             "Output": "{% ( $raw := $string($states.result); $truncated := $length($raw) > 200000 ? '{\"_truncated\":true,\"_size\":' & $string($length($raw)) & '}' : $raw; $states.input ~> |$| {'task_output': $truncated, 'task_execution_arn': $exists($states.result.Tasks) and $count($states.result.Tasks) > 0 ? $states.result.Tasks[0].TaskArn : ''} | ) %}",
             "Catch": [
                 {
@@ -457,7 +448,7 @@
                         "States.ALL"
                     ],
                     "Output": "{% ( $errObj := $states.errorOutput; $errStr := $string($errObj); $truncErr := $length($errStr) > 50000 ? $substring($errStr, 0, 50000) & '...[truncated]' : $errStr; $causeStr := $exists($errObj.Cause) ? $string($errObj.Cause) : ''; $taskArn := $contains($causeStr, 'ExecutionArn') ? ($parsed := $parse($causeStr); $exists($parsed.ExecutionArn) ? $parsed.ExecutionArn : '') : ''; $states.input ~> |$| {'error': $truncErr, 'error_obj': $errObj, 'task_execution_arn': $taskArn} | ) %}",
-                    "Next": "Save_Error_Waiting"
+                    "Next": "Check_Should_Retry"
                 }
             ],
             "Next": "Save_Success"
@@ -466,16 +457,10 @@
             "Type": "Task",
             "Comment": "Execute Athena query (sync - waits for completion)",
             "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
-            "Arguments": {
-                "QueryString": "{% $states.input.task_config.query_string %}",
-                "QueryExecutionContext": {
-                    "Database": "{% $states.input.task_config.database %}"
-                },
-                "ResultConfiguration": {
-                    "OutputLocation": "{% $states.input.task_config.output_location %}"
-                },
-                "WorkGroup": "{% $exists($states.input.task_config.workgroup) ? $states.input.task_config.workgroup : 'primary' %}"
+            "Credentials": {
+                "RoleArn": "{% $substring($states.input.cross_account_role, 0, 4) = 'arn:' ? $states.input.cross_account_role : '${same_account_role_arn}' %}"
             },
+            "Arguments": "{% $merge([{'QueryString': $states.input.task_config.query_string, 'QueryExecutionContext': {'Database': $states.input.task_config.database}, 'WorkGroup': $exists($states.input.task_config.workgroup) ? $states.input.task_config.workgroup : 'primary'}, ($exists($states.input.task_config.output_location) and $states.input.task_config.output_location != '') ? {'ResultConfiguration': {'OutputLocation': $states.input.task_config.output_location}} : {}]) %}",
             "Output": "{% ( $raw := $string($states.result); $truncated := $length($raw) > 200000 ? '{\"_truncated\":true,\"_size\":' & $string($length($raw)) & '}' : $raw; $states.input ~> |$| {'task_output': $truncated, 'task_execution_arn': $exists($states.result.QueryExecutionId) ? $states.result.QueryExecutionId : ''} | ) %}",
             "Catch": [
                 {
@@ -483,25 +468,27 @@
                         "States.ALL"
                     ],
                     "Output": "{% ( $errObj := $states.errorOutput; $errStr := $string($errObj); $truncErr := $length($errStr) > 50000 ? $substring($errStr, 0, 50000) & '...[truncated]' : $errStr; $causeStr := $exists($errObj.Cause) ? $string($errObj.Cause) : ''; $taskArn := $contains($causeStr, 'ExecutionArn') ? ($parsed := $parse($causeStr); $exists($parsed.ExecutionArn) ? $parsed.ExecutionArn : '') : ''; $states.input ~> |$| {'error': $truncErr, 'error_obj': $errObj, 'task_execution_arn': $taskArn} | ) %}",
-                    "Next": "Save_Error_Waiting"
+                    "Next": "Check_Should_Retry"
                 }
             ],
             "Next": "Save_Success"
         },
         "Run_Task_EMR": {
             "Type": "Task",
-            "Comment": "Execute EMR step (sync - waits for completion)",
+            "Comment": "Execute EMR step (sync). Step is expanded into literal fields — not an opaque '{% task_config.step %}' expression — so Step Functions' deploy-time schema validation can see the required Step.Name and Step.HadoopJarStep.Jar. Values still come from the user's emr_step (task_config.step); ADR #106 owns the runtime contract.",
             "Resource": "arn:aws:states:::elasticmapreduce:addStep.sync",
+            "Credentials": {
+                "RoleArn": "{% $substring($states.input.cross_account_role, 0, 4) = 'arn:' ? $states.input.cross_account_role : '${same_account_role_arn}' %}"
+            },
             "Arguments": {
                 "ClusterId": "{% $states.input.task_config.cluster_id %}",
                 "Step": {
-                    "Name": "{% $states.input.task_config.step_name %}",
-                    "ActionOnFailure": "{% $exists($states.input.task_config.action_on_failure) ? $states.input.task_config.action_on_failure : 'CONTINUE' %}",
+                    "Name": "{% $states.input.task_config.step.Name %}",
+                    "ActionOnFailure": "{% $exists($states.input.task_config.step.ActionOnFailure) ? $states.input.task_config.step.ActionOnFailure : 'CONTINUE' %}",
                     "HadoopJarStep": {
-                        "Jar": "{% $states.input.task_config.jar %}",
-                        "Args": "{% $exists($states.input.task_config.args) ? $states.input.task_config.args : [] %}",
-                        "MainClass": "{% $exists($states.input.task_config.main_class) ? $states.input.task_config.main_class : '' %}",
-                        "Properties": "{% $exists($states.input.task_config.properties) ? $states.input.task_config.properties : [] %}"
+                        "Jar": "{% $states.input.task_config.step.HadoopJarStep.Jar %}",
+                        "Args": "{% $exists($states.input.task_config.step.HadoopJarStep.Args) ? $states.input.task_config.step.HadoopJarStep.Args : [] %}",
+                        "Properties": "{% $exists($states.input.task_config.step.HadoopJarStep.Properties) ? $states.input.task_config.step.HadoopJarStep.Properties : [] %}"
                     }
                 }
             },
@@ -512,7 +499,7 @@
                         "States.ALL"
                     ],
                     "Output": "{% ( $errObj := $states.errorOutput; $errStr := $string($errObj); $truncErr := $length($errStr) > 50000 ? $substring($errStr, 0, 50000) & '...[truncated]' : $errStr; $causeStr := $exists($errObj.Cause) ? $string($errObj.Cause) : ''; $taskArn := $contains($causeStr, 'ExecutionArn') ? ($parsed := $parse($causeStr); $exists($parsed.ExecutionArn) ? $parsed.ExecutionArn : '') : ''; $states.input ~> |$| {'error': $truncErr, 'error_obj': $errObj, 'task_execution_arn': $taskArn} | ) %}",
-                    "Next": "Save_Error_Waiting"
+                    "Next": "Check_Should_Retry"
                 }
             ],
             "Next": "Save_Success"
@@ -521,6 +508,9 @@
             "Type": "Task",
             "Comment": "Execute AWS Batch job (sync - waits for completion)",
             "Resource": "arn:aws:states:::batch:submitJob.sync",
+            "Credentials": {
+                "RoleArn": "{% $substring($states.input.cross_account_role, 0, 4) = 'arn:' ? $states.input.cross_account_role : '${same_account_role_arn}' %}"
+            },
             "Arguments": {
                 "JobDefinition": "{% $states.input.task_config.job_definition %}",
                 "JobName": "{% $states.input.execution_name %}",
@@ -534,10 +524,36 @@
                         "States.ALL"
                     ],
                     "Output": "{% ( $errObj := $states.errorOutput; $errStr := $string($errObj); $truncErr := $length($errStr) > 50000 ? $substring($errStr, 0, 50000) & '...[truncated]' : $errStr; $causeStr := $exists($errObj.Cause) ? $string($errObj.Cause) : ''; $taskArn := $contains($causeStr, 'ExecutionArn') ? ($parsed := $parse($causeStr); $exists($parsed.ExecutionArn) ? $parsed.ExecutionArn : '') : ''; $states.input ~> |$| {'error': $truncErr, 'error_obj': $errObj, 'task_execution_arn': $taskArn} | ) %}",
-                    "Next": "Save_Error_Waiting"
+                    "Next": "Check_Should_Retry"
                 }
             ],
             "Next": "Save_Success"
+        },
+        "Check_Should_Retry": {
+            "Type": "Choice",
+            "Comment": "Retry the task in-place while attempts remain (ADR #107); otherwise fall through to the existing failure path.",
+            "Choices": [
+                {
+                    "Condition": "{% $retry_attempt < ($exists($states.input.task_config.retries) ? $states.input.task_config.retries : 0) %}",
+                    "Next": "Wait_Before_Retry"
+                }
+            ],
+            "Default": "Save_Error_Waiting"
+        },
+        "Wait_Before_Retry": {
+            "Type": "Wait",
+            "Comment": "Wait between retries. Base = fixed retry_delay, or exponential min(retry_delay*2^attempt, max_retry_delay) when retry_backoff. With retry_jitter, apply equal jitter: a random value in [base/2, base) (ADR #107).",
+            "Seconds": "{% ($base := ($exists($states.input.task_config.retry_backoff) and $states.input.task_config.retry_backoff) ? $min([$states.input.task_config.retry_delay * $power(2, $retry_attempt), ($exists($states.input.task_config.max_retry_delay) ? $states.input.task_config.max_retry_delay : 3600)]) : ($exists($states.input.task_config.retry_delay) ? $states.input.task_config.retry_delay : 0); ($exists($states.input.task_config.retry_jitter) and $states.input.task_config.retry_jitter) ? $floor($base * (0.5 + $random() * 0.5)) : $base) %}",
+            "Next": "Increment_Retry"
+        },
+        "Increment_Retry": {
+            "Type": "Pass",
+            "Comment": "Bump the attempt counter and strip the prior error before re-dispatching via Check_Task_Type.",
+            "Assign": {
+                "retry_attempt": "{% $retry_attempt + 1 %}"
+            },
+            "Output": "{% $states.input ~> |$|{}, ['error', 'error_obj', 'task_execution_arn']| %}",
+            "Next": "Check_Task_Type"
         },
         "Save_Error_Waiting": {
             "Type": "Task",
@@ -568,7 +584,7 @@
                 }
             },
             "Output": "{% $states.input %}",
-            "Next": "Check_Is_Backfill",
+            "Next": "Get_Decision_Timeout",
             "Retry": [
                 {
                     "ErrorEquals": [
@@ -590,7 +606,7 @@
                     ],
                     "Comment": "DDB failure - continue with execution (status update is best-effort)",
                     "Output": "{% $states.input %}",
-                    "Next": "Check_Is_Backfill"
+                    "Next": "Get_Decision_Timeout"
                 }
             ]
         },
@@ -1011,22 +1027,19 @@
         "Interactive_Slack": {
             "Type": "Task",
             "Comment": "Send Slack notification with Skip/Restart/Fail buttons",
-            "Resource": "arn:aws:states:::aws-sdk:sfn:startSyncExecution",
+            "Resource": "arn:aws:states:::lambda:invoke",
             "Arguments": {
-                "StateMachineArn": "${interactive_slack_sfn_arn}",
-                "Input": {
-                    "token": "{% $states.input.orchestration_token %}",
-                    "dependent_executionArn": "{% $states.context.Execution.Id %}",
-                    "wrapper_executionArn": "{% $states.context.Execution.Id %}",
-                    "task_execution_arn": "{% $exists($states.input.task_execution_arn) ? $states.input.task_execution_arn : '' %}",
-                    "orchestration_executionArn": "",
-                    "slack_channel": "{% $states.input.slack_channel %}",
-                    "slack_mentions": "{% $exists($states.input.slack_mentions_formatted) and $states.input.slack_mentions_formatted != '' ? $states.input.slack_mentions_formatted : '' %}",
-                    "error": {
-                        "Input": "{% $string({'execution_name': $states.input.execution_name, 'task_name': $states.input.task_name, 'pipeline_name': $states.input.pipeline_name, 'task_arn': $states.input.task_arn, 'task_type': $states.input.task_type}) %}",
-                        "StateMachineArn": "{% $states.input.task_arn %}",
-                        "Error": "{% $exists($states.input.error_obj.Error) ? $states.input.error_obj.Error : 'TaskFailed' %}",
-                        "Cause": "{% ( $cause := $exists($states.input.error_obj.Cause) ? $states.input.error_obj.Cause : $states.input.error; $causeStr := $string($cause); $length($causeStr) > 10000 ? $substring($causeStr, 0, 10000) & '...[truncated]' : $causeStr ) %}"
+                "FunctionName": "${notify_function_arn}",
+                "Payload": {
+                    "action": "interactive_slack",
+                    "pipeline_name": "{% $states.input.pipeline_name %}",
+                    "console_api_endpoint": "${console_api_endpoint}",
+                    "failure": {
+                        "pipeline_name": "{% $states.input.pipeline_name %}",
+                        "task_name": "{% $states.input.task_name %}",
+                        "execution_name": "{% $states.input.execution_name %}",
+                        "error": "{% $exists($states.input.error_obj.Error) ? $states.input.error_obj.Error : 'TaskFailed' %}",
+                        "date": "{% $exists($states.input.date) ? $states.input.date : '' %}"
                     }
                 }
             },
@@ -1041,7 +1054,7 @@
                     "Next": "Save_Slack_Failed"
                 }
             ],
-            "Next": "Check_Has_PagerDuty",
+            "Next": "Send_PagerDuty_Alert",
             "Retry": [
                 {
                     "ErrorEquals": [
@@ -1081,15 +1094,15 @@
                     ],
                     "Comment": "If DDB update fails, still continue to wait",
                     "Output": "{% $states.input %}",
-                    "Next": "Check_Has_PagerDuty"
+                    "Next": "Send_PagerDuty_Alert"
                 }
             ],
-            "Next": "Check_Has_PagerDuty"
+            "Next": "Send_PagerDuty_Alert"
         },
         "Wait_For_Decision": {
             "Type": "Wait",
             "Comment": "Wait for user action via Slack buttons",
-            "Seconds": ${decision_timeout_seconds},
+            "Seconds": "{% $decision_timeout_seconds %}",
             "Next": "Save_Failed"
         },
         "Save_Failed": {
@@ -1315,6 +1328,35 @@
             "Error": "TaskFailed",
             "Cause": "Task execution failed"
         },
+        "Get_Decision_Timeout": {
+            "Type": "Task",
+            "Comment": "Read the global decision-wait timeout from the reserved __global_settings__ registry record (ADR #103 1b). One value for the whole deployment; the Team UI can edit it, the free tier shows it read-only. Degrades to the 18000s (5h) default on any miss so the wait always has a value.",
+            "Resource": "arn:aws:states:::dynamodb:getItem",
+            "Arguments": {
+                "TableName": "${pipeline_registry_table}",
+                "Key": {
+                    "pipeline_name": {
+                        "S": "__global_settings__"
+                    }
+                }
+            },
+            "Assign": {
+                "decision_timeout_seconds": "{% $exists($states.result.Item.decision_timeout_seconds.N) ? $number($states.result.Item.decision_timeout_seconds.N) : 18000 %}"
+            },
+            "Output": "{% $states.input %}",
+            "Catch": [
+                {
+                    "ErrorEquals": ["States.ALL"],
+                    "Comment": "Registry read failed - use the default timeout",
+                    "Assign": {
+                        "decision_timeout_seconds": "{% 18000 %}"
+                    },
+                    "Output": "{% $states.input %}",
+                    "Next": "Check_Is_Backfill"
+                }
+            ],
+            "Next": "Check_Is_Backfill"
+        },
         "Check_Is_Backfill": {
             "Type": "Choice",
             "Comment": "Skip alerting for backfill runs - but still wait for user decision via UI",
@@ -1324,37 +1366,25 @@
                     "Next": "Wait_For_Decision"
                 }
             ],
-            "Default": "Check_Has_Slack"
-        },
-        "Check_Has_Slack": {
-            "Type": "Choice",
-            "Comment": "Check if Slack alerts are configured before sending Interactive Slack",
-            "Choices": [
-                {
-                    "Condition": "{% $exists($states.input.alerts.slack) and $states.input.alerts.slack != '' %}",
-                    "Next": "Interactive_Slack"
-                }
-            ],
-            "Default": "Check_Has_PagerDuty"
-        },
-        "Check_Has_PagerDuty": {
-            "Type": "Choice",
-            "Comment": "Check if PagerDuty alerts are configured - fire immediately so person can act during wait window",
-            "Choices": [
-                {
-                    "Condition": "{% $exists($states.input.alerts.pagerduty) and $states.input.alerts.pagerduty != '' %}",
-                    "Next": "Send_PagerDuty_Alert"
-                }
-            ],
-            "Default": "Wait_For_Decision"
+            "Default": "Interactive_Slack"
         },
         "Send_PagerDuty_Alert": {
             "Type": "Task",
             "Comment": "Send PagerDuty alert immediately so on-call can act during 5h wait window. Uses aws-sdk:sfn:startSyncExecution because PagerDutyAlerterSfn is EXPRESS — startExecution.sync:2 fails silently on Express SFN per CLAUDE.md.",
-            "Resource": "arn:aws:states:::aws-sdk:sfn:startSyncExecution",
+            "Resource": "arn:aws:states:::lambda:invoke",
             "Arguments": {
-                "StateMachineArn": "${pagerduty_alerter_arn}",
-                "Input": "{% $string({'execution_name': $states.input.execution_name, 'task_name': $states.input.task_name, 'pipeline_name': $exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown', 'date': $states.input.date, 'error': $exists($states.input.error_obj.Error) ? $states.input.error_obj.Error : 'TaskFailed', 'severity': $states.input.alerts.pagerduty, 'task_execution_arn': $exists($states.input.task_execution_arn) ? $states.input.task_execution_arn : '', 'wrapper_execution_arn': $exists($states.input.wrapper_execution_arn) ? $states.input.wrapper_execution_arn : ''}) %}"
+                "FunctionName": "${notify_function_arn}",
+                "Payload": {
+                    "action": "live_pagerduty",
+                    "pipeline_name": "{% $exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown' %}",
+                    "failure": {
+                        "pipeline_name": "{% $exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown' %}",
+                        "task_name": "{% $states.input.task_name %}",
+                        "execution_name": "{% $states.input.execution_name %}",
+                        "error": "{% $exists($states.input.error_obj.Error) ? $states.input.error_obj.Error : 'TaskFailed' %}",
+                        "date": "{% $exists($states.input.date) ? $states.input.date : '' %}"
+                    }
+                }
             },
             "Output": "{% $states.input %}",
             "Catch": [

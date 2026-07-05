@@ -51,7 +51,7 @@ def test_enabled_valid_pat_reaches_route(mocker, monkeypatch):
     monkeypatch.setenv('AUTH_ENABLED', 'true')
     repo = mocker.MagicMock()
     repo.get_by_hash.return_value = {
-        'token_id': 'tok_1', 'token_hash': hash_token('slsf_good'), 'revoked': False,
+        'token_id': 'tok_1', 'token_hash': hash_token('plrs_good'), 'revoked': False,
     }
     mocker.patch.object(main, 'api_tokens_repo', repo)
 
@@ -62,7 +62,7 @@ def test_enabled_valid_pat_reaches_route(mocker, monkeypatch):
         return cors_response(200, {'ok': True})
 
     mocker.patch.dict(main.ROUTES, {('GET', '/api/pipelines'): (route, None)})
-    resp = main.handler(_event('GET', '/api/pipelines', token='slsf_good'), None)
+    resp = main.handler(_event('GET', '/api/pipelines', token='plrs_good'), None)
     assert resp['statusCode'] == 200
     assert captured['principal'].kind == 'service'
     assert captured['principal'].subject == 'tok_1'
@@ -79,7 +79,7 @@ def test_disabled_allows_without_token(mocker, monkeypatch):
 
 def _pat_repo(mocker, scope=None):
     repo = mocker.MagicMock()
-    rec = {'token_id': 'tok_1', 'token_hash': hash_token('slsf_good'), 'revoked': False}
+    rec = {'token_id': 'tok_1', 'token_hash': hash_token('plrs_good'), 'revoked': False}
     if scope is not None:
         rec['scope'] = scope
     repo.get_by_hash.return_value = rec
@@ -92,7 +92,7 @@ def test_enabled_read_token_forbidden_on_write_route(mocker, monkeypatch):
     _pat_repo(mocker, scope='read')
     reached = mocker.MagicMock(return_value=cors_response(200, {}))
     mocker.patch.dict(main.ROUTES, {('POST', '/api/pipeline-run'): (reached, 'name')})
-    resp = main.handler(_event('POST', '/api/pipeline-run', token='slsf_good'), None)
+    resp = main.handler(_event('POST', '/api/pipeline-run', token='plrs_good'), None)
     assert resp['statusCode'] == 403  # authenticated but scope too low
     reached.assert_not_called()
 
@@ -102,7 +102,7 @@ def test_enabled_write_token_allowed_on_write_route(mocker, monkeypatch):
     _pat_repo(mocker, scope='write')
     reached = mocker.MagicMock(return_value=cors_response(200, {'ok': True}))
     mocker.patch.dict(main.ROUTES, {('POST', '/api/backfill'): (reached, None)})
-    resp = main.handler(_event('POST', '/api/backfill', token='slsf_good'), None)
+    resp = main.handler(_event('POST', '/api/backfill', token='plrs_good'), None)
     assert resp['statusCode'] == 200
     reached.assert_called_once()
 

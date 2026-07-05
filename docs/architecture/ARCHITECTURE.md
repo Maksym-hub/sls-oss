@@ -1,14 +1,14 @@
-# slsflow Architecture
+# polyris Architecture
 
 ## High-Level Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              slsflow System                                  │
+│                              polyris System                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────────────────┐ │
-│  │ slsflow-deploy│──▶│  Pipeline   │───▶│         AWS Resources           │ │
+│  │ polyris-deploy│──▶│  Pipeline   │───▶│         AWS Resources           │ │
 │  │  (deploy)   │    │    SFN      │    │  • Step Function                │ │
 │  └─────────────┘    └─────────────┘    │  • EventBridge Rule             │ │
 │        │                   │           │  • CloudWatch Logs              │ │
@@ -48,7 +48,7 @@
 These are the load-bearing decisions the rest of the architecture follows from.
 (Each is expanded in [DESIGN_DECISIONS.md](../reference/DESIGN_DECISIONS.md).)
 
-1. **Nothing to run — Step Functions *is* the runtime.** slsflow has no
+1. **Nothing to run — Step Functions *is* the runtime.** polyris has no
    scheduler, no worker pool, and no orchestrator metadata database to operate.
    A pipeline compiles to a Step Functions state machine; EventBridge Scheduler
    triggers it; AWS runs it. Between runs the system scales to zero. The only
@@ -80,13 +80,14 @@ These are the load-bearing decisions the rest of the architecture follows from.
    (surfaced as a backfill warning).
 
 5. **Single source of truth, generated.** Enum families and shared constants are
-   defined once in `slsflow/constants.py` and code-generated into every Lambda
+   defined once in `polyris/constants.py` and code-generated into every Lambda
    (`constants_generated.py`) and the UI (`ui/src/generated/enums.ts`), with CI
    drift gates. Hand-maintained copies of the same vocabulary are treated as
    bugs (see DESIGN_DECISIONS #72/#83/#93/#94).
 
-6. **No silent failures.** Every pipeline must declare alerts (Slack/PagerDuty);
-   deploy-time validation rejects pipelines without them.
+6. **No silent failures.** Alerts (Slack/PagerDuty) are configured per pipeline in
+   the Console UI; on failure the notify Lambda reads that config from DynamoDB and
+   fans out to every enabled channel (an empty config is a clean no-op).
 
 ---
 
@@ -156,8 +157,8 @@ Run_Task Helper SFN
      └─ ON FAILURE:
           ├─ Save_Error_Waiting ─────► pipeline_tokens (status=waiting_decision)
           ├─ Check_Is_Backfill ──────► if backfill: skip alerts, go to Wait_For_Decision
-          ├─ Check_Has_Slack ────────► Interactive Slack (buttons: Skip/Restart/Fail)
-          ├─ Check_Has_PagerDuty ───► PagerDuty alert (immediate, actionable)
+          ├─ Interactive_Slack ──────► notify Lambda: Slack w/ buttons (Skip/Restart/Fail)
+          ├─ Send_PagerDuty_Alert ───► notify Lambda: PagerDuty (immediate, actionable)
           ├─ Wait_For_Decision ──────► 5h wait for human response
           ├─ Save_Failed ────────────► pipeline_tokens [updateItem]
           ├─ Notify_Dependents_Failed ► notify_dependents SFN
@@ -238,12 +239,18 @@ Two-line alerting architecture:
 Task error caught by run_task
      │
      ├─ Save_Error_Waiting ──────► pipeline_tokens (status=waiting_decision)
+     ├─ Get_Decision_Timeout ────► read global decision-wait timeout (registry __global_settings__)
      ├─ Check_Is_Backfill ───────► backfill? skip alerts → Wait_For_Decision (no Slack/PD)
-     ├─ Check_Has_Slack ─── yes ► Interactive Slack (Skip/Restart/Mark Success/Fail buttons)
-     ├─ Check_Has_PagerDuty yes ► pagerduty_alerter SFN (fires immediately!)
-     └─ Wait_For_Decision ───────► 5h window for human response
+     ├─ Interactive_Slack ──────► notify Lambda — Slack w/ buttons (Skip/Restart/Mark Success/Fail)
+     ├─ Send_PagerDuty_Alert ───► notify Lambda — PagerDuty (fires immediately)
+     └─ Wait_For_Decision ───────► decision-timeout window for human response
           └─ timeout ────────────► Save_Failed → wrapper catches → failure_handler
 ```
+
+Both the interactive Slack post and the PagerDuty alert are `lambda:invoke` calls
+to the single notify Lambda — there are no separate alerter state machines (ADR
+#103). The Lambda reads the pipeline's alert_config from the registry itself and
+posts to whichever channels are enabled.
 
 **Line 2 — failure_handler (after task is terminal):**
 ```
@@ -269,7 +276,7 @@ failure_handler SFN
 ```
 
 **Key design decisions:**
-- PagerDuty fires in line 1 (immediate) so on-call can act during 5h window
+- PagerDuty fires in line 1 (immediate) so on-call can act during the decision-wait window (global timeout, default 5h, ADR #103 1b)
 - Backfill suppresses all alerts — results visible in UI calendar
 - upstream_failed tasks don't alert — root cause task already sent notifications
 - Line 2 Slack sends restart-only message (no Skip/Fail buttons on dead task)
@@ -277,9 +284,9 @@ failure_handler SFN
 
 ### Flow 6: Pipeline Registration on Deploy
 
-**Primary path (slsflow-deploy lifecycle):**
+**Primary path (polyris-deploy lifecycle):**
 ```
-slsflow-deploy
+polyris-deploy
      │  creates/updates Step Function
      ▼
 PipelineRegistration dynamic resource
@@ -294,7 +301,7 @@ StartExecution(register_only=true)
 
 **On destroy:**
 ```
-slsflow-deploy --destroy
+polyris-deploy --destroy
      │
      ▼
 PipelineRegistration.delete()
@@ -311,7 +318,7 @@ PipelineRegistration.delete()
 | Task `deps_ready` but not running | run_task helper execution | `pipeline_registry` — is pipeline paused? |
 | Asset trigger didn't fire | notify_asset_subscribers logs | `asset_events` + `asset_subscriptions` |
 | No Slack alert on failure | run_task + failure_handler execution | Check `alerts.slack` config, `notification_failed` field in token |
-| Pipeline not in UI after deploy | Check `slsflow-deploy` output for PipelineRegistration | `pipeline_registry` — registered? CFN stack has registration output |
+| Pipeline not in UI after deploy | Check `polyris-deploy` output for PipelineRegistration | `pipeline_registry` — registered? CFN stack has registration output |
 | Wrong DAG in UI for old execution | Check `dag_source` in API response | `pipeline_tokens` — `dag_snapshot::{execution}` exists? |
 | Wrong trigger_rule result | evaluate_deps Lambda logs | Check `dep_statuses` + `trigger_rule` in log |
 
@@ -328,8 +335,8 @@ Task Failure
 │                                                             │
 │   1. Save_Error_Waiting (DDB: status=waiting_decision)      │
 │   2. Check_Is_Backfill → backfill? skip alerts → Wait_For_Decision │
-│   3. Check_Has_Slack → Interactive Slack (buttons)           │
-│   4. Check_Has_PagerDuty → PagerDuty alert (immediate!)     │
+│   3. Interactive_Slack → notify Lambda: Slack (buttons)            │
+│   4. Send_PagerDuty_Alert → notify Lambda: PagerDuty              │
 │   5. Wait_For_Decision (5h timeout)                         │
 │   6. Save_Failed → Notify_Dependents → Send_Pipeline_Failure│
 └──────────────────────────┬──────────────────────────────────┘
@@ -410,16 +417,19 @@ Task Failure
 | **sf_dependency_wrapper** | Main wrapper - handles deps, execution, failures |
 | **sf_registration_helper** | Register task + subscriptions, check initial deps |
 | **sf_run_task_helper** | Execute task (SFN/Lambda/Glue/ECS/Athena/EMR/Batch) |
-| **sf_failure_handler** | Update DB, emit events, notify dependents, send follow-up Slack |
+| **sf_failure_handler** | Update DB, emit events, notify dependents, send follow-up alerts via notify Lambda |
 | **sf_pause_waiter** | Save pause token, wait for resume callback |
 | **sf_notify_dependents** _(EXPRESS)_ | Query subscribers, evaluate trigger rules, send tokens |
 | **sf_notify_asset_consumers** _(EXPRESS)_ | Cross-pipeline asset triggers (PUSH/AND/OR) |
-| **sf_slack_interactive** _(EXPRESS)_ | Interactive Slack messages with action buttons |
-| **sf_pagerduty_alerter** _(EXPRESS)_ | PagerDuty Events API v2 trigger |
-| **sf_pagerduty_resolver** _(EXPRESS)_ | PagerDuty auto-resolve on task success (wrapper) or human decision (Lambda API) |
 | **sf_restart_task_helper** _(EXPRESS)_ | Restart failed task |
 | **sf_restart_wrapper** _(EXPRESS)_ | Restart wrapper execution |
 | **sf_register_on_create** | ~~Removed in v69.1~~ — replaced by `register_pipeline` SFN (ADR #24) |
+
+> Interactive Slack and PagerDuty alerts/resolves are **not** separate state
+> machines. They are `lambda:invoke` calls from run_task / failure_handler /
+> dependency_wrapper to the single notify Lambda (ADR #103). The earlier
+> `sf_slack_interactive`, `sf_pagerduty_alerter`, and `sf_pagerduty_resolver`
+> Express SFNs (and the EventBridge Connection that backed them) were removed.
 
 ---
 
@@ -591,7 +601,7 @@ See [UI Operations Guide](../operations/UI.md) for component details, accessibil
 ```bash
 # Find task with stuck token
 aws dynamodb query \
-  --table-name {namespace}-{stage}-slsflow-pipeline-tokens \
+  --table-name {namespace}-{stage}-polyris-pipeline-tokens \
   --index-name status-index \
   --key-condition-expression "#s = :status" \
   --expression-attribute-names '{"#s": "status"}' \
@@ -599,7 +609,7 @@ aws dynamodb query \
 
 # Check if subscription exists
 aws dynamodb get-item \
-  --table-name {namespace}-{stage}-slsflow-dependency-subscriptions \
+  --table-name {namespace}-{stage}-polyris-dependency-subscriptions \
   --key '{"dependency_key": {"S": "task_a-abc123"}, "subscriber_name": {"S": "task_b"}}'
 
 # Manually send token (emergency)

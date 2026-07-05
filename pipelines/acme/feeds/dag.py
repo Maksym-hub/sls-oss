@@ -8,9 +8,9 @@ This pipeline demonstrates PULL-BASED cross-pipeline dependency:
 - If asset is stale or missing, tasks wait until it's ready
 - No direct pipeline coupling — only asset-level dependency
 """
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
-TEST_QUICK = "arn:aws:states:us-east-1:944861944755:stateMachine:test"
+TEST_QUICK = "arn:aws:states:us-east-1:123456789012:stateMachine:test"
 
 # Cross-pipeline dependency (PULL mode)
 weekly_complete = Asset("acme/weekly-complete")
@@ -25,7 +25,6 @@ feeds_complete = Asset("acme/feeds-complete")
 with DAG(
     dag_id="acme-feeds",
     schedule="cron(0 18 ? * MON *)",
-    alerts={"slack": "#data-alerts"},
     group="acme",
     description="Acme feeds — pull-based dependency on weekly pipeline"
 ) as dag:
@@ -81,4 +80,4 @@ with DAG(
     exp  = build_exports([ret, brd, anl])
     mark_feeds_complete(exp)
 
-# Deploy: slsflow-deploy
+# Deploy: polyris-deploy

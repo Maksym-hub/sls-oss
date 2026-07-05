@@ -1,10 +1,10 @@
 """
 SDK Tests - conftest.py
 
-Tests for the slsflow Python SDK (DAG definitions, ASL generation, templates).
+Tests for the polyris Python SDK (DAG definitions, ASL generation, templates).
 These tests validate the library layer and can run independently of infrastructure.
 
-Path setup: adds repo root to sys.path so `from slsflow import ...` works.
+Path setup: adds repo root to sys.path so `from polyris import ...` works.
 """
 import os
 import sys

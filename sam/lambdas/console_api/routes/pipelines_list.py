@@ -328,7 +328,6 @@ def get_pipeline_status(pipeline_name: str, event: Dict) -> Dict:
             'wait_delay_until_ms': safe_int(item.get('wait_delay_until_ms')),
             'trigger_rule': item.get('trigger_rule', 'all_success'),
             'config': {
-                'slack_channel': item.get('slack_channel', '#alerts')
             },
             'pipeline_name': item.get('pipeline_name', 'unknown'),
             'pipeline_execution': item.get('pipeline_execution'),

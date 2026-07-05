@@ -58,7 +58,7 @@ def _compare_or_update(name: str, generated: dict):
 
 def _build_single_task():
     """Minimal: one SFN task, no deps, no extras."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("single_task", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
@@ -70,7 +70,7 @@ def _build_single_task():
 
 def _build_chain():
     """Three tasks in sequence: extract >> transform >> load."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("chain", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
@@ -90,7 +90,7 @@ def _build_chain():
 
 def _build_parallel():
     """Three independent tasks — no dependencies."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("parallel", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:a")
@@ -110,7 +110,7 @@ def _build_parallel():
 
 def _build_fan_out():
     """One task fans out to three: extract >> [a, b, c]."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("fan_out", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
@@ -134,7 +134,7 @@ def _build_fan_out():
 
 def _build_fan_in():
     """Three tasks fan in to one: [a, b, c] >> load."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("fan_in", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:a")
@@ -158,7 +158,7 @@ def _build_fan_in():
 
 def _build_wait_before():
     """Task with wait_before delay."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("wait_before", schedule=None, alerts=None) as dag:
         @task.sfn(
@@ -173,7 +173,7 @@ def _build_wait_before():
 
 def _build_trigger_rules():
     """Tasks with various trigger rules."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("trigger_rules", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:source")
@@ -206,8 +206,8 @@ def _build_trigger_rules():
 
 def _build_with_outlets():
     """Task with asset outlets."""
-    from slsflow import DAG, task
-    from slsflow.assets import Asset
+    from polyris import DAG, task
+    from polyris.assets import Asset
 
     inventory = Asset("raw/inventory", uri="s3://bucket/raw/inventory/")
 
@@ -224,7 +224,7 @@ def _build_with_outlets():
 
 def _build_with_variables():
     """DAG with variables passed to tasks."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG(
         "with_variables",
@@ -241,7 +241,7 @@ def _build_with_variables():
 
 def _build_with_alerts():
     """DAG with Slack alerts configured."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG(
         "with_alerts",
@@ -264,14 +264,13 @@ def _build_with_alerts():
 
 def _build_with_retries():
     """Task with retry configuration."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("with_retries", schedule=None, alerts=None) as dag:
         @task.sfn(
             arn="arn:aws:states:us-east-1:123:stateMachine:flaky",
             retries=3,
-            retry_delay=timedelta(minutes=2),
-            retry_exponential_backoff=True
+            retry_delay=timedelta(minutes=2)
         )
         def flaky_task():
             pass
@@ -281,7 +280,7 @@ def _build_with_retries():
 
 def _build_lambda_task():
     """Lambda task type (not SFN)."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("lambda_task", schedule=None, alerts=None) as dag:
         @task.lambda_(
@@ -296,8 +295,8 @@ def _build_lambda_task():
 
 def _build_asset_triggered():
     """DAG triggered by asset schedule (not cron)."""
-    from slsflow import DAG, task
-    from slsflow.assets import Asset
+    from polyris import DAG, task
+    from polyris.assets import Asset
 
     inventory = Asset("raw/inventory")
     catalog = Asset("raw/catalog")
@@ -316,7 +315,7 @@ def _build_asset_triggered():
 
 def _build_cross_account():
     """Task with cross-account role."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("cross_account", schedule=None, alerts=None) as dag:
         @task.sfn(
@@ -331,7 +330,7 @@ def _build_cross_account():
 
 def _build_orchestration_timeout():
     """Task with custom orchestration_timeout."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("orch_timeout", schedule=None, alerts=None) as dag:
         @task.sfn(
@@ -347,7 +346,7 @@ def _build_orchestration_timeout():
 
 def _build_complex_diamond():
     """Diamond pattern: a >> [b, c] >> d."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG("diamond", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:a")
@@ -375,8 +374,8 @@ def _build_complex_diamond():
 
 def _build_consecutive_wait_for():
     """Task with consecutive wait_for (weekly waits for 7 daily completions)."""
-    from slsflow import DAG, task
-    from slsflow.assets import Asset
+    from polyris import DAG, task
+    from polyris.assets import Asset
 
     daily_complete = Asset("acme/daily-complete")
     weekly_complete = Asset("acme/weekly-complete")
@@ -415,7 +414,7 @@ ALL_SCENARIOS = {
 
 
 def _run_snapshot(name: str, builder):
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
     dag = builder()
     asl_json = generate_step_function_json(dag)
     asl = json.loads(asl_json)
@@ -481,7 +480,7 @@ def test_snapshot_consecutive_wait_for():
 
 def test_all_scenarios_produce_valid_asl():
     """Every scenario generates valid ASL with required top-level keys."""
-    from slsflow.generators import generate_step_function_json, validate_asl
+    from polyris.generators import generate_step_function_json, validate_asl
 
     for name, builder in ALL_SCENARIOS.items():
         dag = builder()
@@ -500,7 +499,7 @@ def test_all_scenarios_produce_valid_asl():
 
 def test_all_scenarios_have_register_pipeline():
     """Every DAG has Register_Pipeline state (may not be StartAt if variables exist)."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     for name, builder in ALL_SCENARIOS.items():
         dag = builder()
@@ -512,7 +511,7 @@ def test_all_scenarios_have_register_pipeline():
 
 def test_all_scenarios_have_dag_snapshot():
     """Every DAG has Save_DAG_Snapshot state that chains from Register_Pipeline."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     for name, builder in ALL_SCENARIOS.items():
         dag = builder()
@@ -543,7 +542,7 @@ def test_all_scenarios_have_dag_snapshot():
 
 def test_dag_snapshot_uses_provided_tokens_table():
     """Save_DAG_Snapshot uses tokens_table parameter when provided."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_chain()
     asl = json.loads(generate_step_function_json(dag, tokens_table="my-tokens-table"))
@@ -553,7 +552,7 @@ def test_dag_snapshot_uses_provided_tokens_table():
 
 def test_dag_snapshot_default_placeholder():
     """Save_DAG_Snapshot uses ${tokens_table} placeholder when no table provided."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_chain()
     asl = json.loads(generate_step_function_json(dag))
@@ -563,7 +562,7 @@ def test_dag_snapshot_default_placeholder():
 
 def test_dag_snapshot_has_ttl():
     """Save_DAG_Snapshot includes TTL for automatic expiry."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_chain()
     asl = json.loads(generate_step_function_json(dag))
@@ -575,7 +574,7 @@ def test_dag_snapshot_has_ttl():
 
 def test_dag_hash_deterministic():
     """Same DAG always produces same hash."""
-    from slsflow.generators import generate_dag_hash
+    from polyris.generators import generate_dag_hash
 
     dag1 = _build_chain()
     dag2 = _build_chain()
@@ -584,13 +583,13 @@ def test_dag_hash_deterministic():
 
 def test_dag_hash_changes_with_tasks():
     """Adding a task changes the hash."""
-    from slsflow.generators import generate_dag_hash
+    from polyris.generators import generate_dag_hash
 
     dag1 = _build_chain()
     hash1 = generate_dag_hash(dag1)
 
     dag2 = _build_chain()
-    from slsflow import task
+    from polyris import task
     with dag2:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extra")
         def extra_task(): pass
@@ -602,7 +601,7 @@ def test_dag_hash_changes_with_tasks():
 
 def test_dag_hash_is_8_chars():
     """Hash is truncated to 8 hex chars."""
-    from slsflow.generators import generate_dag_hash
+    from polyris.generators import generate_dag_hash
 
     dag = _build_chain()
     h = generate_dag_hash(dag)
@@ -612,7 +611,7 @@ def test_dag_hash_is_8_chars():
 
 def test_all_scenarios_task_count_matches():
     """Number of parallel branches == number of tasks in DAG."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     for name, builder in ALL_SCENARIOS.items():
         dag = builder()
@@ -635,7 +634,7 @@ def test_all_scenarios_task_count_matches():
 
 def test_chain_has_correct_dependencies():
     """Chain DAG: transform depends on extract, load depends on transform."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_chain()
     asl = json.loads(generate_step_function_json(dag))
@@ -663,7 +662,7 @@ def test_chain_has_correct_dependencies():
 
 def test_fan_in_has_multiple_dependencies():
     """Fan-in: load depends on [a, b, c]."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_fan_in()
     asl = json.loads(generate_step_function_json(dag))
@@ -684,7 +683,7 @@ def test_fan_in_has_multiple_dependencies():
 
 def test_diamond_dependencies():
     """Diamond: a->[], b->[a], c->[a], d->[b,c]."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_complex_diamond()
     asl = json.loads(generate_step_function_json(dag))
@@ -708,7 +707,7 @@ def test_diamond_dependencies():
 
 def test_wait_before_in_task_input():
     """wait_before=600 is passed to wrapper as task input."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_wait_before()
     asl = json.loads(generate_step_function_json(dag))
@@ -728,7 +727,7 @@ def test_wait_before_in_task_input():
 
 def test_outlets_in_generated_asl():
     """Outlets are passed in task input for asset event emission."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_with_outlets()
     asl = json.loads(generate_step_function_json(dag))
@@ -750,7 +749,7 @@ def test_outlets_in_generated_asl():
 
 def test_variables_in_define_inputs():
     """Variables create a Define_Inputs state with configured values."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_with_variables()
     asl = json.loads(generate_step_function_json(dag))

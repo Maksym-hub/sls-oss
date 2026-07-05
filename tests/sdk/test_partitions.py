@@ -1,4 +1,4 @@
-"""Tests for slsflow.partitions.PartitionRange.
+"""Tests for polyris.partitions.PartitionRange.
 
 Covers ADR #58 edge cases table and translation rules per ADR #57.
 Pure stdlib, no AWS calls — fast.
@@ -6,7 +6,7 @@ Pure stdlib, no AWS calls — fast.
 
 import pytest
 
-from slsflow.partitions import PartitionRange, GRANULARITIES
+from polyris.partitions import PartitionRange, GRANULARITIES
 
 
 # ===========================================================================

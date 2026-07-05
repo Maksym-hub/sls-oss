@@ -1,16 +1,16 @@
 """Tests for _shared constants parity checker (v0.80.0, ADR #83)."""
-from slsflow.codegen.check_shared_constants import (
+from polyris.codegen.check_shared_constants import (
     check_shared_constants,
     _class_values,
     _load_shared_module,
 )
-from slsflow import constants as canon
+from polyris import constants as canon
 
 
 class TestSharedConstantsParity:
     def test_committed_shared_in_parity(self):
         """The shipped _shared/constants.py must not define any status value
-        absent from canonical slsflow/constants.py."""
+        absent from canonical polyris/constants.py."""
         assert check_shared_constants() == 0
 
     def test_shared_taskstatus_subset_of_canonical(self):

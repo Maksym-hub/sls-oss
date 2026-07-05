@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from slsflow.codegen.check_sfn_templates import (
+from polyris.codegen.check_sfn_templates import (
     check_templates,
     _task_status_values,
     _load_canonical_status_values,
@@ -69,7 +69,7 @@ class TestCheckTemplates:
 }
 """)
         # Point checker at the tmp dir
-        from slsflow.codegen import check_sfn_templates
+        from polyris.codegen import check_sfn_templates
         monkeypatch.setattr(check_sfn_templates, 'TEMPLATES_DIR', tmp_path)
         result = check_templates()
         assert result == 1
@@ -100,7 +100,7 @@ class TestCheckTemplates:
   }
 }
 """)
-        from slsflow.codegen import check_sfn_templates
+        from polyris.codegen import check_sfn_templates
         monkeypatch.setattr(check_sfn_templates, 'TEMPLATES_DIR', tmp_path)
         result = check_templates()
         assert result == 1
@@ -127,7 +127,7 @@ class TestCheckTemplates:
   }
 }
 """)
-        from slsflow.codegen import check_sfn_templates
+        from polyris.codegen import check_sfn_templates
         monkeypatch.setattr(check_sfn_templates, 'TEMPLATES_DIR', tmp_path)
         result = check_templates()
         assert result == 0
@@ -148,7 +148,7 @@ class TestCheckTemplates:
   }
 }
 """)
-        from slsflow.codegen import check_sfn_templates
+        from polyris.codegen import check_sfn_templates
         monkeypatch.setattr(check_sfn_templates, 'TEMPLATES_DIR', tmp_path)
         result = check_templates()
         assert result == 0
@@ -171,7 +171,7 @@ class TestCheckTemplates:
   }
 }
 """)
-        from slsflow.codegen import check_sfn_templates
+        from polyris.codegen import check_sfn_templates
         monkeypatch.setattr(check_sfn_templates, 'TEMPLATES_DIR', tmp_path)
         result = check_templates()
         assert result == 1
@@ -194,7 +194,7 @@ class TestCheckTemplates:
   }
 }
 """)
-        from slsflow.codegen import check_sfn_templates
+        from polyris.codegen import check_sfn_templates
         monkeypatch.setattr(check_sfn_templates, 'TEMPLATES_DIR', tmp_path)
         result = check_templates()
         assert result == 0

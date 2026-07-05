@@ -53,7 +53,7 @@ def _backfill_record(bf_id='bf-abc123', target='test-pipeline', status='complete
         'execution_name': bf_id,
         'backfill_id': bf_id,
         'record_type': 'backfill',
-        'pipeline_name': '_slsflow_bulk_backfill',
+        'pipeline_name': '_polyris_bulk_backfill',
         'target_pipeline': target,
         'status': status,
         'started_at': started,
@@ -127,7 +127,7 @@ class TestNoLeakage:
         sentinel_in_tokens = {
             'execution_name': 'bf-leak',
             'pipeline_execution': 'bf-leak',
-            'pipeline_name': '_slsflow_bulk_backfill',
+            'pipeline_name': '_polyris_bulk_backfill',
             'record_type': 'backfill',
             'status': 'running',
             'date': '2024-01-15',
@@ -152,7 +152,7 @@ class TestNoLeakage:
         # exactly one execution (the real one); sentinel + notify_warn filtered
         assert len(execs) == 1
         assert execs[0]['pipeline_execution'] == 'p-2024-01-15-abc'
-        assert all(r['pipeline_name'] != '_slsflow_bulk_backfill' for r in execs)
+        assert all(r['pipeline_name'] != '_polyris_bulk_backfill' for r in execs)
         # the backfill appears exactly once, sourced from list_recent
         assert len(bfs) == 1
         assert bfs[0]['backfill_id'] == 'bf-real'

@@ -6,7 +6,7 @@
     "Prepare_Inputs": {
       "Type": "Pass",
       "Comment": "Build execution context with task_run_id for tracing",
-      "Output": "{% ( $today := $exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'); $ttl := $floor($toMillis($now()) / 1000) + ($exists($states.input.orchestration_timeout) and $states.input.orchestration_timeout > 2592000 ? $states.input.orchestration_timeout : 2592000) + 86400; $pipelineExec := $exists($states.input.pipeline_execution) ? $states.input.pipeline_execution : 'unknown'; $rawShort := $exists($states.input.pipeline_execution_short) ? $states.input.pipeline_execution_short : ($length($pipelineExec) > 20 ? $substring($pipelineExec, $length($pipelineExec) - 20) : $pipelineExec); $pipelineShort := $replace($replace($rawShort, '.', ''), ':', ''); $execName := $exists($states.input.execution_name_override) ? $states.input.execution_name_override : ($states.input.task_name & '-' & $today & '-' & $pipelineShort); $skipTasks := $exists($states.input.skip_tasks) ? $states.input.skip_tasks : []; $taskRunId := $exists($states.input.task_run_id) ? $states.input.task_run_id : ($execName & '-' & $substring($string($toMillis($now())), 7)); $attempt := $exists($states.input.attempt) ? $states.input.attempt : 1; $states.input ~> |$| { 'task_run_id': $taskRunId, 'attempt': $attempt, 'execution_name': $execName, 'date': $today, 'ttl': $ttl, 'orchestration_token': $exists($states.input.token) ? $states.input.token : '', 'dependencies': $exists($states.input.dependencies) ? $states.input.dependencies : [], 'cross_account_role': $exists($states.input.cross_account_role) ? $states.input.cross_account_role : 'same', 'slack_channel': $exists($states.input.slack_channel) ? $states.input.slack_channel : '${default_slack_channel}', 'pipeline_name': $exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown', 'pipeline_execution': $pipelineExec, 'pipeline_execution_short': $pipelineShort, 'skip_tasks': $skipTasks, 'parent_execution_id': $pipelineExec, 'backfill_id': $exists($states.input.backfill_id) ? $states.input.backfill_id : '', 'partition_key': $exists($states.input.partition_key) ? $states.input.partition_key : $today, 'wrapper_execution_arn': $states.context.Execution.Id } | ) %}",
+      "Output": "{% ( $today := $exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'); $ttl := $floor($toMillis($now()) / 1000) + ($exists($states.input.orchestration_timeout) and $states.input.orchestration_timeout > 2592000 ? $states.input.orchestration_timeout : 2592000) + 86400; $pipelineExec := $exists($states.input.pipeline_execution) ? $states.input.pipeline_execution : 'unknown'; $rawShort := $exists($states.input.pipeline_execution_short) ? $states.input.pipeline_execution_short : ($length($pipelineExec) > 20 ? $substring($pipelineExec, $length($pipelineExec) - 20) : $pipelineExec); $pipelineShort := $replace($replace($rawShort, '.', ''), ':', ''); $execName := $exists($states.input.execution_name_override) ? $states.input.execution_name_override : ($states.input.task_name & '-' & $today & '-' & $pipelineShort); $skipTasks := $exists($states.input.skip_tasks) ? $states.input.skip_tasks : []; $taskRunId := $exists($states.input.task_run_id) ? $states.input.task_run_id : ($execName & '-' & $substring($string($toMillis($now())), 7)); $attempt := $exists($states.input.attempt) ? $states.input.attempt : 1; $states.input ~> |$| { 'task_run_id': $taskRunId, 'attempt': $attempt, 'execution_name': $execName, 'date': $today, 'ttl': $ttl, 'orchestration_token': $exists($states.input.token) ? $states.input.token : '', 'dependencies': $exists($states.input.dependencies) ? $states.input.dependencies : [], 'cross_account_role': $exists($states.input.cross_account_role) ? $states.input.cross_account_role : 'same', 'pipeline_name': $exists($states.input.pipeline_name) ? $states.input.pipeline_name : 'unknown', 'pipeline_execution': $pipelineExec, 'pipeline_execution_short': $pipelineShort, 'skip_tasks': $skipTasks, 'parent_execution_id': $pipelineExec, 'backfill_id': $exists($states.input.backfill_id) ? $states.input.backfill_id : '', 'partition_key': $exists($states.input.partition_key) ? $states.input.partition_key : $today, 'wrapper_execution_arn': $states.context.Execution.Id } | ) %}",
       "Next": "Emit_Wrapper_Started"
     },
     "Emit_Wrapper_Started": {
@@ -251,7 +251,6 @@
           "dependencies": "{% $states.input.dependencies %}",
           "orchestration_token": "{% $states.input.orchestration_token %}",
           "cross_account_role": "{% $states.input.cross_account_role %}",
-          "slack_channel": "{% $states.input.slack_channel %}",
           "wait_before": "{% $exists($states.input.wait_before) ? $states.input.wait_before : 0 %}",
           "trigger_rule": "{% $exists($states.input.trigger_rule) ? $states.input.trigger_rule : 'all_success' %}",
           "execution_name": "{% $states.input.execution_name %}",
@@ -541,7 +540,7 @@
       "Assign": {
         "task_output": "{% $exists($states.result.Output) ? $states.result.Output : {} %}"
       },
-      "Output": "{% ($exists($task_output) ? $task_output : {}) ~> |$| {'alerts': $states.input.alerts, 'execution_name': $states.input.execution_name, 'task_name': $states.input.task_name} | %}",
+      "Output": "{% ($exists($task_output) ? $task_output : {}) ~> |$| {'execution_name': $states.input.execution_name, 'task_name': $states.input.task_name} | %}",
       "Catch": [
         {
           "ErrorEquals": [
@@ -551,7 +550,7 @@
           "Next": "Handle_Failure"
         }
       ],
-      "Next": "Check_PagerDuty_Resolve",
+      "Next": "Resolve_PagerDuty",
       "Retry": [
         {
           "ErrorEquals": [
@@ -597,24 +596,22 @@
         }
       ]
     },
-    "Check_PagerDuty_Resolve": {
-      "Type": "Choice",
-      "Comment": "Check if PagerDuty alerts are configured - resolve any open alerts on success",
-      "Choices": [
-        {
-          "Condition": "{% $exists($states.input.alerts.pagerduty) and $states.input.alerts.pagerduty != '' %}",
-          "Next": "Resolve_PagerDuty"
-        }
-      ],
-      "Default": "Done"
-    },
     "Resolve_PagerDuty": {
       "Type": "Task",
       "Comment": "Resolve PagerDuty alert on successful task completion. Uses aws-sdk:sfn:startSyncExecution because PagerDutyResolverSfn is EXPRESS — startExecution.sync:2 fails silently on Express SFN per CLAUDE.md.",
-      "Resource": "arn:aws:states:::aws-sdk:sfn:startSyncExecution",
+      "Resource": "arn:aws:states:::lambda:invoke",
       "Arguments": {
-        "StateMachineArn": "${pagerduty_resolver_arn}",
-        "Input": "{% $string({'execution_name': $states.input.execution_name, 'task_name': $states.input.task_name, 'pipeline_name': $states.input.pipeline_name, 'date': $states.input.date}) %}"
+        "FunctionName": "${notify_function_arn}",
+        "Payload": {
+          "action": "resolve_pagerduty",
+          "pipeline_name": "{% $states.input.pipeline_name %}",
+          "failure": {
+            "pipeline_name": "{% $states.input.pipeline_name %}",
+            "task_name": "{% $states.input.task_name %}",
+            "execution_name": "{% $states.input.execution_name %}",
+            "date": "{% $exists($states.input.date) ? $states.input.date : '' %}"
+          }
+        }
       },
       "Output": "{% $states.input %}",
       "Catch": [

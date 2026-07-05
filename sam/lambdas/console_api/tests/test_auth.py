@@ -62,7 +62,7 @@ class TestPatPrimitives:
 
     def test_looks_like_pat(self):
         from auth import looks_like_pat
-        assert looks_like_pat("slsf_abc")
+        assert looks_like_pat("plrs_abc")
         assert not looks_like_pat("eyJhbGciOiJ...")
 
     def test_is_public_path(self):
@@ -95,7 +95,7 @@ def _bearer(token):
 class TestVerifyPat:
     def test_valid_token(self):
         from auth import verify_pat, hash_token
-        plaintext = "slsf_validtoken"
+        plaintext = "plrs_validtoken"
         repo = _FakeRepo({'token_id': 'tok_1', 'token_hash': hash_token(plaintext),
                           'name': 'ci', 'revoked': False})
         principal = verify_pat(plaintext, repo)
@@ -108,11 +108,11 @@ class TestVerifyPat:
         from auth import verify_pat, AuthError
         repo = _FakeRepo(None)
         with pytest.raises(AuthError):
-            verify_pat("slsf_nope", repo)
+            verify_pat("plrs_nope", repo)
 
     def test_revoked_token_rejected(self):
         from auth import verify_pat, hash_token, AuthError
-        plaintext = "slsf_revoked"
+        plaintext = "plrs_revoked"
         repo = _FakeRepo({'token_id': 'tok_2', 'token_hash': hash_token(plaintext),
                           'revoked': True})
         with pytest.raises(AuthError):
@@ -120,7 +120,7 @@ class TestVerifyPat:
 
     def test_expired_token_rejected(self):
         from auth import verify_pat, hash_token, AuthError
-        plaintext = "slsf_expired"
+        plaintext = "plrs_expired"
         repo = _FakeRepo({'token_id': 'tok_3', 'token_hash': hash_token(plaintext),
                           'revoked': False, 'expires_at': '2000-01-01T00:00:00+00:00'})
         with pytest.raises(AuthError):
@@ -209,7 +209,7 @@ class TestVerifyCognito:
 class TestAuthenticate:
     def test_pat_branch(self):
         from auth import authenticate, hash_token
-        plaintext = "slsf_gate"
+        plaintext = "plrs_gate"
         repo = _FakeRepo({'token_id': 'tok_g', 'token_hash': hash_token(plaintext),
                           'revoked': False})
         principal = authenticate(_bearer(plaintext), repo)

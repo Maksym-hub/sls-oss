@@ -1,4 +1,4 @@
-"""Tests for slsflow.validation — schema-aware checks.
+"""Tests for polyris.validation — schema-aware checks.
 
 Single-pipeline schema issues (duplicate column names) are caught by
 `normalize_schema` and tested in `test_schema.py`. This file covers the
@@ -8,7 +8,7 @@ schemas.
 """
 from __future__ import annotations
 
-from slsflow.validation import DAGInfo, validate_schema_consistency
+from polyris.validation import DAGInfo, validate_schema_consistency
 
 
 def _dag(dag_id: str, **outlet_schemas) -> DAGInfo:

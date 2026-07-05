@@ -1,4 +1,4 @@
-"""Tests for slsflow.granularity.infer_cron_cadence.
+"""Tests for polyris.granularity.infer_cron_cadence.
 
 Covers all cases in ADR #52 "edge cases" matrix. Best-effort inference —
 recognized patterns return granularity, ambiguous ones return None.
@@ -6,7 +6,7 @@ recognized patterns return granularity, ambiguous ones return None.
 
 import pytest
 
-from slsflow.granularity import infer_cron_cadence
+from polyris.granularity import infer_cron_cadence
 
 
 class TestStandardCron:

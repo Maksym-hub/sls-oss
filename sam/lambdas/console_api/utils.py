@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 from config import (
-    sfn, s3,
+    sfn, s3, lambda_client,
     EXECUTION_NAME_PATTERN
 )
 from dal.task_events_repo import task_events_repo
@@ -30,39 +30,36 @@ def now_iso() -> str:
 
 
 def resolve_pagerduty(item: Dict) -> None:
-    """Resolve PagerDuty incident when human makes a decision (skip/fail/success).
+    """Resolve a PagerDuty incident when a human makes a decision (skip/fail/success).
 
     Non-blocking: failures are logged but never break the calling action.
-    Uses the same dedup_key pattern as pagerduty_alerter (pipeline/task/date).
+    Invokes the notify Lambda's ``resolve_pagerduty`` action (ADR #103 Stage 2 —
+    the posting moved out of the pagerduty_resolver helper SFN). The Lambda reads
+    the routing key from alert_config by pipeline_name and resolves the incident
+    keyed by the same dedup_key (pipeline/task/date) the alert used.
     """
-    resolver_arn = os.environ.get('PAGERDUTY_RESOLVER_ARN')
-    if not resolver_arn:
+    notify_arn = os.environ.get('NOTIFY_FUNCTION_ARN')
+    if not notify_arn:
         return
 
-    # Check if pipeline has pagerduty alerts configured
-    alerts_json = item.get('alerts_json', '')
-    if not alerts_json:
-        return
-    try:
-        alerts = json.loads(alerts_json)
-    except (json.JSONDecodeError, TypeError):
-        return
-    if not alerts.get('pagerduty'):
+    pipeline_name = item.get('pipeline_name', '')
+    if not pipeline_name:
         return
 
     try:
-        exec_name = item.get('execution_name', 'unknown')
-        safe_name = exec_name.replace('/', '-')[:60]
-        resolve_name = f"pd-resolve-{safe_name}"
-        sfn.start_execution(
-            stateMachineArn=resolver_arn,
-            name=resolve_name,
-            input=json.dumps({
-                'execution_name': item.get('execution_name', ''),
-                'task_name': item.get('task_name', ''),
-                'pipeline_name': item.get('pipeline_name', ''),
-                'date': item.get('date', ''),
-            })
+        lambda_client.invoke(
+            FunctionName=notify_arn,
+            InvocationType='Event',   # fire-and-forget; resolve is best-effort
+            Payload=json.dumps({
+                'action': 'resolve_pagerduty',
+                'pipeline_name': pipeline_name,
+                'failure': {
+                    'pipeline_name': pipeline_name,
+                    'task_name': item.get('task_name', ''),
+                    'execution_name': item.get('execution_name', ''),
+                    'date': item.get('date', ''),
+                },
+            }).encode('utf-8'),
         )
         log.info("resolve_pagerduty", "Triggered", item=item.get('execution_name', 'unknown'))
     except Exception as e:
@@ -86,7 +83,7 @@ def is_backfill_record(item: dict) -> bool:
 
     Backfill records introduced in v0.78 (per ADR #51) live in the same
     pipeline-tokens table, distinguished by:
-    - ``pipeline_name`` = ``"_slsflow_bulk_backfill"`` sentinel
+    - ``pipeline_name`` = ``"_polyris_bulk_backfill"`` sentinel
     - ``record_type`` = ``"backfill"``
 
     Either marker is sufficient (defense in depth against partial writes).
@@ -96,7 +93,7 @@ def is_backfill_record(item: dict) -> bool:
     """
     if item.get('record_type') == 'backfill':
         return True
-    if item.get('pipeline_name') == '_slsflow_bulk_backfill':
+    if item.get('pipeline_name') == '_polyris_bulk_backfill':
         return True
     return False
 
@@ -536,7 +533,7 @@ def validate_required_fields(data: Dict, required: List[str]) -> tuple:
     return len(missing) == 0, missing
 
 
-# Schema column defaults — kept in sync with `slsflow.schema._COLUMN_DEFAULTS`.
+# Schema column defaults — kept in sync with `polyris.schema._COLUMN_DEFAULTS`.
 # Backend works with the serialized dict form (omit-on-default), so any key
 # present here that holds a non-default value counts as a "rich" constraint.
 _SCHEMA_COLUMN_DEFAULTS = {
@@ -552,9 +549,9 @@ _SCHEMA_COLUMN_DEFAULTS = {
 def dict_schema_richness(schema: List[Dict]) -> int:
     """Score how 'rich' a serialized (dict-form) schema is.
 
-    Mirror of `slsflow.schema.dict_schema_richness` — kept in sync because
+    Mirror of `polyris.schema.dict_schema_richness` — kept in sync because
     the Lambda doesn't ship with the SDK package (Principle #1: single
-    source of truth lives in `slsflow.schema`, this is its on-the-wire
+    source of truth lives in `polyris.schema`, this is its on-the-wire
     twin). Used by `_build_assets_from_pipelines` when the same asset is
     declared in multiple pipelines: higher score wins, ties keep the
     first declaration.

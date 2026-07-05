@@ -1,12 +1,12 @@
 # Project Structure
 
-This guide covers different ways to organize slsflow projects.
+This guide covers different ways to organize polyris projects.
 
 ## Installation
 
 ```bash
 # From PyPI
-pip install slsflow
+pip install polyris
 ```
 
 ## Structure Options
@@ -18,7 +18,7 @@ Best for: Small teams, getting started, monorepo setups.
 ```
 mycompany-data/
 ├── pyproject.toml              # Python packaging + dev tools
-├── config.py                   # slsflow project config (namespaces, stages, roles)
+├── config.py                   # polyris project config (namespaces, stages, roles)
 ├── sam/
 │   └── shared/                 # Shared infrastructure
 │       ├── template.yaml    # SAM template
@@ -58,11 +58,11 @@ sam build && sam deploy
 
 # 2. Create pipeline
 cd ../pipelines
-slsflow-init my-pipeline
+polyris-init my-pipeline
 cd my-pipeline
 
 # 3. Deploy
-slsflow-deploy
+polyris-deploy
 ```
 
 ---
@@ -72,13 +72,13 @@ slsflow-deploy
 Best for: Multiple teams, separate ownership.
 
 ```
-# Repo 1: slsflow library (PyPI)
-slsflow/
-├── slsflow/
+# Repo 1: polyris library (PyPI)
+polyris/
+├── polyris/
 └── pyproject.toml
 
 # Repo 2: Infrastructure (platform team)
-slsflow-infra/
+polyris-infra/
 └── sam/
     ├── dev/shared/
     └── prod/shared/
@@ -86,7 +86,7 @@ slsflow-infra/
 # Repo 3: Pipelines (data team)
 data-pipelines/
 ├── pyproject.toml              # Python packaging
-├── config.py                   # slsflow project config
+├── config.py                   # polyris project config
 ├── pipelines/
 │   ├── acme-daily/
 │   └── nexus-hourly/
@@ -106,17 +106,16 @@ my-pipeline/
 
 **dag.py:**
 ```python
-from slsflow import DAG, task
+from polyris import DAG, task
 import os
 
-STAGE = os.environ.get("SLSFLOW_STAGE", "dev")
+STAGE = os.environ.get("POLYRIS_STAGE", "dev")
 
 # Config from config.py ENVIRONMENTS
 
 with DAG(
     dag_id="my-pipeline",
     schedule="@daily",
-    alerts={"slack": "#alerts"}
 ) as dag:
     
     @task.sfn(arn=f"arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:myorg-{STAGE}-extract-task")
@@ -127,7 +126,7 @@ with DAG(
     
     extract() >> load()
 
-# Deploy: slsflow-deploy --stage $STAGE
+# Deploy: polyris-deploy --stage $STAGE
 ```
 
 ---
@@ -168,7 +167,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
-      SLSFLOW_STAGE: dev
+      POLYRIS_STAGE: dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -179,7 +178,7 @@ jobs:
       - name: Deploy pipeline
         run: |
           cd pipelines/my-pipeline
-          slsflow-deploy --stage dev
+          polyris-deploy --stage dev
 ```
 
 ---
@@ -202,20 +201,20 @@ DEFAULT_STAGE = "dev"
 Override in CI or command line:
 ```bash
 # Deploy to dev (default)
-slsflow-deploy
+polyris-deploy
 
 # Deploy to prod
-slsflow-deploy --stage prod
+polyris-deploy --stage prod
 
 # Or via environment variable
-export SLSFLOW_STAGE=prod
-slsflow-deploy
+export POLYRIS_STAGE=prod
+polyris-deploy
 ```
 
 In code:
 ```python
 import os
-STAGE = os.environ.get("SLSFLOW_STAGE", "dev")
+STAGE = os.environ.get("POLYRIS_STAGE", "dev")
 f"arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:myorg-{STAGE}-task"
 ```
 
@@ -223,11 +222,11 @@ f"arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:myorg-{STAGE}-task"
 
 ## Best Practices
 
-1. **One config.py** at repo root with all slsflow ENVIRONMENTS config
+1. **One config.py** at repo root with all polyris ENVIRONMENTS config
 2. **One pipeline per folder** with a `dag.py`
 3. **Use full ARN strings directly** — explicit and transparent
 4. **Use environment variables** for stage/account overrides in CI
-5. **Test locally** before deploying: `slsflow-validate -v`
+5. **Test locally** before deploying: `polyris-validate -v`
 
 ---
 

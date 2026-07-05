@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
     usePathname: () => currentPathname,
 }));
 
-vi.mock('lucide-react', () => ({ Activity: () => null, AlertCircle: () => null, ArrowLeft: () => null, Check: () => null, CheckCircle: () => null, ChevronDown: () => null, ChevronRight: () => null, ChevronUp: () => null, Circle: () => null, Eye: () => null, EyeOff: () => null, HelpCircle: () => null, KeyRound: () => null, ListTodo: () => null, Loader2: () => null, Lock: () => null, LogOut: () => null, Mail: () => null, Menu: () => null, Moon: () => null, Package: () => null, Pause: () => null, RefreshCw: () => null, Shield: () => null, Sun: () => null, User: () => null, Users: () => null, Workflow: () => null, Rocket: () => null, X: () => null, Zap: () => null }));
+vi.mock('lucide-react', () => ({ Activity: () => null, AlertCircle: () => null, ArrowLeft: () => null, Check: () => null, CheckCircle: () => null, ChevronDown: () => null, ChevronRight: () => null, ChevronUp: () => null, Circle: () => null, Eye: () => null, EyeOff: () => null, HelpCircle: () => null, History: () => null, KeyRound: () => null, ListTodo: () => null, Loader2: () => null, Lock: () => null, LogOut: () => null, Mail: () => null, Menu: () => null, Moon: () => null, Package: () => null, Pause: () => null, RefreshCw: () => null, Shield: () => null, Sun: () => null, User: () => null, Users: () => null, Workflow: () => null, Rocket: () => null, X: () => null, Zap: () => null }));
 vi.mock('@/utils/icons', () => ({ ActionIcons: new Proxy({}, { get: () => () => null }), Activity: () => null, AlertCircle: () => null, AlertTriangle: () => null, ArrowDown: () => null, ArrowLeft: () => null, ArrowRight: () => null, ArrowUp: () => null, Ban: () => null, BarChart3: () => null, Bell: () => null, BellRing: () => null, BookOpen: () => null, Calendar: () => null, Check: () => null, CheckCircle2: () => null, ChevronDown: () => null, ChevronLeft: () => null, ChevronRight: () => null, Circle: () => null, CircleDot: () => null, CircleHelp: () => null, ClipboardList: () => null, Clock: () => null, Copy: () => null, Database: () => null, Download: () => null, ExternalLink: () => null, Eye: () => null, FileText: () => null, Filter: () => null, Gauge: () => null, GitBranch: () => null, GitMerge: () => null, Globe: () => null, HelpCircle: () => null, History: () => null, Hourglass: () => null, Inbox: () => null, Info: () => null, Keyboard: () => null, Lightbulb: () => null, Link2: () => null, ListTodo: () => null, Loader2: () => null, Minus: () => null, Moon: () => null, Network: () => null, Package: () => null, Palette: () => null, Pause: () => null, Play: () => null, PlayCircle: () => null, Plug: () => null, Plus: () => null, RefreshCw: () => null, Rewind: () => null, Rocket: () => null, RotateCcw: () => null, Search: () => null, Settings: () => null, Siren: () => null, SkipForward: () => null, Square: () => null, StopCircle: () => null, Sun: () => null, Target: () => null, Terminal: () => null, Timer: () => null, Trash2: () => null, User: () => null, Workflow: () => null, Wrench: () => null, X: () => null, XCircle: () => null, Zap: () => null }));
 vi.mock('../utils/icons', () => ({ ActionIcons: new Proxy({}, { get: () => () => null }), Activity: () => null, AlertCircle: () => null, AlertTriangle: () => null, ArrowDown: () => null, ArrowLeft: () => null, ArrowRight: () => null, ArrowUp: () => null, Ban: () => null, BarChart3: () => null, Bell: () => null, BellRing: () => null, BookOpen: () => null, Calendar: () => null, Check: () => null, CheckCircle2: () => null, ChevronDown: () => null, ChevronLeft: () => null, ChevronRight: () => null, Circle: () => null, CircleDot: () => null, CircleHelp: () => null, ClipboardList: () => null, Clock: () => null, Copy: () => null, Database: () => null, Download: () => null, ExternalLink: () => null, Eye: () => null, FileText: () => null, Filter: () => null, Gauge: () => null, GitBranch: () => null, GitMerge: () => null, Globe: () => null, HelpCircle: () => null, History: () => null, Hourglass: () => null, Inbox: () => null, Info: () => null, Keyboard: () => null, Lightbulb: () => null, Link2: () => null, ListTodo: () => null, Loader2: () => null, Minus: () => null, Moon: () => null, Network: () => null, Package: () => null, Palette: () => null, Pause: () => null, Play: () => null, PlayCircle: () => null, Plug: () => null, Plus: () => null, RefreshCw: () => null, Rewind: () => null, Rocket: () => null, RotateCcw: () => null, Search: () => null, Settings: () => null, Siren: () => null, SkipForward: () => null, Square: () => null, StopCircle: () => null, Sun: () => null, Target: () => null, Terminal: () => null, Timer: () => null, Trash2: () => null, User: () => null, Workflow: () => null, Wrench: () => null, X: () => null, XCircle: () => null, Zap: () => null }));
 vi.mock('@/components/ui/button', () => ({
@@ -24,12 +24,6 @@ vi.mock('../utils/api', () => ({ api: { get: vi.fn(), post: vi.fn() }, setAuthTo
 vi.mock('@/utils/api', () => ({ api: { get: vi.fn(), post: vi.fn() }, setAuthTokenGetter: vi.fn(), setAuthErrorCallback: vi.fn() }));
 vi.mock('../utils/storage', () => ({ getFromStorage: vi.fn(), saveToStorage: vi.fn() }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isSignedIn: true, user: { email: 'test@test.com' }, signOut: vi.fn() }), AUTH_STATE: { SIGNED_IN: 'signedIn', SIGNED_OUT: 'signedOut' } }));
-
-// Active backfill count for nav badge — default to empty (no badge shown)
-const mockUseBackfillsList = vi.fn(() => ({ data: [], isLoading: false, isError: false }));
-vi.mock('../hooks/queries', () => ({
-    useBackfillsListQuery: (filter: string) => mockUseBackfillsList(filter),
-}));
 
 import { Header } from './Header';
 
@@ -63,7 +57,7 @@ describe('Header', () => {
     describe('rendering', () => {
         it('renders logo', () => {
             render(<Header {...props} />);
-            expect(screen.getByText(/slsflow Console/)).toBeInTheDocument();
+            expect(screen.getByText(/polyris Console/)).toBeInTheDocument();
         });
 
         it('renders all navigation tabs', () => {
@@ -210,37 +204,17 @@ describe('Header', () => {
         });
     });
 
-    describe('Active backfill badge', () => {
+    describe('Backfills nav tab (Team-tier slot)', () => {
         const props = { apiConnected: true, onNotificationNavigate: vi.fn() };
 
-        it('hides badge when no active backfills', () => {
-            mockUseBackfillsList.mockReturnValue({ data: [], isLoading: false, isError: false });
+        it('renders a plain Backfills tab in the OSS build — no badge, no poll', () => {
             const { container } = render(<Header {...props} />);
-            const badges = container.querySelectorAll('.nav-pill-badge');
-            expect(badges.length).toBe(0);
-        });
-
-        it('shows count badge when active backfills present', () => {
-            mockUseBackfillsList.mockReturnValue({
-                data: [
-                    { backfill_id: 'bf-a', status: 'running' },
-                    { backfill_id: 'bf-b', status: 'pending' },
-                    { backfill_id: 'bf-c', status: 'running' },
-                ],
-                isLoading: false,
-                isError: false,
-            });
-            const { container } = render(<Header {...props} />);
-            const badges = container.querySelectorAll('.nav-pill-badge');
-            expect(badges.length).toBe(1);
-            expect(badges[0].textContent).toBe('3');
-        });
-
-        it('queries with active filter', () => {
-            mockUseBackfillsList.mockReturnValue({ data: [], isLoading: false, isError: false });
-            render(<Header {...props} />);
-            const lastCall = mockUseBackfillsList.mock.calls[mockUseBackfillsList.mock.calls.length - 1];
-            expect(lastCall[0]).toBe('active');
+            // OSS paidSurface is an empty stub (ADR #99): BackfillNavTab is undefined,
+            // so a plain static Backfills tab is rendered instead — it navigates to
+            // the /backfills "coming soon" page (mirroring Assets) with NO active-count
+            // badge and no /api/backfills poll.
+            expect(screen.getByText('Backfills')).toBeInTheDocument();
+            expect(container.querySelectorAll('.nav-pill-badge').length).toBe(0);
         });
     });
 });

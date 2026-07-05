@@ -4,7 +4,7 @@ import '@/styles/globals.css';
 import '@/styles/index.css';
 
 export const metadata: Metadata = {
-  title: 'slsflow Console',
+  title: 'polyris Console',
 };
 
 export default function RootLayout({

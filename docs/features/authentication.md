@@ -1,7 +1,7 @@
-# slsflow Console Authentication
+# polyris Console Authentication
 
-This document describes how the slsflow Console authenticates: AWS Cognito for
-the browser UI (via Amplify) and slsflow Personal Access Tokens (PATs) for
+This document describes how the polyris Console authenticates: AWS Cognito for
+the browser UI (via Amplify) and polyris Personal Access Tokens (PATs) for
 scripts/CI. For day-to-day API usage and token management, see
 [api-tokens.md](./api-tokens.md).
 
@@ -10,7 +10,7 @@ scripts/CI. For day-to-day API usage and token management, see
 > an API Gateway authorizer. The HTTP API uses a `/{proxy+}` integration, so
 > every request reaches the Lambda, and the gate runs there before route
 > dispatch. It accepts **either** a Cognito access token (browser) **or** a PAT
-> (`slsf_…`). Enforcement is gated by the `AUTH_ENABLED` env var and is **on by
+> (`plrs_…`). Enforcement is gated by the `AUTH_ENABLED` env var and is **on by
 > default** (the deployed template sets it `true`) — disabling it is a
 > deliberate step (see "Enabling enforcement" below). Health/metrics paths are
 > always public.
@@ -42,7 +42,7 @@ Before enabling authentication, ensure you have:
         │  Amplify.Auth                                                    │ verify JWT (JWKS)
         ▼                                                                  │ or hash lookup (PAT)
 ┌───────────────────────────────────────────────────────┐                 │
-│     {namespace}-{stage}-slsflow-console-users         │◀────────────────┘
+│     {namespace}-{stage}-polyris-console-users         │◀────────────────┘
 │  - Admin-only user creation                           │
 │  - Secure Remote Password (SRP) protocol              │
 │  - Automatic token refresh                            │
@@ -51,16 +51,16 @@ Before enabling authentication, ensure you have:
 
 ## Resource Naming
 
-All Cognito resources follow the pattern `{namespace}-{stage}-slsflow-{resource}`:
+All Cognito resources follow the pattern `{namespace}-{stage}-polyris-{resource}`:
 
 | Resource | Name Pattern |
 |----------|--------------|
-| User Pool | `{namespace}-{stage}-slsflow-console-users` |
-| App Client | `{namespace}-{stage}-slsflow-console-client` |
-| API Tokens table | `{namespace}-{stage}-slsflow-api-tokens` (PATs, ADR #65) |
+| User Pool | `{namespace}-{stage}-polyris-console-users` |
+| App Client | `{namespace}-{stage}-polyris-console-client` |
+| API Tokens table | `{namespace}-{stage}-polyris-api-tokens` (PATs, ADR #65) |
 | User Groups | `admins`, `viewers` |
 
-All resources are tagged with `Environment = "slsflow"`.
+All resources are tagged with `Environment = "polyris"`.
 
 ## Enabling Authentication
 
@@ -91,7 +91,7 @@ After `sam deploy` completes, get outputs:
 
 ```bash
 aws cloudformation describe-stacks \
-  --stack-name slsflow-dev \
+  --stack-name polyris-dev \
   --query "Stacks[0].Outputs" \
   --output table
 ```
@@ -134,8 +134,8 @@ cp .env.example .env.local
 ### Step 5: Create First User
 
 ```bash
-# Get User Pool ID from aws cloudformation describe-stacks --stack-name slsflow-dev --query "Stacks[0].Outputs"
-USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name slsflow-dev \
+# Get User Pool ID from aws cloudformation describe-stacks --stack-name polyris-dev --query "Stacks[0].Outputs"
+USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name polyris-dev \
   --query "Stacks[0].Outputs[?OutputKey=='CognitoUserPoolId'].OutputValue" --output text)
 
 # Create admin user
@@ -193,7 +193,7 @@ Users can only be created by administrators. There are two methods:
 #### Method 1: AWS Console (Recommended)
 
 1. **Go to AWS Console** → Cognito → User pools
-2. **Select your user pool** (e.g., `mycompany-dev-slsflow-console-users`)
+2. **Select your user pool** (e.g., `mycompany-dev-polyris-console-users`)
 3. **Click "Users"** in the left sidebar
 4. **Click "Create user"** button
 5. **Fill in the form:**
@@ -215,7 +215,7 @@ After creating the user, add them to a group:
 
 ```bash
 # Get User Pool ID
-USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name slsflow-dev \
+USER_POOL_ID=$(aws cloudformation describe-stacks --stack-name polyris-dev \
   --query "Stacks[0].Outputs[?OutputKey=='CognitoUserPoolId'].OutputValue" --output text)
 
 # Create user
@@ -380,19 +380,27 @@ NEXT_PUBLIC_AUTH_ENABLED=false
 
 ### Testing Auth Locally
 
-To test auth locally against deployed Cognito, edit `.env.local`:
+To test auth locally against deployed Cognito, set in `.env.local` (the
+`API_GATEWAY_URL` name in older docs is gone — use `NEXT_PUBLIC_API_URL`, the full
+invoke URL with stage and `/api`):
 
 ```env
+NEXT_PUBLIC_API_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev/api
 NEXT_PUBLIC_AUTH_ENABLED=true
 NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_abc123XYZ
 NEXT_PUBLIC_COGNITO_CLIENT_ID=7abcdef123456789ghijklmnop
 NEXT_PUBLIC_COGNITO_REGION=us-east-1
 ```
 
-Then run:
+Amplify signs in with email/password directly, so **no OAuth callback URLs need
+to be registered** for `http://localhost:3000`. The pool/client above must match
+what the `console-api` Lambda validates against. Then run:
 ```bash
 npm run dev
 ```
+
+See `docs/operations/UI.md` → *Local UI against a deployed API* for the full
+setup (with and without auth).
 
 ## Related Files
 

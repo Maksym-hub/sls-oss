@@ -9,7 +9,7 @@ Tests cover:
 """
 import pytest
 
-from slsflow.assets import Asset
+from polyris.assets import Asset
 
 
 class TestDefaults:
@@ -82,7 +82,7 @@ class TestInteraction:
         assert asset.glue_table == "default.orders"
 
     def test_partition_fields_coexist_with_schema(self):
-        from slsflow.schema import Column, bigint
+        from polyris.schema import Column, bigint
         asset = Asset(
             "acme/orders",
             granularity="daily",

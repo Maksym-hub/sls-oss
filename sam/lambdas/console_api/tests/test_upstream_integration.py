@@ -11,7 +11,7 @@ from upstream_integration import (
     plan_to_response,
     requires_upstream_build,
 )
-from slsflow.upstream_resolver import resolve_plan
+from polyris.upstream_resolver import resolve_plan
 
 
 def _pipe(name, tasks, dag_hash=None):
@@ -118,7 +118,7 @@ class TestExistsAdapter:
 
 class TestRequiresUpstreamBuild:
     def _graph(self):
-        from slsflow.upstream_resolver import AssetGraph, AssetNode
+        from polyris.upstream_resolver import AssetGraph, AssetNode
         g = AssetGraph()
         g.add_node(AssetNode('raw', 'p_raw', 'daily'))
         g.add_node(AssetNode('catalog', 'p_cat', 'daily'))
@@ -148,7 +148,7 @@ class TestRequiresUpstreamBuild:
 
 class TestPlanSerialization:
     def test_shape(self):
-        from slsflow.upstream_resolver import AssetGraph, AssetNode
+        from polyris.upstream_resolver import AssetGraph, AssetNode
         g = AssetGraph()
         g.add_node(AssetNode('catalog', 'p_cat', 'daily', dag_hash='h'))
         plan = resolve_plan('catalog', ['2026-05-20'], g,
@@ -166,7 +166,7 @@ class TestPlanSerialization:
 
 class TestSfnTierBuilders:
     def _plan(self, reused_raw=False):
-        from slsflow.upstream_resolver import AssetGraph, AssetNode, resolve_plan
+        from polyris.upstream_resolver import AssetGraph, AssetNode, resolve_plan
         g = AssetGraph()
         g.add_node(AssetNode('raw', 'p_raw', 'daily'))
         g.add_node(AssetNode('catalog', 'p_cat', 'daily'))

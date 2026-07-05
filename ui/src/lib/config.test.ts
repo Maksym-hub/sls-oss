@@ -55,4 +55,17 @@ describe('config — lazy window.CONFIG reads', () => {
         window.CONFIG = {};
         expect(config.AUTH.enabled).toBe(true);
     });
+
+    it('treats AUTH.enabled: null (local-dev sentinel) as fall-through to .env, not false', () => {
+        // ui/public/config.js ships enabled: null so local .env drives auth. The
+        // resolver uses `?? env`, so null must fall through — a `!== undefined`
+        // check (which useAuth once had) would wrongly read null as "not true" and
+        // silently disable auth even with NEXT_PUBLIC_AUTH_ENABLED=true.
+        vi.stubEnv('NEXT_PUBLIC_AUTH_ENABLED', 'true');
+        window.CONFIG = { AUTH: { enabled: null as unknown as boolean, userPoolId: '', clientId: '', region: 'us-east-1' } };
+        expect(config.AUTH.enabled).toBe(true);
+
+        vi.stubEnv('NEXT_PUBLIC_AUTH_ENABLED', 'false');
+        expect(config.AUTH.enabled).toBe(false);
+    });
 });

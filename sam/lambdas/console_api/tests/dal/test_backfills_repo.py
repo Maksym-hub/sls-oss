@@ -39,7 +39,7 @@ class TestGet:
             'Item': {
                 'execution_name': 'bf-abc123',
                 'record_type': 'backfill',
-                'pipeline_name': '_slsflow_bulk_backfill',
+                'pipeline_name': '_polyris_bulk_backfill',
                 'status': 'running',
             }
         }
@@ -85,7 +85,7 @@ class TestPut:
         repo.put({
             'execution_name': 'bf-abc',
             'record_type': 'backfill',
-            'pipeline_name': '_slsflow_bulk_backfill',
+            'pipeline_name': '_polyris_bulk_backfill',
             'status': 'pending',
         })
         table.put_item.assert_called_once()
@@ -96,7 +96,7 @@ class TestPut:
         repo = _make_repo_with_table(mocker, table)
         repo.put({'execution_name': 'bf-abc', 'status': 'pending'})
         item = table.put_item.call_args.kwargs['Item']
-        assert item['pipeline_name'] == '_slsflow_bulk_backfill'
+        assert item['pipeline_name'] == '_polyris_bulk_backfill'
         assert item['record_type'] == 'backfill'
 
     def test_put_sets_default_ttl(self, mocker):
@@ -115,7 +115,7 @@ class TestPut:
         custom_ttl = 999999
         repo.put({
             'execution_name': 'bf-abc',
-            'pipeline_name': '_slsflow_bulk_backfill',
+            'pipeline_name': '_polyris_bulk_backfill',
             'record_type': 'backfill',
             'ttl': custom_ttl,
             'status': 'running',
@@ -166,7 +166,7 @@ class TestPutIfNew:
         repo = _make_repo_with_table(mocker, table)
         repo.put_if_new({'execution_name': 'bf-abc'})
         item = table.put_item.call_args.kwargs['Item']
-        assert item['pipeline_name'] == '_slsflow_bulk_backfill'
+        assert item['pipeline_name'] == '_polyris_bulk_backfill'
         assert item['record_type'] == 'backfill'
         assert 'ttl' in item
 

@@ -3,7 +3,6 @@ export {
     usePipelinesQuery,
     usePipelineDetailQuery,
     usePipelineExecutionsQuery,
-    usePipelineMetricsQuery,
     useCalendarExecutionsQuery,
     usePipelineTasksList,
 } from './usePipelineQueries';

@@ -19,7 +19,7 @@
 ADR #98 made the open-core boundary **physical**: proprietary code lives under a
 distinct root, and "what is in the build" — `ee/` present or stripped — decides
 the tier. No runtime flag. The backend (`console_api/ee/`) and SDK
-(`slsflow/_ee/`) already work this way.
+(`polyris/_ee/`) already work this way.
 
 The UI (`ui/`) is the last piece and the hardest. Facts that shape the decision:
 

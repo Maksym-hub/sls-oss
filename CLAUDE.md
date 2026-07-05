@@ -1,6 +1,33 @@
-# CLAUDE.md — SLSFlow Agent Instructions
+# CLAUDE.md — Polyris Agent Instructions
 
 Read this fully before writing any code. When in doubt, `grep` first.
+
+---
+## Repository context
+
+**You are in `polyris` — the public, open-core repo.** It ships the free SDK
+(`polyris/`), the free console backend (`sam/lambdas/console_api/`), and the free
+UI (`ui/src/`, everything outside `src/ee/`). This repo is the **single source of
+truth for the core** — the private `polyris-ee` repo depends on it, never the
+reverse.
+
+- **Never add proprietary/paid code here.** The AI assistant (`polyris/_ee/`),
+  paid console routes (`console_api/ee/`), and paid UI (`ui/src/ee/`) live only in
+  the private `polyris-ee` repo. `polyris._ee*` is excluded from the wheel
+  (`pyproject.toml`) and there is no `ee/` directory in this checkout.
+- **The seam is enforced, not conventional.** `main.py` registers only the free
+  `ROUTE_MODULES` and appends paid routes via `try: import ee` (absent here, so the
+  OSS build serves the free routes only). Free UI reaches any paid surface solely
+  through the generated `@/ee-active.generated` stub (empty in this repo).
+  `ui/scripts/check-oss-build.sh` proves in CI that the UI typechecks + builds with
+  `src/ee/` absent — a stray `@/ee/…` import fails the build.
+- **Build/test here is self-contained:** `pip install -e ".[dev]"` then
+  `python -m pytest tests/sdk tests/backend tests/integration`; for the UI,
+  `cd ui && npm ci && npm run typecheck && npm test -- --run && npm run build`.
+
+Adding a feature? Decide the tier first (see **Open-core UI surface** below):
+authoring + basic read → free (here); operations / observability / governance →
+paid (the private repo).
 
 ---
 ## Core Principles
@@ -93,7 +120,7 @@ Concrete workflow before writing new code:
   yet another duplicate
 
 Examples of unification done right in this project:
-- `cors_response()` — one helper, all 58 routes use it
+- `cors_response()` — one helper, all 63 routes use it
 - `BaseModal` — one wrapper, all modals consume it
 - `.dag-container` card style — reused for `.alf-lineage-flow-container`, `.adp-page`,
   `.av-catalog`, `.av-recent-events-panel` (instead of writing a new card style each time)
@@ -167,7 +194,7 @@ Before any `vX.Y.Z` tag:
 3. Manually exercise one happy path per new feature in the UI
 
 Tests marked `@pytest.mark.smoke` live in `tests/e2e/` and are skipped without
-`SLSFLOW_API_URL`. They're not optional before release; they're the gate.
+`POLYRIS_API_URL`. They're not optional before release; they're the gate.
 
 The lesson from v0.78's discovery: a test suite that's 100% green on mocks
 silently shipped a `pipeline_status` vs `status` field-name bug. One smoke test
@@ -345,6 +372,43 @@ new view doesn't help — CloudFront still 404s.
 The CloudFront function code has an inline `⚠️` comment pointing to
 the other two files. Don't remove it.
 
+**21. The build must be clean — zero errors and zero warnings**
+"It compiles" is not the bar; "it type-checks, lints, builds, and tests clean — with no
+warnings" is. Before declaring any change done, the full toolchain must be green with
+nothing flagged: the Python and UI checks listed in **Repository context** (`ruff check`,
+`mypy`, `pytest`; `eslint`, `tsc --noEmit`, the production build, `vitest`). A warning is
+not "fine for now" — a drifting warning count is how real errors hide in the noise.
+
+When something is flagged, resolve it rather than ignore it: either fix the underlying
+issue, or — only when the flagged pattern is genuinely correct (e.g. a strict new lint
+rule over-flagging a deliberate pattern) — suppress it at the narrowest scope with a
+written justification (`// eslint-disable-next-line <rule> -- <why this is safe>`, a
+scoped rule in the lint config, or the pytest/ruff equivalent). Blanket-disabling a rule
+across the codebase, or suppressing a warning to mask a real bug, is a Principle #11
+violation — not a clean build.
+
+**22. Pure-logic core has a coverage floor — meaningful tests, not a vanity number**
+The pure-logic core (DSL, generators/codegen, validation, schema, steps, partitions,
+assets, dag, task — everything deterministic and AWS-free) carries a CI coverage floor,
+enforced by `[tool.coverage.report] fail_under` in `pyproject.toml` and run via
+`make test-cov`. The floor is a **ratchet**: when you raise coverage, raise the floor in
+the same PR — it must never regress.
+
+The floor is 100% of the *measured* core, not of the whole tree. AWS/CLI/deploy/build
+modules (`deploy`, `register`, `init`, `local`, `output`, `roles`, `codegen/sync_enums`,
+and the `codegen/check_*` drift-checkers) are in the coverage `omit` list — they're
+exercised by e2e/smoke (#15, #16), and mocking AWS or the filesystem just to colour their
+lines would only test the mock (#11, #13, #14). For the logic that *is* under the floor,
+the rule against mock-gaming still governs *how* 100% is reached: a line that cannot be
+driven by a real test through the public API gets a `# pragma: no cover` with a written
+reason, never a fabricated mock-around test. Coverage measures whether real behaviour is
+exercised — read it that way.
+
+Per the maintainer's directive the measured core is now at **100%** — reached by testing all real logic and marking the irreducibly-untestable lines (`__main__` guards, defensive branches unreachable through the public API, import guards for installed optional deps, external-lib/AWS factories needing boto3/pyiceberg) with `# pragma: no cover` plus a written reason. Fabricated mock-tests to colour lines stay forbidden (Principles #11/#13). AWS/CLI modules in the omit list remain e2e-covered. Current floor: **100%** — `fail_under = 100` enforces that every measured (non-omitted) module stays fully covered; new logic must arrive with a test or a justified pragma. Every measured module — generators, validation, assets, schema, steps, partitions, resolver, dag, task, task_group, granularity, helpers, config, cli, constants, xcom, and the pydantic/pyarrow/glue adapters — is at 100%.
+Frontend mirror: vitest coverage on logic/hooks/reducers follows the same ratchet
+philosophy; purely presentational components are exempt. (The frontend gate is wired on
+once a baseline is measured — until then the rule stands as policy.)
+
 ---
 
 
@@ -364,11 +428,11 @@ Three layered references, applied in this order when they conflict:
    `UPPER_SNAKE` for constants), 4-space indent, 80-100 char lines,
    docstrings on every public function/class, type hints everywhere
    non-trivial, import ordering (stdlib → third-party → local).
-   *In this codebase*: see `slsflow/`, `sam/lambdas/console_api/`.
+   *In this codebase*: see `polyris/`, `sam/lambdas/console_api/`.
    `pytest`, `pyright`, and `ruff` enforce most of it.
 
    **CLI argparse handlers exception**: `cmd_*` functions in
-   `slsflow/cli.py` and similar entry-point dispatchers may omit
+   `polyris/cli.py` and similar entry-point dispatchers may omit
    docstrings when they only unpack argparse args and delegate to a
    documented function. The help text on the argparse subparser IS
    the user-facing documentation; a function docstring would duplicate
@@ -397,7 +461,10 @@ Three layered references, applied in this order when they conflict:
 
 3. **12-Factor App** for application architecture, with serverless
    adaptations:
-   - *Codebase*: single git monorepo (`/home/claude/work/slsflow`).
+   - *Codebase*: two repos — public `polyris` (CE: free SDK,
+     console backend, UI) and private `polyris-ee` (paid `ee/`
+     overlay). EE depends on CE via the `polyris` package; CE never
+     depends on EE.
    - *Dependencies*: `pyproject.toml` (SDK) + `requirements.txt`
      (Lambdas) + `package.json` (UI). Pinned exactly, never `latest`.
    - *Config*: environment variables + CloudFormation parameters.
@@ -416,7 +483,7 @@ Three layered references, applied in this order when they conflict:
      half-written DDB transactions — use transactWriteItems for atomic
      multi-item updates).
    - *Logs*: structured JSON to `stdout`, picked up by CloudWatch.
-     Use `slsflow/logger.py` (`log.info`/`log.warn`/`log.error`) in
+     Use `polyris/logger.py` (`log.info`/`log.warn`/`log.error`) in
      Lambda handlers — these emit JSON lines that alarms and
      dashboards can parse. `console_api` follows this fully (~160
      `log.*` calls). **Known gap (BACKLOG)**: a handful of small
@@ -426,8 +493,8 @@ Three layered references, applied in this order when they conflict:
      `stdout` regardless, so logs are visible; the gap is they're
      unstructured strings, harder to parse for alarms. Migrate
      opportunistically.
-   - **CLI tool exception**: `slsflow/cli.py`, `slsflow/register.py`,
-     `slsflow/init.py`, `slsflow/output.py`, `slsflow/_ee/ai/*` use
+   - **CLI tool exception**: `polyris/cli.py`, `polyris/register.py`,
+     `polyris/init.py`, `polyris/output.py`, `polyris/_ee/ai/*` use
      `print()` heavily — that's correct. CLI tools **are** the event
      stream consumer, not producer. Don't migrate these to
      structured logging.
@@ -554,8 +621,9 @@ team). `ui/scripts/check-oss-build.sh` enforces the free↔paid direction in CI 
 stripping `src/ee` and asserting the OSS build still typechecks + builds.
 
 When adding a paid UI feature:
-1. **Decide the tier.** Authoring + basic read → free (`src/components`,
-   `src/hooks`). Operations / observability / intervention → **Team**
+1. **Decide the tier.** Authoring + basic read + running + live-run intervention
+   → free (`src/components`, `src/hooks`). Pipeline-level lifecycle / backfill /
+   assets / alert integrations / PATs / observability / config mutation → **Team**
    (`src/ee/team/…`). Governance / cost / SSO / RBAC / cross-account →
    **Enterprise** (`src/ee/enterprise/…`). Unsure between paid tiers → Team
    (the lower paid tier).
@@ -578,8 +646,10 @@ When adding a paid UI feature:
    that owns the hook and exposes handlers via `children(handlers)`. The host
    wraps its content — `Provider ? <Provider …>{h => content(h)}</Provider> :
    content(null)` — and gates each control on the handlers being present (for
-   Enterprise, additionally on `can()`). See
-   `src/ee/team/views/PipelineActionsProvider.tsx`.
+   Enterprise, additionally on `can()`). The former example, the pipeline-actions
+   provider, became **free** in ADR #110 (its handlers hit only free routes) and
+   now lives at `src/components/PipelineActionsProvider.tsx`, wrapped
+   unconditionally; the pattern remains for any *paid* cross-cutting handler.
 4. **Queries**: a tier's queries live in `src/ee/<tier>/hooks/queries/`. A query a
    *free* component needs stays in `src/hooks/queries/` even if a paid tier also
    uses it (e.g. `useBackfillsListQuery` — the Header badge depends on it).
@@ -626,7 +696,7 @@ current code. Snapshot at v0.78.10:
 
 **Known gaps** — flagged for opportunistic cleanup:
 - `print()` in `evaluate_deps`, `notify_asset_subscribers`, `check_assets`,
-  `query_subscriptions`, `ui_bootstrap` instead of `slsflow/logger.py`
+  `query_subscriptions`, `ui_bootstrap` instead of `polyris/logger.py`
 - Docstrings on `~80` CLI `cmd_*` argparse handlers (mostly safe under
   the documented exception above, but worth a pass)
 - 3 inline `style={{ margin: '10px' }}` on ReactFlow Panels in
@@ -643,10 +713,10 @@ unless you're doing a deliberate hygiene pass.
 ---
 
 
-## What is SLSFlow
+## What is Polyris
 
 Serverless data pipeline orchestration on AWS Step Functions. Python DSL (Airflow-compatible
-syntax) → generates ASL → deploys via CloudFormation (`slsflow-deploy`).
+syntax) → generates ASL → deploys via CloudFormation (`polyris-deploy`).
 
 Core idea: each task = one `dependency_wrapper` SFN execution that waits for deps, runs the
 task, then signals downstream tasks via `notify_dependents`.
@@ -655,8 +725,11 @@ task, then signals downstream tasks via `notify_dependents`.
 
 ## Project Layout
 
+> Canonical full-system layout. See **Repository context** at the top for
+> what *this* repo physically ships.
+
 ```
-slsflow/              # Python DSL library + CLI (slsflow-deploy, slsflow-init)
+polyris/              # Python DSL library + CLI (polyris-deploy, polyris-init)
 pipelines/            # Pipeline definitions — each pipeline has a dag.py
 sam/
   template.yaml       # ALL AWS resources (SAM template) — single source of truth
@@ -673,12 +746,9 @@ sam/
       restart_task/sfn.tpl.json
       restart_wrapper/sfn.tpl.json
       pause_waiter/sfn.tpl.json
-      interactive_choice_slack/sfn.tpl.json
-      pagerduty_alerter/sfn.tpl.json
-      pagerduty_resolver/sfn.tpl.json
       notify_asset_consumers/sfn.tpl.json
   lambdas/
-    console_api/      # REST API (52 endpoints), DAL repos, route handlers
+    console_api/      # REST API (63 routes full build, 18 free), DAL repos, route handlers
     evaluate_deps/    # Evaluates trigger rules (all_success, one_failed, etc.)
     query_subscriptions/  # Finds downstream subscribers for a completed task
     check_assets/     # Validates asset freshness for wait_for
@@ -706,90 +776,54 @@ cd sam && sam build && sam deploy --profile <profile>
 cd ui && npm ci && npm run build && ./deploy.sh --profile <profile>
 
 # Pipeline
-cd pipelines/my-pipeline && slsflow-deploy --stage dev --profile <profile>
+cd pipelines/my-pipeline && polyris-deploy --stage dev --profile <profile>
 ```
 
 **SFN edit workflow:** edit `sam/sfn_templates/*/sfn.tpl.json` → `sam build && sam deploy`.
 `sam build` inlines `.tpl.json` into `DefinitionString` automatically.
 
-### Lambda packaging: `slsflow` SDK is symlinked into console_api
+### Lambda packaging: `polyris` SDK comes from `requirements.txt`
 
-**Current state (v0.78+, tech debt):** `sam/lambdas/console_api/slsflow`
-is a **committed git symlink** to the repo-root `slsflow/` package.
-This is the **packaging contract** — `routes/backfill.py` imports
-`slsflow.partitions` and `slsflow.granularity`, which live at the repo
-root outside the Lambda's CodeUri. The symlink makes them available
-to SAM's Python builder.
+**Current state (post repo-split, ADR #102):** the console Lambda gets the
+`polyris` SDK core as a normal package dependency, declared in
+`sam/lambdas/console_api/requirements.txt`:
 
-**This is a workaround, not architecture.** Pinned by regression
-tests in `tests/sdk/test_reviewer_regressions_v078.py`:
-- `test_lambda_has_slsflow_symlink` — symlink must exist
-- `test_lambda_local_makefile_not_reintroduced` — old broken pattern
-- `test_template_has_no_buildmethod_makefile_for_console_api` — old broken pattern
-
-**Things Claude must NOT propose to "fix" this:**
-- ❌ Adding `sam/lambdas/console_api/Makefile` with `BuildMethod: makefile`
-  and `cp ../../../slsflow`. **Failed live smoke 2026-05-22** — SAM
-  CustomMakeBuilder runs `make` from a scratch directory, relative
-  paths don't reach repo root. The error:
-  ```
-  cp: cannot stat '../../../slsflow': No such file or directory
-  ```
-- ❌ Vendor copy via top-level `make sam-build` wrapper. Works
-  technically but introduces a build step users forget; they run plain
-  `sam build` and get cryptic failures. Rejected after Mike pushback
-  ("раніше якось без цього ж працювало").
-- ❌ Pre-build hooks, `samconfig.toml` tricks, or other indirection.
-
-**The right long-term fix** is in `docs/reference/BACKLOG.md` under
-"Tech Debt — Lambda packaging of slsflow SDK". Three migration paths
-documented:
-1. **Public PyPI** (preferred — happens at OSS launch). Lambda gets
-   `requirements.txt: slsflow==X.Y.Z`. Symlink + regression tests
-   removed.
-2. **AWS CodeArtifact** (intermediate if PyPI deferred but symlink
-   removal needed). Same `requirements.txt` shape.
-3. **Lambda Layer** (only if 2+ Lambdas need slsflow and PyPI is far
-   off). Build separate layer ZIP.
-
-When migration happens, follow the 10-step checklist in BACKLOG.md
-exactly — it includes removing regression tests, updating CI, and
-GitHub Actions for tag-driven publish.
-
-**Until migration:** `sam build && sam deploy` works as-is. Don't
-touch the symlink. If a user reports `sam build` failure with
-"cannot stat slsflow" — they likely have a Windows machine without
-symlink support; direct them to BACKLOG migration option 1.
-
-**⚠️ Verify after every archive unzip:** when delivering full
-archives, the recipient unzips into their working directory. Some
-unzip tooling (older `unzip`, default Linux GUI archive managers,
-Windows tools) extracts the committed symlink as a **16-byte text
-file** containing the literal target path (`../../../slsflow`).
-SAM then can't follow the "symlink"; Lambda imports fail with
-`No module named 'slsflow'`.
-
-**This bit us twice** (2026-05-23, 2026-05-27). Standard recovery:
-
-```bash
-cd <repo>/sam/lambdas/console_api
-ls -la slsflow
-# Wrong:    -rw-r--r-- ... 16 bytes ... slsflow
-# Right:    lrwxrwxrwx ... slsflow -> ../../../slsflow
-
-# Fix if wrong:
-rm -f slsflow
-ln -s ../../../slsflow slsflow
-ls -la slsflow  # confirm lrwxrwxrwx
-
-# Then redeploy:
-cd ../../sam
-sam build && sam deploy --profile <profile>
+```
+polyris @ git+https://<PUBLIC_REPO_URL>@vX.Y.Z
 ```
 
-**Claude must instruct the user to verify this every time after
-unzipping a delivered archive**, before recommending `sam build`. The
-post-unzip check is part of the deploy contract, not an aside.
+`routes/backfill.py` imports `polyris.partitions` / `polyris.granularity`;
+`sam build` installs them from the dependency above into the package. For local
+development, `pip install -e ../polyris` (or from the public repo checkout)
+shadows the pinned tag with the live core.
+
+**History — the old symlink is gone.** Before the split, the core sat at the
+repo root and was vendored via a committed git symlink
+`sam/lambdas/console_api/polyris -> ../../../polyris`. That was always tech debt
+(broke on `unzip`/GUI extractors, Windows, etc.). ADR #102 removed it: the core
+is a separate repo/package now, so the symlink approach no longer applies (there
+is no repo-root `polyris/` in the same layout to point at). Regression tests were
+updated accordingly:
+- `test_lambda_packages_polyris_via_requirements` — `requirements.txt` must
+  declare `polyris`, and the old symlink must NOT be reintroduced.
+- `test_lambda_local_makefile_not_reintroduced` /
+  `test_template_has_no_buildmethod_makefile_for_console_api` — the abandoned
+  Makefile build pattern must not come back.
+
+**Things Claude must NOT propose:**
+- ❌ Re-adding the `console_api/polyris` symlink. It assumed a repo-root layout
+  that no longer exists after the split, and shadows the package dependency.
+- ❌ Adding `sam/lambdas/console_api/Makefile` with `BuildMethod: makefile` and
+  `cp ../../../polyris`. Failed live smoke 2026-05-22 (SAM CustomMakeBuilder runs
+  from a scratch dir; relative paths can't reach repo root).
+- ❌ Vendor copy via a top-level `make sam-build` wrapper, pre-build hooks, or
+  `samconfig.toml` tricks. Plain `sam build` must just work from
+  `requirements.txt`.
+
+**SaaS build (paid console):** the private `polyris-ee` repo's `ee/` is overlaid
+on top of the public free backend at build time, and the same
+`requirements.txt`-based core install applies. See ADR #102 "How the two backends
+combine at build time".
 
 ### DynamoDB GSI changes — one op per update
 
@@ -799,7 +833,7 @@ When `sam deploy` fails with:
 Cannot perform more than one GSI creation or deletion in a single update
 ```
 
-This is an **AWS hard limit**, not a slsflow bug. CloudFormation can
+This is an **AWS hard limit**, not a polyris bug. CloudFormation can
 only do **one GSI add or delete per UpdateTable call**. Renaming a GSI
 (= delete old + create new) violates this.
 
@@ -923,22 +957,22 @@ stale date on mount".
 
 | Name | Type | Purpose |
 |------|------|---------|
-| `slsflow-dependency-wrapper` | STANDARD | One per task — waits for deps, runs task, signals downstream |
-| `slsflow-dep-run-task-helper` | STANDARD | Executes the actual task SFN/Lambda/Glue/etc |
-| `slsflow-failure-handler` | STANDARD | Handles failures, notifies, updates DynamoDB |
-| `slsflow-registration-helper` | STANDARD | Registers pipeline on deploy |
-| `slsflow-pause-waiter` | STANDARD | Holds execution during pipeline pause |
-| `slsflow-notify-dependents` | EXPRESS | Finds and signals downstream tasks when upstream completes |
-| `slsflow-restart-task-helper` | EXPRESS | Stops wrapper + restarts task |
-| `slsflow-restart-wrapper` | EXPRESS | Starts new dependency_wrapper for restart |
-| `slsflow-slack-interactive` | EXPRESS | Sends Slack message with action buttons |
-| `slsflow-pagerduty-alerter` | EXPRESS | Sends PagerDuty alert |
-| `slsflow-pagerduty-resolver` | EXPRESS | Resolves PagerDuty incident |
-| `slsflow-notify-asset-consumers` | EXPRESS | Triggers asset-based pipelines |
-| `slsflow-register-pipeline` | EXPRESS | Registers pipeline in registry |
-| `slsflow-test-quick` | STANDARD | Demo/test task (fast) |
-| `slsflow-test-success` | STANDARD | Demo/test task (always succeeds) |
-| `slsflow-test-failure` | STANDARD | Demo/test task (always fails) |
+| `polyris-dependency-wrapper` | STANDARD | One per task — waits for deps, runs task, signals downstream |
+| `polyris-dep-run-task-helper` | STANDARD | Executes the actual task SFN/Lambda/Glue/etc |
+| `polyris-failure-handler` | STANDARD | Handles failures, notifies, updates DynamoDB |
+| `polyris-registration-helper` | STANDARD | Registers pipeline on deploy |
+| `polyris-pause-waiter` | STANDARD | Holds execution during pipeline pause |
+| `polyris-notify-dependents` | EXPRESS | Finds and signals downstream tasks when upstream completes |
+| `polyris-restart-task-helper` | EXPRESS | Stops wrapper + restarts task |
+| `polyris-restart-wrapper` | EXPRESS | Starts new dependency_wrapper for restart |
+| `polyris-slack-interactive` | EXPRESS | Sends Slack message with action buttons |
+| `polyris-pagerduty-alerter` | EXPRESS | Sends PagerDuty alert |
+| `polyris-pagerduty-resolver` | EXPRESS | Resolves PagerDuty incident |
+| `polyris-notify-asset-consumers` | EXPRESS | Triggers asset-based pipelines |
+| `polyris-register-pipeline` | EXPRESS | Registers pipeline in registry |
+| `polyris-test-quick` | STANDARD | Demo/test task (fast) |
+| `polyris-test-success` | STANDARD | Demo/test task (always succeeds) |
+| `polyris-test-failure` | STANDARD | Demo/test task (always fails) |
 
 ### Calling SFNs from SFN
 
@@ -993,11 +1027,15 @@ dict. Each route module exposes `register(router)` and adds its own routes;
 exposes the assembled `ROUTES` table `(METHOD, '/api/path') → (handler_fn,
 'param_key')` (tests import `from main import ROUTES`).
 
-**Open-core surface (ADR #98):** OSS route modules register unconditionally; if
+**Open-core surface (ADR #98, #110):** OSS route modules register unconditionally; if
 the proprietary `ee` package is importable, `main.py` appends `ee.MODULES`. So the
-surface is **16 free routes** in an OSS-stripped build, **57** in the full build.
-Free = authoring + basic read; Team (in `ee/team/`) = operations / observability /
-intervention.
+surface is **27 free routes** in an OSS-stripped build, **63** in the full build.
+Free = authoring + basic read + running + **live-run intervention** (task actions
+skip/fail/success/stop/restart, execution stop/pause/resume/extend); Team (in
+`ee/team/`) = pipeline-level lifecycle (pause/restart), backfill, assets console,
+alert integrations (Slack/PagerDuty), PATs, per-pipeline observability
+(logs/metrics), and config mutation (task-config PUT, decision-timeout PUT). The
+canonical free/Team/Enterprise map is `docs/reference/EDITIONS.md`.
 
 Path params go via query string (e.g. `/api/tokens?id=…`), not REST path
 segments — the API is a single `/{proxy+}` integration, so adding a route needs
@@ -1005,7 +1043,7 @@ segments — the API is a single `/{proxy+}` integration, so adding a route need
 
 **Auth gate (ADR #65, #66):** `auth.authenticate()` then `auth.authorize()` run
 at the top of `handler()` before dispatch. `authenticate` accepts a Cognito JWT
-(offline JWKS verify) or a PAT (`slsf_…`) → `401` on failure; `authorize` checks
+(offline JWKS verify) or a PAT (`plrs_…`) → `401` on failure; `authorize` checks
 the token's **scope** (`read` ⊂ `write` ⊂ `admin`, derived from the HTTP method
 + a small `ADMIN_ROUTES` set) → `403` if too low. Gated by `AUTH_ENABLED` (env,
 default `false`). Public (no token): `/api/health*`, `/api/metrics`, and
@@ -1013,8 +1051,10 @@ default `false`). Public (no token): `/api/health*`, `/api/metrics`, and
 PATs (no scope) = `admin`. PAT store = `api-tokens` table / `api_tokens_repo`.
 
 When adding an endpoint:
-1. **Decide the tier (ADR #98).** Free (authoring + basic read) → `routes/<mod>.py`.
-   Team (operations / observability / intervention) → `ee/team/<mod>.py`. Shared
+1. **Decide the tier (ADR #98, #110).** Free (authoring + basic read + running +
+   live-run intervention: task actions, execution control) → `routes/<mod>.py`.
+   Team (pipeline-level lifecycle, backfill, assets, alert integrations, PATs,
+   observability, config mutation) → `ee/team/<mod>.py`. Shared
    helpers stay in the OSS `routes/` module and `ee/` imports them — **never the
    reverse** (OSS must never import `ee`).
 2. Add the handler to the chosen module and register it in that module's
@@ -1025,7 +1065,7 @@ When adding an endpoint:
    Team handlers are not (the barrel is OSS-only).
 5. Tests follow tier: free → `tests/…` / `console_api/tests/`; Team →
    `console_api/ee/team/tests/`. Update the route-count guard — the free-subset
-   assert in `tests/sdk/test_templates.py`, the full-57 assert in
+   assert in `tests/sdk/test_templates.py`, the full-63 assert in
    `ee/team/tests/test_route_table_ee.py`.
    (no `template.yaml` change needed — the `/{proxy+}` integration covers it)
 
@@ -1147,17 +1187,23 @@ python -m pytest tests/sdk/test_asl_snapshots.py  # verify
 
 ```bash
 # Before every delivery — must all pass
-python3 -m pytest tests/sdk/ tests/backend/ -q    # ~260 tests
+python3 -m pytest tests/sdk/ tests/backend/ -q    # ~1310 tests
 cfn-lint sam/template.yaml                         # 0 errors
 
 # Full suite
 python3 -m pytest tests/ -q
 cd ui && npx vitest run
+
+# Core coverage floor (pure-logic core; ratchet, target 90%)
+make test-cov
 ```
 
 **Test rules:**
 - pytest-mock (`mocker` fixture) everywhere — no `unittest.mock` (ADR #26)
 - Backend tests in `tests/backend/`, SDK tests in `tests/sdk/`
+- Pure-logic core stays above the coverage floor (`fail_under` in `pyproject.toml`);
+  raise the floor when you raise coverage (Principle #22). AWS/CLI modules are
+  `omit`-ed and covered by e2e/smoke instead.
 
 ---
 
@@ -1176,19 +1222,27 @@ cd ui && npx vitest run
 After significant changes:
 - `CHANGELOG.md` — new version entry
 - `docs/reference/DESIGN_DECISIONS.md` — new ADR
-- Version must match across: `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json`
+- Version must match across: `pyproject.toml`, `polyris/__init__.py`, `ui/package.json`
 
 ---
 
 ## Archive Delivery
 
+Two repos → two archives, each holding only what that repo owns. CE (this repo)
+is the full free product; EE is the paid `ee/` overlay only (the free scaffold is
+gitignored there and pulled in at build time — never committed). Always full
+archives, never incremental; strip caches first.
+
 ```bash
-# Always full archive, never incremental
-cd /tmp/user_upload/slsflow
-tar -czf /mnt/user-data/outputs/slsflow_tar.gz \
-  --exclude='.git' --exclude='.aws-sam' \
-  --transform 's|^\.|slsflow|' .
+# CE (public) — the whole free product
+cd /home/claude/work && zip -qry -y /mnt/user-data/outputs/polyris-public.zip polyris
+# EE (private) — paid ee/ overlay only (see polyris-ee/.gitignore + check-no-leak.sh)
+cd /home/claude/work && zip -qry -y /mnt/user-data/outputs/polyris-ee-private.zip polyris-ee
 ```
+
+Releases are cut from git tags, not these archives: a CE tag `vX.Y.Z` builds the
+PyPI library + the self-hosted bundle; an EE tag `platform-vX.Y.Z` overlays `ee/`
+onto CE@`CE_REF` and deploys the SaaS. See `polyris-ee/docs/development/DEV_AND_RELEASE.md`.
 
 ---
 
@@ -1198,11 +1252,11 @@ tar -czf /mnt/user-data/outputs/slsflow_tar.gz \
 |---|-------|---------|
 | 22 | Data source | UI reads DynamoDB only, never SFN API |
 | 23 | DAG lookup | snapshot → registry → inferred |
-| 24 | Registration | `slsflow-deploy` boto3 call, not EventBridge |
+| 24 | Registration | `polyris-deploy` boto3 call, not EventBridge |
 | 26 | Testing | pytest-mock (`mocker`) everywhere |
 | 28 | Exceptions | `(ClientError, BotoCoreError)` for AWS calls; route-level catch-all OK |
 | 34 | Infrastructure | AWS SAM (not Terraform/OpenTofu/Pulumi) |
-| 35 | Pipeline deploy | `slsflow-deploy` (CFN) replaces Pulumi |
+| 35 | Pipeline deploy | `polyris-deploy` (CFN) replaces Pulumi |
 | 37 | SFN definitions | `DefinitionUri` + `AWS::Serverless::StateMachine` |
 | 38 | Error visibility | `_notify_warn_` records + always log `error=str(e)` |
 | 39 | Assets | pipeline_registry is source of truth, asset_registry removed |

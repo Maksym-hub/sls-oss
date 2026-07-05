@@ -1,4 +1,4 @@
-"""Tests for slsflow.config project-config loading.
+"""Tests for polyris.config project-config loading.
 
 Covers the contract that a *broken* config.py is surfaced (ADR #38: no silent
 swallow) rather than producing an empty config with no feedback, while a missing
@@ -6,7 +6,7 @@ config stays quiet and a valid one loads.
 """
 from __future__ import annotations
 
-from slsflow.config import _load_project_config
+from polyris.config import _load_project_config
 
 
 def test_broken_config_is_surfaced_not_silently_swallowed(tmp_path, monkeypatch, capsys):

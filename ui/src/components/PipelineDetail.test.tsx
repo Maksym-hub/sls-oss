@@ -69,13 +69,18 @@ vi.mock('./index', () => ({
     TaskDetailModal: () => null,
 }));
 
-// Team view-modes now arrive via the EE surface (ADR #99), not the barrel.
+// Team view-modes still arrive via the EE surface (ADR #99), not the barrel.
 vi.mock('@/ee-active.generated', () => ({
     paidSurface: {
         CalendarView: () => <div data-testid="calendar-view">Calendar</div>,
         GanttChart: () => <div data-testid="gantt-chart">Gantt</div>,
-        PipelineActionsProvider: ({ children }: { params: unknown; children: (a: typeof mockActions) => React.ReactNode }) => children(mockActions),
     },
+}));
+
+// Pipeline actions provider is free (ADR #110) — stub it so the host renders with
+// injected mock handlers; the real hook/modal have their own co-located tests.
+vi.mock('@/components/PipelineActionsProvider', () => ({
+    PipelineActionsProvider: ({ children }: { params: unknown; children: (a: typeof mockActions) => React.ReactNode }) => children(mockActions),
 }));
 
 vi.mock('@/utils/icons', () => ({ ActionIcons: new Proxy({}, { get: () => () => null }), Activity: () => null, AlertCircle: () => null, AlertTriangle: () => null, ArrowDown: () => null, ArrowLeft: () => null, ArrowRight: () => null, ArrowUp: () => null, Ban: () => null, BarChart3: () => null, Bell: () => null, BellRing: () => null, BookOpen: () => null, Calendar: () => null, Check: () => null, CheckCircle2: () => null, ChevronDown: () => null, ChevronLeft: () => null, ChevronRight: () => null, Circle: () => null, CircleDot: () => null, CircleHelp: () => null, ClipboardList: () => null, Clock: () => null, ContextIcons: new Proxy({}, { get: () => () => null }), Copy: () => null, Database: () => null, Download: () => null, ElementIcons: () => null, ExpandIcon: () => null, ExternalLink: () => null, Eye: () => null, FileText: () => null, Filter: () => null, Gauge: () => null, GitBranch: () => null, GitMerge: () => null, Globe: () => null, HelpCircle: () => null, History: () => null, Hourglass: () => null, Inbox: () => null, Info: () => null, Keyboard: () => null, Lightbulb: () => null, Link2: () => null, ListTodo: () => null, Loader2: () => null, LoadingIcon: () => null, MarkIcons: () => null, Minus: () => null, Moon: () => null, NavIcon: () => null, NavIcons: () => null, Network: () => null, Package: () => null, Palette: () => null, Pause: () => null, Play: () => null, PlayCircle: () => null, Plug: () => null, Plus: () => null, RefreshCw: () => null, RefreshIcon: () => null, Rewind: () => null, Rocket: () => null, RotateCcw: () => null, STALENESS_ICONS_COMPONENTS: () => null, STATUS_ICONS_COMPONENTS: () => null, Search: () => null, Settings: () => null, Siren: () => null, SkipForward: () => null, Square: () => null, StalenessIcon: () => null, StatusIcon: () => null, StopCircle: () => null, Sun: () => null, Target: () => null, Terminal: () => null, Timer: () => null, ToastIcons: () => null, Trash2: () => null, UIIcons: () => null, User: () => null, Workflow: () => null, Wrench: () => null, X: () => null, XCircle: () => null, XIcon: () => null, Zap: () => null }));

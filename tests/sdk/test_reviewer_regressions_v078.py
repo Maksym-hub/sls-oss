@@ -3,7 +3,7 @@ Regression tests for code-review findings v0.78.0(3).
 
 These exist because the external reviewer found three real issues that
 unit tests had missed:
-  1. CI runs console_api tests without slsflow installed → ImportError
+  1. CI runs console_api tests without polyris installed → ImportError
   2. Inline Map history-event budget can't fit 5000 partitions
   3. Duplicate dict key in generators.py (Python silently keeps last)
 
@@ -17,9 +17,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-GENERATORS_PY = REPO_ROOT / "slsflow" / "generators.py"
+GENERATORS_PY = REPO_ROOT / "polyris" / "generators.py"
 CI_YAML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
-SDK_PARTITIONS = REPO_ROOT / "slsflow" / "partitions.py"
+SDK_PARTITIONS = REPO_ROOT / "polyris" / "partitions.py"
 LAMBDA_CONSTANTS = REPO_ROOT / "sam" / "lambdas" / "console_api" / "constants.py"
 BULK_BACKFILL_TPL = REPO_ROOT / "sam" / "sfn_templates" / "bulk_backfill" / "sfn.tpl.json"
 
@@ -60,9 +60,9 @@ def test_no_duplicate_dict_keys_in_generators():
 def test_no_duplicate_keys_in_critical_python_files():
     """Sweep critical files for the same class of bug."""
     critical = [
-        REPO_ROOT / "slsflow" / "generators.py",
-        REPO_ROOT / "slsflow" / "partitions.py",
-        REPO_ROOT / "slsflow" / "granularity.py",
+        REPO_ROOT / "polyris" / "generators.py",
+        REPO_ROOT / "polyris" / "partitions.py",
+        REPO_ROOT / "polyris" / "granularity.py",
         REPO_ROOT / "sam" / "lambdas" / "console_api" / "routes" / "backfill.py",
         REPO_ROOT / "sam" / "lambdas" / "console_api" / "constants.py",
     ]
@@ -92,7 +92,7 @@ def _get_partition_hard_limit_from_sdk() -> int:
     """Parse _PARTITION_HARD_LIMIT from SDK."""
     text = SDK_PARTITIONS.read_text()
     m = re.search(r"_PARTITION_HARD_LIMIT\s*=\s*(\d+)", text)
-    assert m, "Could not find _PARTITION_HARD_LIMIT in slsflow/partitions.py"
+    assert m, "Could not find _PARTITION_HARD_LIMIT in polyris/partitions.py"
     return int(m.group(1))
 
 
@@ -138,13 +138,13 @@ def test_partition_hard_limit_fits_inline_map_history_budget():
 
 
 # ───────────────────────────────────────────────────────────────────────────
-# CI sanity — slsflow must be importable for console_api tests
+# CI sanity — polyris must be importable for console_api tests
 # ───────────────────────────────────────────────────────────────────────────
 
 
-def test_ci_installs_slsflow_for_lambda_tests_job():
+def test_ci_installs_polyris_for_lambda_tests_job():
     """The `lambdas` CI job runs console_api tests. routes/backfill.py
-    imports slsflow.partitions and slsflow.granularity. Without
+    imports polyris.partitions and polyris.granularity. Without
     `pip install -e .`, the import fails and the job dies with
     ModuleNotFoundError. Reviewer caught this; pin the fix.
     """
@@ -156,10 +156,10 @@ def test_ci_installs_slsflow_for_lambda_tests_job():
     )
     assert lambdas_match, "Could not locate `lambdas:` job in ci.yml"
     job_text = lambdas_match.group(0)
-    # The job must install slsflow before running console_api tests
+    # The job must install polyris before running console_api tests
     assert re.search(r"pip install -e \.", job_text), (
         "Lambda CI job does not `pip install -e .` — console_api tests will "
-        "fail on `from slsflow.partitions import ...` with ModuleNotFoundError. "
+        "fail on `from polyris.partitions import ...` with ModuleNotFoundError. "
         "Add `pip install -e .` to the Install dependencies step."
     )
 
@@ -223,40 +223,50 @@ def test_sfn_template_has_arn_fallback_parity_with_python():
 
 
 # ───────────────────────────────────────────────────────────────────────────
-# Lambda packaging via committed symlink
+# Lambda packaging: SDK core dependency
 #
-# Live smoke (Mike, 2026-05-22) showed that:
-#   1. Lambda-local Makefile with `cp ../../../slsflow` fails — SAM
+# History — live smoke (Mike, 2026-05-22) showed that:
+#   1. Lambda-local Makefile with `cp ../../../polyris` fails — SAM
 #      CustomMakeBuilder runs make from a scratch dir, so the relative
 #      path can't reach the repo root.
 #   2. Top-level `make sam-build` vendor pattern works but introduces an
 #      extra build step that surprises users running plain `sam build`.
 #
-# Final fix: commit a symlink `sam/lambdas/console_api/slsflow → ../../../slsflow`.
-# SAM's default Python builder follows the symlink, packaging the SDK
-# inline. Zero setup; plain `sam build && sam deploy` just works.
+# Interim fix was a committed symlink
+# `sam/lambdas/console_api/polyris → ../../../polyris`. ADR #102 (repo split)
+# replaced it: the SDK core is now a separate package, pulled via the Lambda's
+# `requirements.txt` (`polyris @ git+...`), which SAM's default Python builder
+# installs into the package. Plain `sam build && sam deploy` still just works,
+# and the symlink (which assumed core sat at the repo root) is gone.
 # ───────────────────────────────────────────────────────────────────────────
 
 
-def test_lambda_has_slsflow_symlink():
-    """The symlink is the packaging contract. Removing it breaks runtime
-    import of slsflow.partitions / slsflow.granularity in the deployed
-    Lambda. Pin its existence."""
-    link = REPO_ROOT / "sam" / "lambdas" / "console_api" / "slsflow"
-    assert link.is_symlink(), (
-        f"{link} must be a symlink to ../../../slsflow. "
+def test_lambda_packages_polyris_via_requirements():
+    """The packaging contract for the SDK core in the console Lambda.
+
+    Before the repo split (ADR #102) the core was vendored via a
+    `sam/lambdas/console_api/polyris → ../../../polyris` symlink. After the
+    split the core is a separate package, so the Lambda pulls it through
+    `requirements.txt` (`polyris @ git+...`), which `sam build` installs into
+    the package. Removing this line breaks runtime import of
+    polyris.partitions / polyris.granularity in the deployed Lambda. Pin it.
+    """
+    reqs = REPO_ROOT / "sam" / "lambdas" / "console_api" / "requirements.txt"
+    assert reqs.is_file(), f"{reqs} must exist (console Lambda dependency manifest)."
+    text = reqs.read_text()
+    assert "polyris" in text, (
+        f"{reqs} must declare the polyris SDK core as a dependency. "
         f"Without it, `sam build` packages a Lambda that 500s on /api/backfill "
-        f"with ImportError on slsflow.partitions."
+        f"with ImportError on polyris.partitions. (ADR #102: core is pulled via "
+        f"requirements, not the old symlink.)"
     )
-    target = link.readlink()
-    assert str(target) == "../../../slsflow", (
-        f"Symlink target wrong: expected ../../../slsflow, got {target}"
-    )
-    # And the symlink must resolve to a real directory
-    resolved = link.resolve()
-    assert resolved.is_dir(), f"Symlink target doesn't exist: {resolved}"
-    assert (resolved / "__init__.py").is_file(), (
-        f"Symlink points to wrong directory (no __init__.py): {resolved}"
+    # The old symlink must NOT be reintroduced — it would shadow the package
+    # dependency and re-couple the repos.
+    link = REPO_ROOT / "sam" / "lambdas" / "console_api" / "polyris"
+    assert not link.is_symlink(), (
+        f"{link} symlink is back. After the repo split the core comes from "
+        f"requirements.txt, not a symlink to the repo root (which no longer "
+        f"contains the core in the same layout). See ADR #102."
     )
 
 
@@ -268,7 +278,7 @@ def test_lambda_local_makefile_not_reintroduced():
         "Lambda-local Makefile is back. SAM CustomMakeBuilder runs from a "
         "scratch dir, so relative paths can't reach the repo root. The "
         "current packaging contract is the symlink — see "
-        "sam/lambdas/console_api/slsflow."
+        "sam/lambdas/console_api/polyris."
     )
 
 
@@ -285,5 +295,5 @@ def test_template_has_no_buildmethod_makefile_for_console_api():
     block = m.group(0)
     assert "BuildMethod: makefile" not in block, (
         "ConsoleApiFunction has BuildMethod: makefile — that pattern was "
-        "abandoned after the live-smoke failure. Use the symlink instead."
+        "abandoned after the live-smoke failure. The SDK core comes from requirements.txt (ADR #102); the default Python builder handles it."
     )

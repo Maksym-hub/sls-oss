@@ -1,6 +1,6 @@
 """Phase 2 integration for upstream smart-fill (ADR #88).
 
-Bridges the pure SDK resolver (``slsflow.upstream_resolver``) to the live
+Bridges the pure SDK resolver (``polyris.upstream_resolver``) to the live
 console-api world: it builds the cross-pipeline ``AssetGraph`` from the
 pipeline registry and supplies an ``exists`` callable backed by the same
 completeness gate the backfill pre-flight uses
@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 from typing import Callable, Dict, List, Optional, Tuple
 
-from slsflow.upstream_resolver import (
+from polyris.upstream_resolver import (
     AssetGraph,
     AssetNode,
     PlanItem,
@@ -59,7 +59,7 @@ def build_asset_graph(pipelines: List[dict]) -> AssetGraph:
     inlet, but only when the upstream asset is produced by a *different*
     pipeline (same-pipeline deps are handled by the DAG — ADR #88).
 
-    Reuses the same outlet/inlet parsing shape as ``routes/assets.py`` and
+    Reuses the same outlet/inlet parsing shape as the asset graph builder and
     ``_find_producers_for_asset`` — no new registry schema.
     """
     graph = AssetGraph()

@@ -73,6 +73,7 @@ export function PipelineFilterCombobox({
 
     // Reset active index when filter changes.
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- reset active index when the filtered list changes
         setActiveIndex(-1);
     }, [value]);
 

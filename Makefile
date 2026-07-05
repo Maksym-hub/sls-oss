@@ -1,8 +1,8 @@
-.PHONY: test test-sdk test-backend test-integration test-lambdas test-ui test-sfn-jsonata e2e-health e2e-smoke check lint sync-constants check-versions smoke-pipelines help oss-export
+.PHONY: test test-sdk test-backend test-integration test-lambdas test-ui test-sfn-jsonata e2e-health e2e-smoke check lint sync-constants check-versions smoke-pipelines help
 
 # Default target
 help:
-	@echo "slsflow Development Commands"
+	@echo "polyris Development Commands"
 	@echo ""
 	@echo "  make test              - Run all tests (sdk + backend + integration + lambdas + sfn-jsonata + ui)"
 	@echo "  make test-sdk          - Run SDK tests only (ASL generation, templates, trigger rules)"
@@ -11,14 +11,13 @@ help:
 	@echo "  make test-lambdas      - Run Lambda inline tests only"
 	@echo "  make test-sfn-jsonata  - Run SFN JSONata expression tests"
 	@echo "  make test-ui           - Run UI tests only"
-	@echo "  make e2e-health        - E2E: hit live API /health (needs SLSFLOW_API_URL)"
-	@echo "  make e2e-smoke         - E2E: read-only + backfill smoke vs live AWS (needs SLSFLOW_API_URL + SLSFLOW_ID_TOKEN)"
+	@echo "  make e2e-health        - E2E: hit live API /health (needs POLYRIS_API_URL)"
+	@echo "  make e2e-smoke         - E2E: read-only + backfill smoke vs live AWS (needs POLYRIS_API_URL + POLYRIS_ID_TOKEN)"
 	@echo "  make check             - Run all checks (lint, sync, versions, smoke, test)"
 	@echo "  make lint              - Check Python + JSON syntax"
 	@echo "  make sync-constants    - Verify Lambda constants in sync"
 	@echo "  make check-versions    - Verify version consistency across files"
 	@echo "  make smoke-pipelines   - Verify all pipelines import cleanly"
-	@echo "  make oss-export        - Produce + verify the public (free) source tree (no push)"
 	@echo ""
 
 # Run all tests
@@ -27,32 +26,44 @@ test: test-sdk test-backend test-integration test-lambdas test-sfn-jsonata test-
 # SDK tests (smoke + trigger rules + SFN flow + ASL snapshots)
 test-sdk:
 	@echo "🧪 Running SDK tests..."
-	python -m pytest tests/sdk/ -v
+	python3 -m pytest tests/sdk/ -v
 
 # Backend API tests (routes, alerting)
 test-backend:
 	@echo "🧪 Running Backend tests..."
-	python -m pytest tests/backend/ -v
+	python3 -m pytest tests/backend/ -v
 
 # Integration tests (cross-layer)
 test-integration:
 	@echo "🧪 Running Integration tests..."
-	python -m pytest tests/integration/ -v
+	python3 -m pytest tests/integration/ -v
+
+# Pure-logic core coverage with floor enforcement (Principle #22).
+# fail_under + the AWS/CLI omit list live in pyproject.toml [tool.coverage].
+# Ratchet the floor up as debt closes; omit-ed modules are covered by e2e/smoke.
+test-cov:
+	@echo "📊 Core coverage floor (Principle #22)..."
+	python3 -m pytest tests/sdk/ tests/backend/ tests/integration/ \
+		--cov=polyris --cov-report=term-missing
 
 # Lambda tests
 test-lambdas:
 	@echo "🧪 Running Lambda tests..."
-	cd sam/lambdas/evaluate_deps && PYTHONPATH=. python -m pytest test_evaluate_deps.py -v
+	cd sam/lambdas/evaluate_deps && PYTHONPATH=. python3 -m pytest test_evaluate_deps.py -v
+	@if [ -f sam/lambdas/notify/test_notify.py ]; then \
+		echo "  Running notify tests..."; \
+		cd sam/lambdas/notify && PYTHONPATH=. python3 -m pytest test_notify.py -v; \
+	fi
 	@if [ -d sam/lambdas/notify_asset_subscribers ] && [ -f sam/lambdas/notify_asset_subscribers/test_notify_asset_subscribers.py ]; then \
-		cd sam/lambdas/notify_asset_subscribers && PYTHONPATH=. python -m pytest test_notify_asset_subscribers.py -v; \
+		cd sam/lambdas/notify_asset_subscribers && PYTHONPATH=. python3 -m pytest test_notify_asset_subscribers.py -v; \
 	fi
 	@if [ -f sam/lambdas/check_assets/test_check_assets.py ]; then \
 		echo "  Running check_assets tests..."; \
-		cd sam/lambdas/check_assets && PYTHONPATH=. python -m pytest test_check_assets.py -v; \
+		cd sam/lambdas/check_assets && PYTHONPATH=. python3 -m pytest test_check_assets.py -v; \
 	fi
 	@if [ -d sam/lambdas/console_api/tests ]; then \
 		echo "  Running console_api tests (requires boto3, pytest-mock)..."; \
-		cd sam/lambdas/console_api && PYTHONPATH=. python -m pytest tests/ -v 2>/dev/null || \
+		cd sam/lambdas/console_api && PYTHONPATH=. python3 -m pytest tests/ -v 2>/dev/null || \
 			echo "  ⚠️  console_api tests skipped (run: pip install -e '.[dev]')"; \
 	fi
 
@@ -80,20 +91,20 @@ test-ui:
 # =============================================================================
 # e2e-health : read-only /health probe. No token. Safe anywhere.
 # e2e-smoke  : read-only routes + real backfill (triggers a live SFN run, ~$0.001).
-#              Needs SLSFLOW_API_URL and SLSFLOW_ID_TOKEN.
-#              Token helper:  export SLSFLOW_ID_TOKEN=$$(scripts/get-e2e-token.sh)
+#              Needs POLYRIS_API_URL and POLYRIS_ID_TOKEN.
+#              Token helper:  export POLYRIS_ID_TOKEN=$$(scripts/get-e2e-token.sh)
 e2e-health:
-	@: "$${SLSFLOW_API_URL:?set SLSFLOW_API_URL (e.g. https://abc.execute-api.us-east-1.amazonaws.com)}"
-	@echo "🌐 E2E health probe against $$SLSFLOW_API_URL ..."
-	python -m pytest tests/e2e/test_health.py -v
+	@: "$${POLYRIS_API_URL:?set POLYRIS_API_URL (e.g. https://abc.execute-api.us-east-1.amazonaws.com)}"
+	@echo "🌐 E2E health probe against $$POLYRIS_API_URL ..."
+	python3 -m pytest tests/e2e/test_health.py -v
 
 e2e-smoke:
-	@: "$${SLSFLOW_API_URL:?set SLSFLOW_API_URL}"
-	@: "$${SLSFLOW_ID_TOKEN:?set SLSFLOW_ID_TOKEN (use scripts/get-e2e-token.sh)}"
+	@: "$${POLYRIS_API_URL:?set POLYRIS_API_URL}"
+	@: "$${POLYRIS_ID_TOKEN:?set POLYRIS_ID_TOKEN (use scripts/get-e2e-token.sh)}"
 	@echo "🌐 E2E read-only routes ..."
-	python -m pytest tests/e2e/ -v -m "not write"
+	python3 -m pytest tests/e2e/ -v -m "not write"
 	@echo "🌐 E2E backfill smoke (live SFN+DDB) ..."
-	python -m pytest tests/e2e/test_backfill.py -v -m smoke
+	python3 -m pytest tests/e2e/test_backfill.py -v -m smoke
 
 # All checks before commit
 check: lint sync-constants check-versions smoke-pipelines test
@@ -102,9 +113,9 @@ check: lint sync-constants check-versions smoke-pipelines test
 # Python syntax + JSON template validation
 lint:
 	@echo "🔍 Checking Python syntax..."
-	@find slsflow/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python -m py_compile {}
-	@find sam/lambdas/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python -m py_compile {}
-	@find pipelines/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python -m py_compile {}
+	@find polyris/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python3 -m py_compile {}
+	@find sam/lambdas/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python3 -m py_compile {}
+	@find pipelines/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python3 -m py_compile {}
 	@echo "🔍 Running ruff (E,F,W)..."
 	@ruff check .
 	@echo "🔍 Checking JSON templates..."
@@ -126,31 +137,31 @@ json.loads(src)" 2>&1 || (echo "❌ Invalid JSON: $$f" && exit 1); \
 	@cfn-lint sam/template.yaml
 	@echo "✅ Syntax OK"
 
-# Generate enum mirrors from slsflow/constants.py (ADR #72, v0.79.0)
+# Generate enum mirrors from polyris/constants.py (ADR #72, v0.79.0)
 # Writes:
 #   - sam/lambdas/_shared/constants_generated.py
 #   - sam/lambdas/console_api/constants_generated.py
 #   - ui/src/generated/enums.ts
 generate-enums:
-	@echo "🔄 Generating enum mirrors from slsflow/constants.py..."
-	@python -m slsflow.codegen.sync_enums
+	@echo "🔄 Generating enum mirrors from polyris/constants.py..."
+	@python3 -m polyris.codegen.sync_enums
 
 # Check generated enum files are in sync (CI gate)
 check-generate-enums:
-	@python -m slsflow.codegen.sync_enums --check
+	@python3 -m polyris.codegen.sync_enums --check
 
 # Check SFN template status literals against canonical (v0.79.6, ADR #78).
 # Catches typos in JSONata expressions and drift between templates and
-# slsflow.constants.TaskStatus. Run in CI to prevent silent breakage.
+# polyris.constants.TaskStatus. Run in CI to prevent silent breakage.
 check-sfn-templates:
-	@python -m slsflow.codegen.check_sfn_templates
+	@python3 -m polyris.codegen.check_sfn_templates
 
 # Check backfill terminal-status parity (v0.80.0, ADR #83). Verifies the
 # bulk_backfill SFN Finalize JSONata encodes the same rule as the canonical
-# slsflow.backfill_status.finalize_status. Catches the ADR #81/#82 drift
+# polyris.backfill_status.finalize_status. Catches the ADR #81/#82 drift
 # class (raw-vs-derived, stray skipped term) at CI time.
 check-backfill-parity:
-	@python -m slsflow.codegen.check_backfill_status_parity
+	@python3 -m polyris.codegen.check_backfill_status_parity
 
 # Sync logger.py from _shared/ to each Lambda (v0.79.4, ADR #76)
 sync-loggers:
@@ -170,7 +181,7 @@ sync-constants:
 	@diff -q sam/lambdas/_shared/constants.py sam/lambdas/evaluate_deps/constants.py > /dev/null 2>&1 || \
 		(echo "❌ evaluate_deps/constants.py out of sync!" && \
 		 echo "   Run: cp sam/lambdas/_shared/constants.py sam/lambdas/evaluate_deps/constants.py" && exit 1)
-	@python -m slsflow.codegen.check_shared_constants
+	@python3 -m polyris.codegen.check_shared_constants
 	@for d in console_api check_assets evaluate_deps notify_asset_subscribers query_subscriptions; do \
 		diff -q sam/lambdas/_shared/logger.py sam/lambdas/$$d/logger.py > /dev/null 2>&1 || \
 		(echo "❌ sam/lambdas/$$d/logger.py drifted from _shared/logger.py!" && \
@@ -182,7 +193,7 @@ sync-constants:
 check-versions:
 	@echo "🔢 Checking version consistency..."
 	@PY_VER=$$(grep '^version' pyproject.toml | cut -d'"' -f2) && \
-	INIT_VER=$$(grep '__version__' slsflow/__init__.py | cut -d'"' -f2) && \
+	INIT_VER=$$(grep '__version__' polyris/__init__.py | cut -d'"' -f2) && \
 	PKG_VER=$$(node -p "require('./ui/package.json').version" 2>/dev/null || echo "skip") && \
 	if [ "$$PY_VER" != "$$INIT_VER" ]; then \
 		echo "❌ Backend mismatch: pyproject.toml=$$PY_VER vs __init__.py=$$INIT_VER"; exit 1; \
@@ -200,7 +211,7 @@ smoke-pipelines:
 		echo "  ⚠️  No dag.py files found in pipelines/"; \
 	fi
 	@find pipelines/ -name "dag.py" -not -path "*/__pycache__/*" | while read f; do \
-		python -m py_compile "$$f" 2>&1 && echo "  ✅ $$f" || (echo "  ❌ $$f" && exit 1); \
+		python3 -m py_compile "$$f" 2>&1 && echo "  ✅ $$f" || (echo "  ❌ $$f" && exit 1); \
 	done
 	@echo "✅ All pipelines OK"
 
@@ -208,10 +219,4 @@ smoke-pipelines:
 # 21k+ evaluations across all SFN-template expressions against
 # baseline + aggressive variants. Not in CI; run before releases.
 audit-jsonata:
-	@python scripts/audit_jsonata.py
-
-# Produce + verify the public (free, open-core) source tree from this private repo.
-# Safe default: strips proprietary roots, builds, verifies, commits locally — no
-# push. Publish with: make oss-export ARGS="--remote <url> --push". See scripts/oss-export.sh.
-oss-export:
-	bash scripts/oss-export.sh $(ARGS)
+	@python3 scripts/audit_jsonata.py

@@ -40,13 +40,13 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install slsflow
+      - name: Install polyris
         run: pip install -e ".[dev]"
 
       # ---- health probe: always runs, no token needed -------------------
       - name: Health probe
         env:
-          SLSFLOW_API_URL: ${{ secrets.SLSFLOW_API_URL }}
+          POLYRIS_API_URL: ${{ secrets.POLYRIS_API_URL }}
         run: python -m pytest tests/e2e/test_health.py -v
 
       # ---- full run: only when mode=full --------------------------------
@@ -73,8 +73,8 @@ jobs:
       - name: Read-only routes + backfill smoke
         if: ${{ github.event.inputs.mode == 'full' }}
         env:
-          SLSFLOW_API_URL: ${{ secrets.SLSFLOW_API_URL }}
-          SLSFLOW_ID_TOKEN: ${{ steps.token.outputs.token }}
+          POLYRIS_API_URL: ${{ secrets.POLYRIS_API_URL }}
+          POLYRIS_ID_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           python -m pytest tests/e2e/ -v -m "not write"
           python -m pytest tests/e2e/test_backfill.py -v -m smoke

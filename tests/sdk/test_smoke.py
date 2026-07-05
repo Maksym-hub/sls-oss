@@ -10,15 +10,15 @@ import os
 # sys.path setup moved to conftest.py
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def test_slsflow_imports():
-    """Test that slsflow module imports correctly."""
-    from slsflow import DAG, task
-    from slsflow.generators import generate_step_function_json, generate_dag_json
-    print("✅ slsflow imports OK")
+def test_polyris_imports():
+    """Test that polyris module imports correctly."""
+    from polyris import DAG, task
+    from polyris.generators import generate_step_function_json, generate_dag_json
+    print("✅ polyris imports OK")
 
 def test_dag_creation():
     """Test basic DAG creation."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
     
     with DAG('test_dag', schedule='rate(1 day)', alerts=None) as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123456789:stateMachine:test')
@@ -34,8 +34,8 @@ def test_dag_creation():
 
 def test_dag_json_generation():
     """Test DAG JSON generation."""
-    from slsflow import DAG, task
-    from slsflow.generators import generate_dag_json
+    from polyris import DAG, task
+    from polyris.generators import generate_dag_json
     
     with DAG('test_dag', schedule='rate(1 day)', alerts={"slack": "#test"}) as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123456789:stateMachine:test')
@@ -52,8 +52,8 @@ def test_dag_json_generation():
 
 def test_skip_on_backfill():
     """Test skip_on_backfill parameter on tasks and metadata."""
-    from slsflow import DAG, task, Asset
-    from slsflow.generators import generate_dag_json
+    from polyris import DAG, task, Asset
+    from polyris.generators import generate_dag_json
     
     raw = Asset("test/raw")
     processed = Asset("test/processed")
@@ -88,17 +88,21 @@ def test_skip_on_backfill():
     print("✅ skip_on_backfill OK")
 
 
-def test_dag_alerts_required():
-    """Test that alerts parameter is required."""
-    from slsflow import DAG
+def test_dag_alerts_optional():
+    """alerts= is optional now (deprecated, ADR #103) and validated when provided."""
+    import warnings
+    from polyris import DAG
     
-    # Missing alerts should raise
-    try:
-        with DAG('test', schedule='@daily'):
+    # Missing alerts is allowed now (alerts are configured in the Console UI)
+    with DAG('test', schedule='@daily'):
+        pass
+    
+    # Passing alerts= still works but emits a DeprecationWarning
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        with DAG('test', schedule='@daily', alerts={"slack": "#channel"}):
             pass
-        assert False, "Should have raised ValueError"
-    except ValueError as e:
-        assert 'alerts' in str(e)
+        assert any(issubclass(x.category, DeprecationWarning) for x in w)
     
     # alerts=None should work
     with DAG('test', schedule='@daily', alerts=None):
@@ -420,7 +424,7 @@ def test_trigger_rule_sync():
     assert 'aborted' in jsonata_content, "aborted status missing in JSONata trigger_rule"
     assert 'ABORTED' in constants_content, "ABORTED not defined in constants.py"
     # v0.79.5 (ADR #77) — class-level sets moved to module-level
-    # constants generated from slsflow/constants.py.
+    # constants generated from polyris/constants.py.
     assert 'TASK_FAILURE_STATUSES' in constants_content, \
         "TASK_FAILURE_STATUSES not defined in constants.py"
 
@@ -471,8 +475,8 @@ def test_no_dead_code():
 
 def test_dag_group_field():
     """Test that DAG group field is stored and flows to ASL Comment metadata."""
-    from slsflow import DAG, task
-    from slsflow.generators import generate_step_function_json
+    from polyris import DAG, task
+    from polyris.generators import generate_step_function_json
     import json
     
     with DAG('test-pipeline', schedule='rate(1 day)', alerts=None, group='mygroup') as dag:
@@ -501,8 +505,8 @@ def test_dag_group_field():
 
 def test_dag_group_default_empty():
     """Test that DAG group defaults to empty string."""
-    from slsflow import DAG, task
-    from slsflow.generators import generate_step_function_json
+    from polyris import DAG, task
+    from polyris.generators import generate_step_function_json
     import json
     
     with DAG('test-no-group', schedule='rate(1 day)', alerts=None) as dag:
@@ -615,7 +619,7 @@ def test_task_completed_contract():
 
 def test_asset_consecutive_method():
     """Test Asset.consecutive() returns AssetConsecutiveRef."""
-    from slsflow.assets import Asset, AssetConsecutiveRef
+    from polyris.assets import Asset, AssetConsecutiveRef
     
     daily = Asset("acme/daily-complete")
     ref = daily.consecutive(days=7)
@@ -637,8 +641,8 @@ def test_asset_consecutive_method():
 
 def test_asset_consecutive_serialization():
     """Test AssetConsecutiveRef serializes correctly in wait_for."""
-    from slsflow.generators import _serialize_wait_for
-    from slsflow.assets import Asset
+    from polyris.generators import _serialize_wait_for
+    from polyris.assets import Asset
     
     daily = Asset("acme/daily-complete")
     ref = daily.consecutive(days=7)
@@ -653,7 +657,7 @@ def test_asset_consecutive_serialization():
 
 def test_asset_consecutive_operators():
     """Test AssetConsecutiveRef supports & and | operators."""
-    from slsflow.assets import Asset, AssetConsecutiveRef, AssetAll, AssetAny, AssetRef
+    from polyris.assets import Asset, AssetConsecutiveRef, AssetAll, AssetAny, AssetRef
     
     daily = Asset("acme/daily-complete")
     other = Asset("other/asset")
@@ -704,10 +708,10 @@ def run_all_tests():
     print("=" * 50)
     
     tests = [
-        test_slsflow_imports,
+        test_polyris_imports,
         test_dag_creation,
         test_dag_json_generation,
-        test_dag_alerts_required,
+        test_dag_alerts_optional,
         test_sfn_templates_valid_json,
         test_sfn_templates_valid_asl,
         test_lambda_syntax,
@@ -747,3 +751,30 @@ def run_all_tests():
 if __name__ == '__main__':
     success = run_all_tests()
     sys.exit(0 if success else 1)
+
+
+def test_task_intervention_handlers_are_free():
+    """Task intervention (skip/fail/success/stop/restart) lives in the free
+    routes/tasks.py, not ee/team/ (ADR #110). Guards the open-core split."""
+    tasks_src = os.path.join(REPO_ROOT, 'sam/lambdas/console_api/routes/tasks.py')
+    with open(tasks_src) as f:
+        content = f.read()
+    for fn in ('def stop_task', 'def skip_task', 'def fail_task',
+               'def mark_success', 'def restart_task', 'def _execute_task_action'):
+        assert fn in content, f"{fn} should live in free routes/tasks.py (ADR #110)"
+
+
+def test_manual_decision_events_free():
+    """Manual task actions record MANUAL_DECISION events from the free
+    routes/tasks.py after the intervention tier-flip (ADR #110)."""
+    tasks_src = os.path.join(REPO_ROOT, 'sam/lambdas/console_api/routes/tasks.py')
+    with open(tasks_src) as f:
+        content = f.read()
+    assert 'record_manual_decision' in content, "record_manual_decision not found"
+    assert "action_name='skip'" in content, "skip_task should pass 'skip' action_name"
+    assert "action_name='fail'" in content, "fail_task should pass 'fail' action_name"
+    assert "record_manual_decision(execution_name, 'stop'" in content, "stop_task should record MANUAL_DECISION"
+    assert "record_manual_decision(execution_name, 'restart'" in content, "restart_task should record MANUAL_DECISION"
+    assert "record_manual_decision(execution_name, action_name," in content, (
+        "_execute_task_action should call record_manual_decision"
+    )

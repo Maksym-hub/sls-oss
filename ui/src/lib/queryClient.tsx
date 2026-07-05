@@ -29,7 +29,6 @@ export const queryKeys = {
     capabilities: ['capabilities'] as const,
     pipelines: ['pipelines'] as const,
     pipelineDetail: (name: string, date: string, execution: string | null) => ['pipeline', name, date, execution] as const,
-    pipelineMetrics: (name: string) => ['pipeline', name, 'metrics'] as const,
     pipelineExecutions: (name: string, date: string) => ['pipeline', name, 'executions', date] as const,
     calendarExecutions: (name: string, yearMonth: string) => ['pipeline', name, 'calendar', yearMonth] as const,
     

@@ -12,7 +12,7 @@ import {
     PipelinesSidebar,
     PipelineDetail
 } from './components';
-import { EeFeatureFallback } from '@/components/EeFeatureFallback';
+import { ComingSoon } from '@/components/ComingSoon';
 import { paidSurface } from '@/ee-active.generated';
 import { useKeyboardShortcuts, SHORTCUTS } from './hooks';
 import { usePipelinesQuery } from './hooks/queries';
@@ -144,11 +144,11 @@ function App() {
                     <Suspense fallback={<ViewLoader />}>
                         {BackfillsView
                             ? <BackfillsView />
-                            : <EeFeatureFallback feature="Backfills" onHome={() => router.push('/pipelines/')} />}
+                            : <ComingSoon feature="Backfills" onHome={() => router.push('/pipelines/')} />}
                     </Suspense>
                 ) : mainView === 'assets' ? (
                     <ErrorBoundary fallback={
-                        <div className="error-fallback">
+                        <div className="pd-error-fallback">
                             Failed to load Assets view. 
                             <button onClick={() => router.push('/pipelines/')}>Go to Pipelines</button>
                         </div>
@@ -156,7 +156,7 @@ function App() {
                         <Suspense fallback={<ViewLoader />}>
                             {AssetsView
                                 ? <AssetsView />
-                                : <EeFeatureFallback feature="Assets" onHome={() => router.push('/pipelines/')} />}
+                                : <ComingSoon feature="Asset console" onHome={() => router.push('/pipelines/')} />}
                         </Suspense>
                     </ErrorBoundary>
                 ) : null}

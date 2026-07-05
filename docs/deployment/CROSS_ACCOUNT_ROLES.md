@@ -1,6 +1,6 @@
 # Cross-Account Roles
 
-SLSFlow supports executing tasks in different AWS accounts via cross-account IAM roles.
+Polyris supports executing tasks in different AWS accounts via cross-account IAM roles.
 
 ---
 
@@ -33,9 +33,23 @@ ENVIRONMENTS = {
 )
 ```
 
+`role=` works for **every** wrapper-routed task type, not only `sfn` — the
+cross-account credentials are applied by the `run_task` wrapper for each service
+(ADR #106). For example:
+
+```python
+@task.glue(job_name="cross-acct-etl", role="etl")
+@task.lambda_(function_name="cross-acct-fn", role="etl")
+@task.batch(job_definition="jd:1", job_queue="jq", role="etl")
+```
+
+A value that is already a full `arn:aws:iam::...:role/...` is used directly;
+otherwise it is looked up as a key in `config.py` roles. `role="same"` (the
+default) runs in the orchestration account.
+
 ### 3. IAM trust policy in target account
 
-The target account role must trust your SLSFlow orchestration role:
+The target account role must trust your Polyris orchestration role:
 
 ```json
 {
@@ -55,7 +69,7 @@ The target account role must trust your SLSFlow orchestration role:
 ## Environment Variable Override
 
 ```bash
-export SLSFLOW_ROLE_ETL="arn:aws:iam::111111111111:role/etl-role"
+export POLYRIS_ROLE_ETL="arn:aws:iam::111111111111:role/etl-role"
 ```
 
 Priority: env var > `config.py`.
@@ -66,7 +80,7 @@ Priority: env var > `config.py`.
 
 ```bash
 python3 -c "
-from slsflow.config import config
+from polyris.config import config
 c = config.for_stage('prod')
 print(c.roles['etl'])
 "

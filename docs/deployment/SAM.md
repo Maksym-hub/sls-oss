@@ -1,6 +1,6 @@
 # AWS SAM Deployment Guide
 
-SLSFlow uses AWS SAM (Serverless Application Model) to deploy shared infrastructure.
+Polyris uses AWS SAM (Serverless Application Model) to deploy shared infrastructure.
 
 ## Prerequisites
 
@@ -12,23 +12,31 @@ SLSFlow uses AWS SAM (Serverless Application Model) to deploy shared infrastruct
 
 ```bash
 # Create state/artifacts bucket (one time)
-aws s3 mb s3://YOUR_ORG-slsflow-state
+# TODO(release): replace `polyris` with your real org/bucket prefix
+aws s3 mb s3://polyris-polyris-state
 
 # Configure
 cd sam
 cp samconfig.toml.example samconfig.toml
-# Edit samconfig.toml — set Namespace, Stage, SlackWebhookEndpoint, etc.
+# Edit samconfig.toml — set stack_name, Namespace, Stage, SlackWebhookEndpoint, etc.
 
 # Deploy
 sam build
-sam deploy
+sam deploy   # reads stack_name + all parameters from samconfig.toml
 ```
+
+> **About the stack name in the commands below.** `polyris-dev` is an *example* —
+> replace it with your own `stack_name` from `samconfig.toml`. The `sam` commands
+> (`deploy`, `delete`) read that file automatically, so the single source of truth
+> is `samconfig.toml`. The commands that **don't** read it — `./deploy.sh` (UI) and
+> `aws cloudformation describe-stacks` — need the name passed explicitly, so keep it
+> identical to `samconfig.toml`.
 
 ## Subsequent Deploys
 
 ```bash
 cd sam
-sam build && sam deploy
+sam build && sam deploy   # stack_name + parameters from samconfig.toml
 ```
 
 ## Parameters
@@ -85,21 +93,21 @@ sam/sfn_templates/
 
 ```bash
 aws cloudformation describe-stacks \
-  --stack-name slsflow-dev \
+  --stack-name polyris-dev \
   --query "Stacks[0].Outputs" \
   --output table
 ```
 
 Key outputs written to SSM automatically:
-- `/slsflow/{stage}/wrapper_arn`
-- `/slsflow/{stage}/pipeline_registry_table`
-- `/slsflow/{stage}/pipeline_tokens_table`
-- `/slsflow/{stage}/asset_subscriptions_table`
+- `/polyris/{stage}/wrapper_arn`
+- `/polyris/{stage}/pipeline_registry_table`
+- `/polyris/{stage}/pipeline_tokens_table`
+- `/polyris/{stage}/asset_subscriptions_table`
 
 ## Destroy
 
 ```bash
-sam delete --stack-name slsflow-dev
+sam delete --stack-name polyris-dev
 ```
 
 ## Multiple Stages
@@ -124,14 +132,16 @@ cd ui && npm ci && npm run build
 # 2. Deploy infra
 cd ../sam && sam build && sam deploy
 
-# 3. Upload UI
-cd ../ui && ./deploy.sh slsflow-dev us-east-1
+# 3. Upload UI — pass your stack name (= stack_name in samconfig.toml) and region.
+#    Omitting the stack name makes deploy.sh fall back to a `polyris-dev` default,
+#    which fails if you renamed the stack. Add `--profile NAME` for a named profile.
+cd ../ui && ./deploy.sh polyris-dev us-east-1 ./out
 ```
 
 ### UI-only updates (no infra changes):
 
 ```bash
-cd ui && npm run build && ./deploy.sh slsflow-dev us-east-1
+cd ui && npm run build && ./deploy.sh polyris-dev us-east-1 ./out
 ```
 
 The script automatically:
@@ -144,7 +154,7 @@ The script automatically:
 After deploy:
 ```bash
 aws cloudformation describe-stacks \
-  --stack-name slsflow-dev \
+  --stack-name polyris-dev \
   --query "Stacks[0].Outputs[?OutputKey=='ConsoleUiUrl'].OutputValue" \
   --output text
 ```

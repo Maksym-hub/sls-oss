@@ -1,7 +1,7 @@
 """DDL parity test — Python side (ADR #46).
 
 Loads the shared fixture file (`tests/fixtures/ddl_parity.json`) and
-asserts that `slsflow.assets._render_glue_ddl` produces byte-identical
+asserts that `polyris.assets._render_glue_ddl` produces byte-identical
 output to the canonical `expected` strings.
 
 The same fixture file is loaded by
@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from slsflow import Asset, Column, types as t
-from slsflow.assets import _render_glue_ddl
+from polyris import Asset, Column, types as t
+from polyris.assets import _render_glue_ddl
 
 
 # Resolve the fixture relative to the repo root regardless of where pytest

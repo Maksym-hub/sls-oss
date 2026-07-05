@@ -4,43 +4,14 @@
  * surface comes from `@/ee-active.generated` — the real `src/ee/` barrel in the
  * full build, an empty stub in the OSS build.
  */
-import type { ComponentType, ReactNode } from 'react';
+import type { ComponentType } from 'react';
 import type {
   GanttChartProps, Execution, ConsecutiveProgressProps, DependencyStatusListProps,
-  PipelineWithUI, Task, SelectedExecution, DAG,
 } from '@/types';
 
-/**
- * Inputs the Team pipeline-actions provider needs from the (free) PipelineDetail
- * host. Mirrors the former local interface in usePipelineActions (ADR #99).
- */
-export interface PipelineActionsParams {
-  selectedPipeline: PipelineWithUI | null;
-  selectedTask: Task | null;
-  selectedExecution: SelectedExecution | null;
-  executions: Execution[];
-  tasks: Task[];
-  dag: DAG | null;
-  date: string;
-  setDate: (date: string) => void;
-  setSelectedExecution: (exec: SelectedExecution | null) => void;
-  showToast: (msg: string, type: string) => void;
-  onSelectTask: (task: Task) => void;
-}
-
-/**
- * The subset of action handlers the free PipelineDetail host consumes via the
- * provider's render-prop. The hook returns a superset (modal state etc.) which
- * stays internal to the Team provider (ADR #99).
- */
-export interface PipelineActions {
-  handleRun: () => void;
-  handleStop: () => void;
-  handlePauseResume: () => void;
-  handleExtendPause: () => void;
-  handleTaskAction: (action: string, task?: Task | null) => void;
-  handleRunAction: (actionType: string, task: Task) => void;
-}
+// NOTE: PipelineActionsParams and PipelineActions moved to @/types (ADR #110) —
+// task/execution intervention is now free, so the host↔provider contract no
+// longer crosses the open-core boundary.
 
 /** Props for the Team calendar view-mode rendered inside PipelineDetail (ADR #99). */
 export interface CalendarViewProps {
@@ -50,11 +21,25 @@ export interface CalendarViewProps {
   pipelineName: string;
 }
 
+/**
+ * Props for the Team backfill nav tab rendered in the (free) Header (ADR #99).
+ * The host supplies active state + the navigation handler; the tab owns its
+ * active-count badge query, so OSS (no slot) never polls /api/backfills.
+ */
+export interface BackfillNavTabProps {
+  active: boolean;
+  onClick: () => void;
+}
+
 export interface PaidSurface {
   /** Personal Access Token management (ADR #65/#66). Rendered in SettingsModal. */
   ApiTokensSection?: ComponentType;
+  /** Per-pipeline failure-alert config: Slack/PagerDuty (ADR #103). Rendered in SettingsModal. */
+  AlertsSection?: ComponentType;
   /** /backfills route view: list + detail sub-routing (ADR #99). */
   BackfillsView?: ComponentType;
+  /** Team backfill nav tab + active-count badge, rendered in the Header (ADR #99). */
+  BackfillNavTab?: ComponentType<BackfillNavTabProps>;
   /** /assets route view: matrix, lineage, detail, asset-tabs (ADR #99). */
   AssetsView?: ComponentType;
   /** Gantt view-mode in the pipelines view (ADR #99). */
@@ -67,13 +52,4 @@ export interface PaidSurface {
   ConsecutiveProgress?: ComponentType<ConsecutiveProgressProps>;
   /** Dependency status list shown in the task modal (ADR #99). */
   DependencyStatusList?: ComponentType<DependencyStatusListProps>;
-  /**
-   * Owns usePipelineActions + renders ActionModal; exposes action handlers to
-   * the free PipelineDetail host via a render-prop. Absent in OSS, so the host's
-   * intervention/task-action UI is gated off there (ADR #99).
-   */
-  PipelineActionsProvider?: ComponentType<{
-    params: PipelineActionsParams;
-    children: (actions: PipelineActions) => ReactNode;
-  }>;
 }

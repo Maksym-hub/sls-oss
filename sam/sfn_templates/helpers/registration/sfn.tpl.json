@@ -34,9 +34,6 @@
           "cross_account_role": {
             "S": "{% $states.input.cross_account_role %}"
           },
-          "slack_channel": {
-            "S": "{% $states.input.slack_channel %}"
-          },
           "wait_before": {
             "N": "{% $string($exists($states.input.wait_before) ? $states.input.wait_before : 0) %}"
           },

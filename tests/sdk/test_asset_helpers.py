@@ -13,7 +13,7 @@ import sys
 
 import pytest
 
-from slsflow import Asset, Column, types as t
+from polyris import Asset, Column, types as t
 
 
 # =============================================================================
@@ -256,7 +256,7 @@ class _FakeIcebergTable:
 
 class TestFromIceberg:
     def _pa_schema(self):
-        # pyarrow is an optional extra (`pip install slsflow[pyarrow]`); skip the
+        # pyarrow is an optional extra (`pip install polyris[pyarrow]`); skip the
         # Iceberg construction tests cleanly when it is not installed rather than
         # hard-failing on a base install.
         pa = pytest.importorskip("pyarrow")
@@ -387,16 +387,16 @@ class TestFromGlueTablePersistsRegion:
     region and gets EntityNotFoundException."""
 
     def test_region_persists_to_glue_region(self, mocker):
-        from slsflow import Column, types as t
-        mocker.patch('slsflow.adapters.glue.glue_table_to_columns',
+        from polyris import Column, types as t
+        mocker.patch('polyris.adapters.glue.glue_table_to_columns',
                      return_value=[Column('id', t.bigint())])
         a = Asset.from_glue_table('default.example', region='eu-west-1')
         assert a.glue_region == 'eu-west-1'
 
     def test_region_None_yields_empty_string(self, mocker):
         # Empty string is the storage convention; None is the kwarg default.
-        from slsflow import Column, types as t
-        mocker.patch('slsflow.adapters.glue.glue_table_to_columns',
+        from polyris import Column, types as t
+        mocker.patch('polyris.adapters.glue.glue_table_to_columns',
                      return_value=[Column('id', t.bigint())])
         a = Asset.from_glue_table('default.example')
         assert a.glue_region == ''
@@ -408,22 +408,22 @@ class TestFromGlueTableDefaultName:
     Default name includes `catalog_id` when present."""
 
     def test_default_name_when_no_catalog(self, mocker):
-        from slsflow import Column, types as t
-        mocker.patch('slsflow.adapters.glue.glue_table_to_columns',
+        from polyris import Column, types as t
+        mocker.patch('polyris.adapters.glue.glue_table_to_columns',
                      return_value=[Column('id', t.bigint())])
         a = Asset.from_glue_table('default.example')
         assert a.name == 'default.example'
 
     def test_default_name_when_catalog_set(self, mocker):
-        from slsflow import Column, types as t
-        mocker.patch('slsflow.adapters.glue.glue_table_to_columns',
+        from polyris import Column, types as t
+        mocker.patch('polyris.adapters.glue.glue_table_to_columns',
                      return_value=[Column('id', t.bigint())])
         a = Asset.from_glue_table('default.example', catalog_id='222222222222')
         assert a.name == '222222222222.default.example'
 
     def test_explicit_name_overrides_default(self, mocker):
-        from slsflow import Column, types as t
-        mocker.patch('slsflow.adapters.glue.glue_table_to_columns',
+        from polyris import Column, types as t
+        mocker.patch('polyris.adapters.glue.glue_table_to_columns',
                      return_value=[Column('id', t.bigint())])
         a = Asset.from_glue_table('default.example', catalog_id='222',
                                   name='retail/orders')
@@ -433,8 +433,8 @@ class TestFromGlueTableDefaultName:
         # Regression test for the cross-account collision: same Glue table
         # declared across two accounts must have distinct asset names so
         # the backend's `_build_assets_from_pipelines` doesn't merge them.
-        from slsflow import Column, types as t
-        mocker.patch('slsflow.adapters.glue.glue_table_to_columns',
+        from polyris import Column, types as t
+        mocker.patch('polyris.adapters.glue.glue_table_to_columns',
                      return_value=[Column('id', t.bigint())])
         a1 = Asset.from_glue_table('default.example', catalog_id='111')
         a2 = Asset.from_glue_table('default.example', catalog_id='222')
@@ -453,15 +453,15 @@ class TestSerializeOutletGranularityFields:
     """Confirm partition_start and granularity flow into pipeline_registry."""
 
     def test_outlet_with_partition_start_serialized(self):
-        from slsflow.assets import Asset
-        from slsflow.generators import _serialize_outlet
+        from polyris.assets import Asset
+        from polyris.generators import _serialize_outlet
         a = Asset('cat/db/table', partition_start='2023-01-01')
         d = _serialize_outlet(a)
         assert d['partition_start'] == '2023-01-01'
 
     def test_outlet_without_partition_start_omits_field(self):
-        from slsflow.assets import Asset
-        from slsflow.generators import _serialize_outlet
+        from polyris.assets import Asset
+        from polyris.generators import _serialize_outlet
         a = Asset('cat/db/table')
         d = _serialize_outlet(a)
         # Field is intentionally omitted (not None) when unset, to keep
@@ -469,8 +469,8 @@ class TestSerializeOutletGranularityFields:
         assert 'partition_start' not in d
 
     def test_outlet_granularity_serialized(self):
-        from slsflow.assets import Asset
-        from slsflow.generators import _serialize_outlet
+        from polyris.assets import Asset
+        from polyris.generators import _serialize_outlet
         a = Asset('cat/db/table', granularity='weekly')
         d = _serialize_outlet(a)
         assert d['granularity'] == 'weekly'

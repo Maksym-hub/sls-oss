@@ -9,9 +9,9 @@ This pipeline demonstrates:
 - Asset.consecutive(days=N) for cross-day dependency checks
 - Cross-pipeline orchestration (weekly triggers feeds)
 """
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
-TEST_QUICK = "arn:aws:states:us-east-1:944861944755:stateMachine:test"
+TEST_QUICK = "arn:aws:states:us-east-1:123456789012:stateMachine:test"
 
 daily_complete  = Asset("acme/daily-complete")
 weekly_complete = Asset("acme/weekly-complete")
@@ -19,7 +19,6 @@ weekly_complete = Asset("acme/weekly-complete")
 with DAG(
     dag_id="acme-weekly",
     schedule="cron(0 22 ? * SUN *)",
-    alerts={"slack": "#data-alerts"},
     group="acme",
     description="Acme weekly — waits for 7 consecutive daily completions"
 ) as dag:
@@ -35,4 +34,4 @@ with DAG(
 
     mark_weekly_complete()
 
-# Deploy: slsflow-deploy
+# Deploy: polyris-deploy

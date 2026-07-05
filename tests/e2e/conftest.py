@@ -1,14 +1,14 @@
 """
-SLSFlow E2E Tests — conftest.py
+Polyris E2E Tests — conftest.py
 
 End-to-end tests that hit the real deployed API.
 Requires:
-  - SLSFLOW_API_URL  (e.g. https://abc123.execute-api.us-east-1.amazonaws.com)
-  - SLSFLOW_ID_TOKEN (Cognito ID token, optional if auth is disabled)
+  - POLYRIS_API_URL  (e.g. https://abc123.execute-api.us-east-1.amazonaws.com)
+  - POLYRIS_ID_TOKEN (Cognito ID token, optional if auth is disabled)
 
 Usage:
-  SLSFLOW_API_URL=https://... pytest tests/e2e/ -v
-  SLSFLOW_API_URL=https://... SLSFLOW_ID_TOKEN=ey... pytest tests/e2e/ -v
+  POLYRIS_API_URL=https://... pytest tests/e2e/ -v
+  POLYRIS_API_URL=https://... POLYRIS_ID_TOKEN=ey... pytest tests/e2e/ -v
 """
 import os
 import sys
@@ -28,8 +28,8 @@ if REPO_ROOT not in sys.path:
 # Configuration
 # =============================================================================
 
-API_URL = os.environ.get("SLSFLOW_API_URL", "").rstrip("/")
-ID_TOKEN = os.environ.get("SLSFLOW_ID_TOKEN", "")
+API_URL = os.environ.get("POLYRIS_API_URL", "").rstrip("/")
+ID_TOKEN = os.environ.get("POLYRIS_ID_TOKEN", "")
 
 # Timeouts
 REQUEST_TIMEOUT = 30  # seconds per request
@@ -38,7 +38,7 @@ PIPELINE_RUN_TIMEOUT = 120  # seconds to wait for pipeline execution
 
 def _skip_if_no_api():
     if not API_URL:
-        pytest.skip("SLSFLOW_API_URL not set — skipping E2E tests")
+        pytest.skip("POLYRIS_API_URL not set — skipping E2E tests")
 
 
 # =============================================================================

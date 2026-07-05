@@ -4,7 +4,7 @@
 """
 import pytest
 
-from slsflow.adapters.glue import infer_granularity_from_partition_keys as infer
+from polyris.adapters.glue import infer_granularity_from_partition_keys as infer
 
 
 class TestRecognizedConventions:

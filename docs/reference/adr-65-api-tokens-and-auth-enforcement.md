@@ -52,8 +52,8 @@ enforcement **once, covering both auth types** through a single gate.
 
 - **One auth gate** at the top of `console_api/main.py` `handler()` — same "one
   helper, all 57 routes" shape as `cors_response`. Branch on token shape:
-  `slsf_<...>` → PAT verification; otherwise → Cognito access-token verification.
-- **PAT mechanics** (proven by `spike/pat_auth_spike.py`): `slsf_` +
+  `plrs_<...>` → PAT verification; otherwise → Cognito access-token verification.
+- **PAT mechanics** (proven by `spike/pat_auth_spike.py`): `plrs_` +
   `secrets.token_urlsafe(32)`; store **only** the SHA-256 hash; constant-time
   compare (`hmac.compare_digest`); support revoke + expiry; plaintext shown
   **once** at creation, never again.
@@ -78,7 +78,7 @@ enforcement **once, covering both auth types** through a single gate.
 
 2. **JWT verification method.** `console_api` has **no dependency-packaging
    mechanism** (no `requirements.txt`, no Lambda layer — only runtime boto3 + the
-   symlinked `slsflow`). Hand-rolling RS256 is forbidden by #12. **Decision (v1):
+   symlinked `polyris`). Hand-rolling RS256 is forbidden by #12. **Decision (v1):
    verify the Cognito *access* token via boto3 `cognito-idp:GetUser`** — zero new
    dependencies, no crypto, no JWKS plumbing. Cost: one Cognito call per JWT
    request; cache the result with a short TTL to keep it cheap (low volume makes
@@ -121,7 +121,7 @@ enforcement **once, covering both auth types** through a single gate.
   Phase 4 audit) **before** enabling the flag, so shipping on is safe.
   `AUTH_ENABLED=false` remains the lever to disable enforcement.
 - **Principle #9:** `authentication.md` must be corrected (it is wrong today).
-- **Positive:** API examples become copy-paste (`Authorization: Bearer slsf_…`);
+- **Positive:** API examples become copy-paste (`Authorization: Bearer plrs_…`);
   e2e drops the `admin-initiate-auth` hack in favour of a PAT; enforcement
   finally lives in IaC + code instead of nowhere.
 - **Cost:** ≈ $0 to the ~$51/mo baseline. No new always-on resource; the
@@ -151,7 +151,7 @@ enforcement **once, covering both auth types** through a single gate.
 ## Implementation plan
 
 ### Phase 0 — confirm reality (you, 1 command)
-- `export SLSFLOW_API_URL=… && make e2e-health`
+- `export POLYRIS_API_URL=… && make e2e-health`
   - **200** → enforcement absent (expected). Proceed.
   - **401/403** → an out-of-band authorizer exists; add a Phase-1 step to remove
     it and move ownership to the gate.
@@ -206,7 +206,7 @@ enforcement **once, covering both auth types** through a single gate.
 - **New** `docs/features/api-tokens.md` — generate (UI), use (curl/CLI), expiry,
   revoke, security (shown once, store as secret). This is the **single** canonical
   auth-how-to.
-- **Update examples** to add `-H "Authorization: Bearer $SLSFLOW_TOKEN"`:
+- **Update examples** to add `-H "Authorization: Bearer $POLYRIS_TOKEN"`:
   `docs/operations/API.md` (+ a short auth preamble), `README.md`,
   `docs/getting-started/SETUP_FROM_SCRATCH.md` (first-token bootstrap),
   `docs/operations/TROUBLESHOOTING.md` (401s), `docs/tools/AI_ASSISTANT.md`, and
@@ -215,7 +215,7 @@ enforcement **once, covering both auth types** through a single gate.
 - **E2E docs:** `tests/e2e/README.md` + `scripts/get-e2e-token.sh` story — add
   PAT as the recommended path (keep JWT as an option).
 - Merge this ADR into `DESIGN_DECISIONS.md`; add a CHANGELOG entry; bump version
-  in `pyproject.toml`, `slsflow/__init__.py`, `ui/package.json` (kept in sync).
+  in `pyproject.toml`, `polyris/__init__.py`, `ui/package.json` (kept in sync).
 
 ### Phase 6 — rollout (done in v0.89.x)
 - `AUTH_ENABLED=true` is the template default (enforcement on from initial deploy).

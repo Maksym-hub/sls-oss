@@ -1,13 +1,13 @@
 // =============================================================================
-// slsflow Console — TypeScript Type Definitions
+// polyris Console — TypeScript Type Definitions
 // =============================================================================
 
 // --- Task & Pipeline Status ---
 //
 // v0.79.0 (ADR #72) — enum families now live in src/generated/enums.ts,
-// generated from slsflow/constants.py by slsflow.codegen.sync_enums. This
+// generated from polyris/constants.py by polyris.codegen.sync_enums. This
 // file re-exports them for backward-compatible import paths. Don't edit
-// the unions here — edit slsflow/constants.py and re-run codegen.
+// the unions here — edit polyris/constants.py and re-run codegen.
 
 import type {
     TaskStatus,
@@ -458,7 +458,7 @@ export interface AssetSchemaColumn {
   name: string;
   type: string;
   description?: string;
-  // Constraint fields (slsflow Column class). All optional with same defaults
+  // Constraint fields (polyris Column class). All optional with same defaults
   // as the Python side: nullable=true, the rest false. Backend omits fields
   // that match defaults to keep payload compact.
   nullable?: boolean;
@@ -723,7 +723,7 @@ export interface BackfillOptions {
 
 /** Upstream lineage build mode (asset target only). ADR #92 / #94. off = just
  * the producer; smart = build missing same-pipeline ancestors; force = full
- * lineage. The union is generated from slsflow/constants.py (BackfillUpstream)
+ * lineage. The union is generated from polyris/constants.py (BackfillUpstream)
  * and re-exported at the top of this file — do not redeclare it here. */
 
 export interface BackfillStartRequest {
@@ -861,4 +861,38 @@ export interface BackfillModalSeed {
   upstream?: BackfillUpstream;
   /** Whether the modal is currently open. Used by the global store. */
   isOpen?: boolean;
+}
+
+/**
+ * Inputs the pipeline-actions provider needs from the PipelineDetail host.
+ * Task/execution intervention is free (ADR #110); these live in @/types so both
+ * the free host and the free provider can share them without crossing the
+ * open-core boundary.
+ */
+export interface PipelineActionsParams {
+  selectedPipeline: PipelineWithUI | null;
+  selectedTask: Task | null;
+  selectedExecution: SelectedExecution | null;
+  executions: Execution[];
+  tasks: Task[];
+  dag: DAG | null;
+  date: string;
+  setDate: (date: string) => void;
+  setSelectedExecution: (exec: SelectedExecution | null) => void;
+  showToast: (msg: string, type: string) => void;
+  onSelectTask: (task: Task) => void;
+}
+
+/**
+ * The subset of action handlers the PipelineDetail host consumes via the
+ * provider's render-prop. The hook returns a superset (modal state etc.) which
+ * stays internal to the provider.
+ */
+export interface PipelineActions {
+  handleRun: () => void;
+  handleStop: () => void;
+  handlePauseResume: () => void;
+  handleExtendPause: () => void;
+  handleTaskAction: (action: string, task?: Task | null) => void;
+  handleRunAction: (actionType: string, task: Task) => void;
 }

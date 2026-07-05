@@ -2,19 +2,21 @@
 
 ## Overview
 
-slsflow supports Airflow 3.0-style asset-based orchestration, enabling cross-pipeline dependencies without hardcoded references.
+polyris supports Airflow 3.0-style asset-based orchestration, enabling cross-pipeline dependencies without hardcoded references.
 
 **Key concepts:**
 - **Asset**: A data artifact (file, table, dataset)
 - **Producer**: Task that creates an asset (`outlets`)
 - **Consumer**: DAG that triggers when asset is ready (`schedule`)
 
+> **Open-core note (ADR #105):** the asset *engine* described here — declaring assets, producers, and consumers in pipelines — is **free**. The asset *console* (the `/assets` UI plus its read API: matrix, lineage, and the queue operations below) is **Team-tier and coming to open-core** in an upcoming release. In the OSS build the `/assets` page shows a "coming soon" notice and the `/api/assets*` endpoints are not served.
+
 ---
 
 ## Defining Assets
 
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 # Simple asset
 processed = Asset(name="processed/acme")
@@ -51,7 +53,7 @@ on the roadmap).
 **Recommended form: `Column` + `types`.**
 
 ```python
-from slsflow import Asset, Column, types as t
+from polyris import Asset, Column, types as t
 
 orders = Asset(
     name="retail/orders",
@@ -69,7 +71,7 @@ orders = Asset(
 )
 ```
 
-**Available types** (factory functions in `slsflow.types`, 21 in total):
+**Available types** (factory functions in `polyris.types`, 21 in total):
 
 | Group         | Factory                                                                |
 |---------------|------------------------------------------------------------------------|
@@ -126,7 +128,7 @@ declaration can be reconciled.
 ### Glue Catalog Reference
 
 Link an asset to a table in **AWS Glue Data Catalog**. The Glue Data Catalog
-has a three-level structure that maps to SLSFlow fields as follows:
+has a three-level structure that maps to Polyris fields as follows:
 
 | AWS Glue concept              | Maps to                          | Default                    |
 |-------------------------------|----------------------------------|----------------------------|
@@ -182,7 +184,7 @@ the full addressing.
 What is **not** covered:
 
 - **Athena Federated Catalogs** (Lambda-backed connectors to Hive,
-  MySQL, Snowflake, etc.) — SLSFlow targets the Glue Data Catalog
+  MySQL, Snowflake, etc.) — Polyris targets the Glue Data Catalog
   directly, not the Athena Federated Query API.
 - **Athena DataSources registered as cross-account aliases** — these
   are Athena UI conveniences. The underlying catalog is still a Glue
@@ -224,7 +226,7 @@ shows a structured error with the Glue error code and message; the declared
 schema is still rendered alongside.
 
 **Constraint fields** (`nullable`, `primary_key`, `partition_key`, `unique`)
-are slsflow-only metadata and are not included in the diff — Glue Catalog
+are polyris-only metadata and are not included in the diff — Glue Catalog
 does not represent them, so they cannot drift.
 
 **Cross-account Glue access — IAM checklist:**
@@ -266,7 +268,7 @@ If `true` — coordinate with the catalog owner to add an LF data permission.
 **Cross-region:** `glue_region` is independent of `glue_catalog` — the
 two fields combine to address any (region, account) tuple. AWS Glue Data
 Catalog itself is per-region; there is no automatic cross-region
-replication. SLSFlow does not provide multi-region drift comparison —
+replication. Polyris does not provide multi-region drift comparison —
 each asset points at exactly one (region, account, database, table).
 
 ADR #43 covers the on-demand fetch design. ADR #45 covers the
@@ -284,7 +286,7 @@ list and use a `from_*` constructor. ADR #44 describes the design.
 
 ```python
 import pyarrow.parquet as pq
-from slsflow import Asset
+from polyris import Asset
 
 sample = pq.read_metadata("s3://bucket/orders/sample.parquet")
 orders = Asset.from_pyarrow(
@@ -294,14 +296,14 @@ orders = Asset.from_pyarrow(
 )
 ```
 
-Requires `pip install 'slsflow[pyarrow]'`. The bridge to all six
+Requires `pip install 'polyris[pyarrow]'`. The bridge to all six
 formats above goes through pyarrow as a hub — one optional dependency,
 many integrations.
 
 **Shortcut: from a Parquet file directly.**
 
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 # Local path
 orders = Asset.from_parquet("samples/orders.parquet", name="retail/orders")
@@ -324,7 +326,7 @@ footer (no row data is fetched). Same `pyarrow` extra requirement.
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, Field
-from slsflow import Asset
+from polyris import Asset
 
 class Order(BaseModel):
     order_id: int = Field(description="Unique order identifier")
@@ -335,7 +337,7 @@ class Order(BaseModel):
 orders = Asset.from_pydantic(Order, name="retail/orders")
 ```
 
-Requires `pip install 'slsflow[pydantic]'`. Pydantic field
+Requires `pip install 'polyris[pydantic]'`. Pydantic field
 descriptions, defaults, and `Optional[...]` markers all carry over.
 
 **Naming note.** If `name=` is omitted, `from_pydantic` falls back to
@@ -347,7 +349,7 @@ so the asset shows up grouped (e.g. under `retail/`) on the assets page.
 **From an existing Glue Catalog table (deploy-time fetch):**
 
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 orders = Asset.from_glue_table(
     "analytics.orders",
@@ -373,7 +375,7 @@ hits the API; this path hits Glue directly via your local credentials.
 A task with `outlets` emits an asset event when it completes successfully:
 
 ```python
-with DAG("etl", schedule="@daily", alerts={"slack": "#alerts"}) as dag:
+with DAG("etl", schedule="@daily") as dag:
     
     @task.sfn(arn=..., outlets=[processed])
     def process_data():
@@ -393,7 +395,7 @@ with DAG("etl", schedule="@daily", alerts={"slack": "#alerts"}) as dag:
 A DAG can be triggered by asset events instead of time:
 
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 # Reference the same asset
 processed = Asset(name="processed/acme")
@@ -401,7 +403,6 @@ processed = Asset(name="processed/acme")
 with DAG(
     "feeds",
     schedule=[processed],  # Trigger when 'processed' is ready
-    alerts={"slack": "#alerts"}
 ) as dag:
     
     @task.sfn(arn=...)
@@ -429,7 +430,6 @@ asset_c = Asset("data/asset-c")
 with DAG(
     "combined",
     schedule=[asset_a & asset_b & asset_c],  # ALL required
-    alerts={"slack": "#alerts"}
 ) as dag:
     ...
 ```
@@ -460,7 +460,6 @@ asset_b = Asset("data/asset-b")
 with DAG(
     "processor",
     schedule=[asset_a | asset_b],  # ANY triggers
-    alerts={"slack": "#alerts"}
 ) as dag:
     ...
 ```
@@ -478,7 +477,6 @@ Combine AND and OR:
 with DAG(
     "mixed",
     schedule=[(asset_a & asset_b) | asset_c],
-    alerts={"slack": "#alerts"}
 ) as dag:
     ...
 ```
@@ -635,7 +633,7 @@ If `orchestration_timeout` is not set, it defaults to `execution_timeout` (24h).
 ```python
 # pipelines/acme/dag.py
 
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
 # Define assets
 raw = Asset("acme/raw", uri="s3://bucket/acme/raw/")
@@ -644,7 +642,6 @@ processed = Asset("acme/processed", uri="s3://bucket/acme/processed/")
 with DAG(
     "acme-etl",
     schedule="@daily",
-    alerts={"slack": "#acme-alerts"}
 ) as dag:
     
     @task.sfn(arn=..., outlets=[raw])
@@ -664,7 +661,7 @@ with DAG(
 ```python
 # pipelines/feeds/dag.py
 
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
 # Reference same asset
 processed = Asset("acme/processed")
@@ -673,7 +670,6 @@ feed = Asset("feeds/acme", uri="s3://bucket/feeds/acme/")
 with DAG(
     "acme-feeds",
     schedule=[processed],  # Triggered when processed is ready
-    alerts={"slack": "#feeds-alerts"}
 ) as dag:
     
     @task.sfn(arn=..., outlets=[feed])

@@ -51,6 +51,7 @@ export function CommandPalette({
     // Reset state when opened
     useEffect(() => {
         if (isOpen) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- reset query when the palette opens/closes
             setQuery('');
             setSelectedIndex(0);
             // Focus input after animation
@@ -165,6 +166,7 @@ export function CommandPalette({
     
     // Reset selection when results change
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- reset selection when the result set changes
         setSelectedIndex(0);
     }, [query]);
     

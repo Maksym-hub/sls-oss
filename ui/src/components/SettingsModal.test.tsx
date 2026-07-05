@@ -1,21 +1,24 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-// Render the real BaseModal chrome behaviour minimally (open => dialog).
+// Minimal modal chrome (open => dialog).
 vi.mock('./BaseModal', () => ({
     BaseModal: ({ isOpen, children }: any) => (isOpen ? <div role="dialog">{children}</div> : null),
     ModalHeader: ({ children }: any) => <div>{children}</div>,
     ModalFooter: ({ children }: any) => <div>{children}</div>,
 }));
 
-// Stub the EE surface so this test focuses on the container, not token I/O.
-vi.mock('@/ee-active.generated', () => ({
-    paidSurface: { ApiTokensSection: () => <div data-testid="tokens-section">tokens</div> },
+// OSS build: empty paid surface => no Team sections. The free Decision Timeout
+// section must still render, so Settings is never an empty shell (ADR #103 1b).
+vi.mock('@/ee-active.generated', () => ({ paidSurface: {} }));
+
+// Decision Timeout has its own tests; stub it so this focuses on the container.
+vi.mock('./DecisionTimeoutSection', () => ({
+    DecisionTimeoutSection: () => <div data-testid="decision-timeout-section">decision</div>,
 }));
 
 vi.mock('lucide-react', () => ({
-    KeyRound: () => null,
-    Settings: () => null,
+    KeyRound: () => null, Settings: () => null, Bell: () => null, Clock: () => null,
 }));
 
 import { SettingsModal } from './SettingsModal';
@@ -26,11 +29,14 @@ describe('SettingsModal', () => {
         expect(container.querySelector('[role="dialog"]')).toBeNull();
     });
 
-    it('shows the section nav and the active section when open', () => {
+    it('renders the free Decision Timeout section in the OSS build (never an empty shell)', () => {
         render(<SettingsModal isOpen onClose={() => {}} />);
-        // Title + nav entry both read "API Tokens"; at least one must be present.
-        expect(screen.getAllByText('API Tokens').length).toBeGreaterThan(0);
-        // The first section (tokens) renders by default.
-        expect(screen.getByTestId('tokens-section')).toBeTruthy();
+        // The free section is in the nav...
+        expect(screen.getByText('Decision Timeout')).toBeInTheDocument();
+        // ...and is the default-active section (its body renders).
+        expect(screen.getByTestId('decision-timeout-section')).toBeTruthy();
+        // No Team-tier sections in the OSS build.
+        expect(screen.queryByText('API Tokens')).toBeNull();
+        expect(screen.queryByText('Alerts')).toBeNull();
     });
 });

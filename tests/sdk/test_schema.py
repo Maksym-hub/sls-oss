@@ -1,12 +1,12 @@
-"""Tests for slsflow.schema — type system, Column, normalization, serialization."""
+"""Tests for polyris.schema — type system, Column, normalization, serialization."""
 from __future__ import annotations
 
 import pytest
 
-from slsflow import schema as s
-from slsflow.schema import (
+from polyris import schema as s
+from polyris.schema import (
     Column,
-    SlsflowType,
+    PolyrisType,
     BigIntType, IntType, SmallIntType, TinyIntType,
     FloatType, DoubleType, DecimalType,
     BooleanType,
@@ -88,7 +88,7 @@ class TestTypeImmutability:
             t.precision = 20  # type: ignore[misc]
 
     def test_isinstance_marker_works(self):
-        # All factories return SlsflowType instances — needed for adapter code.
+        # All factories return PolyrisType instances — needed for adapter code.
         for factory_call in [
             s.tinyint(), s.smallint(), s.integer(), s.bigint(),
             s.float_(), s.double(), s.decimal(10, 2),
@@ -101,7 +101,7 @@ class TestTypeImmutability:
             s.struct(x=s.integer()),
             s.map_(s.string(), s.bigint()),
         ]:
-            assert isinstance(factory_call, SlsflowType)
+            assert isinstance(factory_call, PolyrisType)
 
 
 # =============================================================================
@@ -135,8 +135,8 @@ class TestTypeValidation:
         with pytest.raises(ValueError, match="length"):
             s.fixed_binary(0)
 
-    def test_array_inner_must_be_slsflow_type(self):
-        with pytest.raises(TypeError, match="SlsflowType"):
+    def test_array_inner_must_be_polyris_type(self):
+        with pytest.raises(TypeError, match="PolyrisType"):
             s.array("string")  # type: ignore[arg-type]
 
     def test_struct_rejects_empty(self):
@@ -151,10 +151,10 @@ class TestTypeValidation:
         with pytest.raises(TypeError, match="either"):
             s.struct({"x": s.integer()}, y=s.string())
 
-    def test_map_requires_slsflow_types(self):
-        with pytest.raises(TypeError, match="SlsflowType"):
+    def test_map_requires_polyris_types(self):
+        with pytest.raises(TypeError, match="PolyrisType"):
             s.map_("string", s.bigint())  # type: ignore[arg-type]
-        with pytest.raises(TypeError, match="SlsflowType"):
+        with pytest.raises(TypeError, match="PolyrisType"):
             s.map_(s.string(), "bigint")  # type: ignore[arg-type]
 
 
@@ -340,7 +340,7 @@ class TestColumn:
 
     def test_column_rejects_string_type(self):
         # Helps catch the common mistake of passing "bigint" instead of bigint().
-        with pytest.raises(TypeError, match="SlsflowType"):
+        with pytest.raises(TypeError, match="PolyrisType"):
             Column("x", "bigint")  # type: ignore[arg-type]
 
 
@@ -648,69 +648,69 @@ class TestColumnRepr:
 
 
 # =============================================================================
-# Module-level _slsflow_type_to_jsonschema — used by Asset.to_jsonschema()
+# Module-level _polyris_type_to_jsonschema — used by Asset.to_jsonschema()
 # =============================================================================
 
 class TestJsonSchemaConversion:
 
     def test_integer_types_map_to_integer(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
+        from polyris.schema import _polyris_type_to_jsonschema
         for t in (s.tinyint(), s.smallint(), s.integer(), s.bigint()):
-            assert _slsflow_type_to_jsonschema(t, nullable=False) == {"type": "integer"}
+            assert _polyris_type_to_jsonschema(t, nullable=False) == {"type": "integer"}
 
     def test_decimal_carries_format_hint(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.decimal(10, 2), nullable=False)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.decimal(10, 2), nullable=False)
         assert out["type"] == "number"
         assert out["format"] == "decimal(10,2)"
 
     def test_varchar_carries_max_length(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.varchar(255), nullable=False)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.varchar(255), nullable=False)
         assert out == {"type": "string", "maxLength": 255}
 
     def test_char_carries_min_and_max_length(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.char(10), nullable=False)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.char(10), nullable=False)
         assert out == {"type": "string", "minLength": 10, "maxLength": 10}
 
     def test_uuid_carries_format(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.uuid(), nullable=False)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.uuid(), nullable=False)
         assert out == {"type": "string", "format": "uuid"}
 
     def test_timestamp_carries_date_time_format(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.timestamp(), nullable=False)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.timestamp(), nullable=False)
         assert out == {"type": "string", "format": "date-time"}
 
     def test_nullable_appends_null_to_type_union(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.bigint(), nullable=True)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.bigint(), nullable=True)
         assert out == {"type": ["integer", "null"]}
 
     def test_array_with_inner_string(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.array(s.string()), nullable=False)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.array(s.string()), nullable=False)
         assert out == {"type": "array", "items": {"type": "string"}}
 
     def test_struct_renders_as_object(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
+        from polyris.schema import _polyris_type_to_jsonschema
         st = s.struct(x=s.integer(), y=s.string())
-        out = _slsflow_type_to_jsonschema(st, nullable=False)
+        out = _polyris_type_to_jsonschema(st, nullable=False)
         assert out["type"] == "object"
         assert out["properties"] == {"x": {"type": "integer"}, "y": {"type": "string"}}
         assert out["required"] == ["x", "y"]
 
     def test_map_renders_as_object_with_additional_properties(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.map_(s.string(), s.bigint()), nullable=False)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.map_(s.string(), s.bigint()), nullable=False)
         assert out["type"] == "object"
         assert out["additionalProperties"] == {"type": "integer"}
         # String keys → no propertyNames hint needed.
         assert "propertyNames" not in out
 
     def test_map_with_non_string_key_carries_property_names(self):
-        from slsflow.schema import _slsflow_type_to_jsonschema
-        out = _slsflow_type_to_jsonschema(s.map_(s.bigint(), s.string()), nullable=False)
+        from polyris.schema import _polyris_type_to_jsonschema
+        out = _polyris_type_to_jsonschema(s.map_(s.bigint(), s.string()), nullable=False)
         assert out["propertyNames"] == {"type": "integer"}

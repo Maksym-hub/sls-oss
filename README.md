@@ -1,4 +1,4 @@
-# slsflow
+# polyris
 
 **Orchestration without the orchestrator**
 
@@ -7,36 +7,38 @@ workers, no metadata database to run — your pipelines compile to Step Function
 and AWS runs them. Pay per run; idle cost is near zero.
 
 If you've used Airflow, the `@task` / `>>` / `DAG()` DSL will feel familiar — but
-slsflow is not managed Airflow. There's nothing to operate.
+polyris is not managed Airflow. There's nothing to operate.
 
-## Why slsflow
+## Why polyris
 
 - 🪂 **Nothing to run** — no scheduler, workers, or metadata DB. Step Functions
   *is* the runtime, and it scales to zero between runs.
 - 🔎 **Nothing hidden** — every pipeline compiles to a Step Functions state
   machine, so each run is a visible, debuggable execution history rather than
   opaque scheduler state.
-- 🧬 **Asset-aware** — first-class data assets with lineage, partitions, and
-  lineage-aware backfill (upstream smart-fill + downstream cascade), not just
-  task graphs.
+- 🧬 **Asset-aware** — pipelines define first-class data assets with lineage and partitions (asset console UI coming to open-core soon), and
+  lineage-aware backfill in the **Team edition** (upstream smart-fill +
+  downstream cascade), not just task graphs.
 - 💸 **Pay-per-run** — a typical deployment runs ~$31/month; the floor is near
   zero because there is no always-on infrastructure.
 
 ## Features
 
 - 🐍 **Familiar Python DSL** — `@task`, `>>` operators, `DAG()` context (Airflow-style ergonomics)
-- 🚀 **One-command deploy** — `slsflow-deploy` (CloudFormation)
-- 🤖 **AI Assistant** — Generate pipelines with natural language (FREE!)
+- 🚀 **One-command deploy** — `polyris-deploy` (CloudFormation)
 - 🧪 **Local testing** — Validate, dry-run, mock execution
-- 🔔 **Alerts required** — Slack and PagerDuty on failure (enforced per pipeline — no silent failures)
+- 🔔 **Alerts** *(Team tier)* — Slack and PagerDuty on failure, configured per pipeline in the Console UI; browser notifications are free (the notify Lambda fans out to every enabled channel — no silent failures)
 - 🎯 **11 trigger rules** — `all_success`, `one_failed`, `all_done`, etc. ([details](docs/features/DSL.md#trigger-rules))
-- 🔗 **Automatic data passing** — task outputs flow to downstream tasks via a canonical output store in DynamoDB (up to 200KB)
-- 📊 **Web Console** — pipelines, DAG view, Gantt, calendar, and the asset matrix (partition status across assets)
-- 🧬 **Asset graph & lineage** — cross-pipeline dependencies and asset lineage
-- ⏮️ **Lineage-aware backfill** — date-range backfill with task/asset selection, upstream smart-fill, downstream cascade, and partition granularity
+- 🔗 **Automatic data passing** — outputs flow to downstream **lambda & SFN** tasks via a DynamoDB output store (up to 200KB); service tasks (glue/ecs/…) exchange data via S3
+- 📊 **Web Console** — pipelines and DAG view are free; **Gantt and calendar view-modes are Team tier**. The **asset console (matrix + lineage) is coming to open-core in an upcoming release** — the `/assets` page currently shows a *coming soon* notice
+- 🧬 **Asset graph & lineage** — pipelines declare cross-pipeline asset dependencies and lineage (engine is free; the asset console UI is coming to open-core soon)
+- ⏮️ **Lineage-aware backfill** *(Team tier)* — date-range backfill with task/asset selection, upstream smart-fill, downstream cascade, and partition granularity; the `/backfills` page shows a *coming soon* notice in the open-source build and is on the graduation roadmap
 - 🔗 **Pull-based deps** — `wait_for` with freshness and consecutive checks
-- ⏭️ **Skip/Restart tasks** — partial pipeline runs via UI or API
+- ⏭️ **Skip/Restart tasks** — partial pipeline runs via UI or API (free — live-run intervention)
 - 🔄 **Auto-refresh UI** — polling-based updates (3s active, 30s idle)
+
+> **Editions:** for the full Free / Team / Enterprise capability map, see
+> [`docs/reference/EDITIONS.md`](docs/reference/EDITIONS.md).
 
 ---
 
@@ -44,11 +46,12 @@ slsflow is not managed Airflow. There's nothing to operate.
 
 | I want to... | Go to |
 |---|---|
-| **Try slsflow without AWS** (explore DSL locally) | [Try It Now](#try-it-now) below |
+| **Try polyris without AWS** (explore DSL locally) | [Try It Now](#try-it-now) below |
+| **Browse runnable examples** | [examples/](examples/) — hello-world → assets & lineage |
 | **Write a pipeline** (infra already deployed) | [Quick Start](#quick-start) below |
-| **Set up slsflow from scratch** (blank AWS account) | [SETUP_FROM_SCRATCH.md](docs/getting-started/SETUP_FROM_SCRATCH.md) |
+| **Set up polyris from scratch** (blank AWS account) | [SETUP_FROM_SCRATCH.md](docs/getting-started/SETUP_FROM_SCRATCH.md) |
 | **Learn step by step** with explanations | [TUTORIAL.md](docs/getting-started/TUTORIAL.md) |
-| **Develop slsflow itself** (fix bugs, add features) | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| **Develop polyris itself** (fix bugs, add features) | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | **Troubleshoot** a problem | [TROUBLESHOOTING.md](docs/operations/TROUBLESHOOTING.md) |
 
 ---
@@ -59,14 +62,16 @@ No AWS account needed. Explore the DSL, validate pipelines, generate Step Functi
 
 ```bash
 pip install -e .
-slsflow-init my-pipeline --local
+polyris-init my-pipeline --local
 cd my-pipeline
-slsflow-validate              # Validate pipeline
-slsflow-validate -v           # Verbose: tasks, deps, ASL preview
-slsflow-output --json         # Full Step Functions JSON
-slsflow-output --mermaid      # Generate diagram
-slsflow-output --graph        # Show DAG as ASCII graph
+polyris-validate              # Validate pipeline
+polyris-validate -v           # Verbose: tasks, deps, ASL preview
+polyris-output --json         # Full Step Functions JSON
+polyris-output --mermaid      # Generate diagram
+polyris-output --graph        # Show DAG as ASCII graph
 ```
+
+Or browse [examples/](examples/) for four small, self-contained pipelines.
 
 Edit `dag.py` to experiment with task types, dependencies, trigger rules, and assets. When ready to deploy, see [Quick Start](#quick-start).
 
@@ -104,15 +109,15 @@ DEFAULT_STAGE = "dev"
 ### 3. Create pipeline
 
 ```bash
-slsflow-init my-pipeline
+polyris-init my-pipeline
 ```
 
-This creates `my-pipeline/` with a working `dag.py`. Edit the task names and ARNs, then deploy with `slsflow-deploy`.
+This creates `my-pipeline/` with a working `dag.py`. Edit the task names and ARNs, then deploy with `polyris-deploy`.
 
 Or create manually — `my-pipeline/dag.py`:
 
 ```python
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
 
 processed = Asset(name="my-pipeline/processed")
@@ -120,11 +125,6 @@ processed = Asset(name="my-pipeline/processed")
 with DAG(
     dag_id="my-pipeline",
     schedule="@daily",
-    alerts={
-        "slack": "#alerts",
-        # "slack_mentions": ["YOUR_SLACK_USER_ID"],  # optional: tag users/groups on failure
-        # "pagerduty": "critical",  # optional: severity: critical | error | warning
-    },
 ) as dag:
 
     # Same account — just the ARN
@@ -148,19 +148,19 @@ with DAG(
 
     extract() >> transform() >> load()
 
-# Deploy: slsflow-deploy --stage $STAGE
+# Deploy: polyris-deploy --stage $STAGE
 ```
 
 <details>
 <summary>Advanced: multi-stage pipeline (one file for dev + prod)</summary>
 
 ```python
-from slsflow import DAG, task, config
+from polyris import DAG, task, config
 import os
 
-STAGE = os.environ.get("SLSFLOW_STAGE", "dev")
+STAGE = os.environ.get("POLYRIS_STAGE", "dev")
 
-with DAG("my-pipeline", schedule="@daily", alerts={"slack": "#alerts"}) as dag:
+with DAG("my-pipeline", schedule="@daily") as dag:
 
     # ARN uses STAGE to target correct environment
     @task.sfn(arn=f"arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:myorg-{STAGE}-extract")
@@ -173,65 +173,27 @@ with DAG("my-pipeline", schedule="@daily", alerts={"slack": "#alerts"}) as dag:
 
     extract() >> load()
 
-# Deploy: slsflow-deploy --stage $STAGE
+# Deploy: polyris-deploy --stage $STAGE
 ```
 
-Deploy: `slsflow-deploy --stage dev`
+Deploy: `polyris-deploy --stage dev`
 </details>
 
 
 ### 4. Deploy
 
 ```bash
-slsflow-deploy
+polyris-deploy
 ```
 
 ### 5. Open Console
 
 ```bash
-aws cloudformation describe-stacks --stack-name slsflow-dev --query "Stacks[0].Outputs[?OutputKey=='ConsoleUiUrl'].OutputValue" --output text
+# Replace `polyris-dev` with your stack name (the `stack_name` in samconfig.toml).
+aws cloudformation describe-stacks --stack-name polyris-dev --query "Stacks[0].Outputs[?OutputKey=='ConsoleUiUrl'].OutputValue" --output text
 ```
 
 Pipeline runs daily at midnight, with automatic retries and alerts. Something broken? See [TROUBLESHOOTING.md](docs/operations/TROUBLESHOOTING.md).
-
----
-
-## 🤖 AI Assistant (NEW!)
-
-Generate pipelines with natural language. **100% FREE!**
-
-```bash
-# Install Ollama (one time)
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Run AI assistant
-slsflow-ai
-```
-
-**Example session:**
-```
-You: /generate Daily ETL from S3 to Snowflake with Slack alerts
-
-🤖 Assistant:
-```python
-from slsflow import DAG, task, config
-import os
-
-STAGE = os.environ.get("SLSFLOW_STAGE", "dev")
-
-with DAG("daily-etl", schedule="@daily", alerts={"slack": "#data"}) as dag:
-    @task.sfn(arn=f"arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:myorg-{STAGE}-s3-extract")
-    def extract(): pass
-    
-    @task.sfn(arn=f"arn:aws:states:us-east-1:ACCOUNT_ID:stateMachine:myorg-{STAGE}-snowflake-load")
-    def load(): pass
-    
-    extract() >> load()
-
-# Deploy: slsflow-deploy --stage $STAGE
-```
-
-See [AI_ASSISTANT.md](docs/tools/AI_ASSISTANT.md) for full documentation.
 
 ---
 
@@ -240,7 +202,7 @@ See [AI_ASSISTANT.md](docs/tools/AI_ASSISTANT.md) for full documentation.
 Test pipelines without deploying:
 
 ```python
-from slsflow.local import validate, dry_run, run
+from polyris.local import validate, dry_run, run
 
 # Validate DAG structure
 validate(dag)
@@ -255,31 +217,26 @@ print(result.summary())  # ✅ 3 succeeded, ❌ 0 failed
 
 ---
 
-## Alerts Configuration
+## Alerts
 
-The `alerts` parameter is **required** for every DAG:
+Two layers: **browser notifications** (in-app, automatic, free) and **Slack /
+PagerDuty** (configured in the UI under **Settings → Alerts**, Team tier).
+
+> The old `alerts={...}` DAG argument is **deprecated and ignored** (ADR #103) —
+> remove it. Alert delivery moved out of the DSL into the UI. See
+> [docs/features/alerts.md](docs/features/alerts.md).
 
 ```python
-# Slack only
-with DAG("pipeline", alerts={"slack": "#alerts"}) as dag: ...
-
-# With mentions — tag specific people/groups on failure
-with DAG("pipeline", alerts={"slack": "#alerts", "slack_mentions": ["YOUR_SLACK_USER_ID", "S04ABCDEF"]}) as dag: ...
-
-# PagerDuty only (severity: critical, error, warning, info)
-with DAG("pipeline", alerts={"pagerduty": "critical"}) as dag: ...
-
-# Both Slack and PagerDuty
-with DAG("pipeline", alerts={"slack": "#critical", "pagerduty": "critical"}) as dag: ...
-
-# Explicitly disabled (for test pipelines)
-with DAG("test-pipeline", alerts=None) as dag: ...
+# No alert config in the DAG anymore — just define the pipeline.
+with DAG("pipeline", schedule="@daily") as dag:
+    ...
 ```
 
-`slack_mentions` accepts user IDs (`U...`), user group IDs (`S...`), `"here"`, or `"channel"`.
-If omitted, no default mentions are used.
+Slack channel, mentions, PagerDuty severity, and the webhook / routing key (stored
+as encrypted SSM secrets) are all set per-pipeline in Settings → Alerts. On a
+failure you get an interactive Slack message (Skip / Mark Success / Fail /
+Restart) and/or a PagerDuty incident, plus an in-app notification.
 
----
 
 ## Task Types
 
@@ -362,7 +319,7 @@ Cross-pipeline dependencies without hardcoded references:
 # Producer pipeline
 processed = Asset(name="processed/acme")
 
-with DAG("acme-daily", schedule="@daily", alerts={"slack": "#ch"}) as dag:
+with DAG("acme-daily", schedule="@daily") as dag:
     @task.sfn(arn=..., outlets=[processed])
     def process(): pass
 ```
@@ -371,7 +328,7 @@ with DAG("acme-daily", schedule="@daily", alerts={"slack": "#ch"}) as dag:
 # Consumer pipeline (triggered by asset)
 processed = Asset(name="processed/acme")
 
-with DAG("feeds", schedule=[processed], alerts={"slack": "#ch"}) as dag:
+with DAG("feeds", schedule=[processed]) as dag:
     @task.sfn(arn=...)
     def build_feeds(): pass
 ```
@@ -382,8 +339,7 @@ with DAG("feeds", schedule=[processed], alerts={"slack": "#ch"}) as dag:
 daily_complete = Asset("acme/daily-complete")
 weekly_complete = Asset("acme/weekly-complete")
 
-with DAG("acme-weekly", schedule="cron(0 22 ? * SUN *)",
-         alerts={"slack": "#data-alerts"}) as dag:
+with DAG("acme-weekly", schedule="cron(0 22 ? * SUN *)") as dag:
     @task.sfn(
         arn=...,
         wait_for=[daily_complete.consecutive(days=7)],  # Wait for 7 daily runs
@@ -401,8 +357,8 @@ Access the console at your CloudFront URL. Features:
 | View | Description |
 |------|-------------|
 | **🔀 DAG** | Interactive graph visualization (React Flow) |
-| **📊 Gantt** | Timeline of task execution |
-| **📅 Calendar** | Historical executions by date |
+| **📊 Gantt** *(Team)* | Timeline of task execution |
+| **📅 Calendar** *(Team)* | Historical executions by date |
 | **📦 Assets** | Asset lineage graph |
 | **📋 Tasks** | All task instances across pipelines |
 | **🏃 Runs** | All pipeline runs with filtering |
@@ -413,9 +369,13 @@ Access the console at your CloudFront URL. Features:
 - **Stop** — Force stop running task
 - **Restart** — Retry failed task
 
-### Backfill (v0.78+ — unified seed-driven flow)
+### Backfill *(Team edition)*
 
-Backfill is a first-class operation in slsflow. One endpoint, one orchestrator
+> Backfill is a **Team-tier** capability (ADR #99/#104). The open-source build
+> ships the engine, assets, and lineage; the date-range backfill orchestrator,
+> its Console views, and the `polyris-backfill` CLI ship with the Team edition.
+
+Backfill is a first-class operation. One endpoint, one orchestrator
 SFN, one persisted record (per ADR #51).
 
 **From the UI:**
@@ -428,14 +388,14 @@ SFN, one persisted record (per ADR #51).
 
 **From the CLI:**
 ```bash
-export SLSFLOW_API_URL=https://<console-api>
+export POLYRIS_API_URL=https://<console-api>
 
-slsflow backfill pipeline daily-etl --start 2024-01-15 --end 2024-01-20
-slsflow backfill asset catalog/orders --start 2024-01-15 --end 2024-01-15 --cascade auto
-slsflow backfills list --status active
-slsflow backfills show bf-a1b2c3d4
-slsflow backfills cancel bf-a1b2c3d4
-slsflow backfills retry-failed bf-a1b2c3d4
+polyris-backfill pipeline daily-etl --start 2024-01-15 --end 2024-01-20
+polyris-backfill asset catalog/orders --start 2024-01-15 --end 2024-01-15 --cascade auto
+polyris-backfill list --status active
+polyris-backfill show bf-a1b2c3d4
+polyris-backfill cancel bf-a1b2c3d4
+polyris-backfill retry-failed bf-a1b2c3d4
 ```
 
 **Features:**
@@ -459,38 +419,38 @@ Run from the pipeline directory:
 
 ```bash
 # Validate pipeline
-slsflow-validate
+polyris-validate
 
 # Validate with details
-slsflow-validate -v
+polyris-validate -v
 
 # Validate all pipelines in project
-slsflow-validate --all
+polyris-validate --all
 
 # Generate Step Functions JSON
-slsflow-output --json
+polyris-output --json
 
 # Generate Mermaid diagram
-slsflow-output --mermaid
+polyris-output --mermaid
 
 # Show DAG as ASCII graph
-slsflow-output --graph
+polyris-output --graph
 
 # Deploy pipeline
-slsflow-deploy
-slsflow-deploy --stage prod --profile my-profile
+polyris-deploy
+polyris-deploy --stage prod --profile my-profile
 
 # Register pipeline in DynamoDB (manual)
-slsflow-register --name my-pipeline
+polyris-register --name my-pipeline
 ```
 
-Backfill operations (v0.78+) — configure `SLSFLOW_API_URL`, then:
+Backfill operations *(Team edition — `polyris-backfill` ships with the Team package)* — configure `POLYRIS_API_URL`, then:
 
 ```bash
-slsflow backfill pipeline daily-etl --start 2024-01-15 --end 2024-01-20
-slsflow backfill asset catalog/db/orders --start 2024-01-15 --end 2024-01-15 --cascade auto
-slsflow backfills list --status active
-slsflow backfills show bf-a1b2c3d4
+polyris-backfill pipeline daily-etl --start 2024-01-15 --end 2024-01-20
+polyris-backfill asset catalog/db/orders --start 2024-01-15 --end 2024-01-15 --cascade auto
+polyris-backfill list --status active
+polyris-backfill show bf-a1b2c3d4
 ```
 
 Full reference: [docs/reference/CLI.md](docs/reference/CLI.md)
@@ -512,7 +472,7 @@ Full reference: [docs/reference/CLI.md](docs/reference/CLI.md)
 │   ├── lambdas/                  # 6 Lambda functions
 │   └── sfn_templates/            # 13 SFN template files (16 SFNs total incl. 3 test)
 │
-├── slsflow/                      # Python DSL library
+├── polyris/                      # Python DSL library
 │   ├── dag.py                    # DAG class
 │   ├── task.py                   # Task decorators
 │   ├── assets.py                 # Asset definitions
@@ -552,7 +512,6 @@ See [SETUP_FROM_SCRATCH.md](docs/getting-started/SETUP_FROM_SCRATCH.md) for full
 | [ASSET_PULL_FEATURE.md](docs/features/ASSET_PULL_FEATURE.md) | wait_for / pull-based assets |
 | [authentication.md](docs/features/authentication.md) | Cognito auth setup |
 | [api-tokens.md](docs/features/api-tokens.md) | API tokens (PAT) for scripts/CI |
-| [AI_ASSISTANT.md](docs/tools/AI_ASSISTANT.md) | AI pipeline generation (FREE!) |
 | [LOCAL_TESTING.md](docs/tools/LOCAL_TESTING.md) | Local testing (validate, dry_run, mock) |
 | [REGISTRATION.md](docs/tools/REGISTRATION.md) | Pipeline registration (CLI, auto) |
 | [API.md](docs/operations/API.md) | REST API reference (52 endpoints) |
@@ -562,13 +521,12 @@ See [SETUP_FROM_SCRATCH.md](docs/getting-started/SETUP_FROM_SCRATCH.md) for full
 | [BACKEND.md](docs/architecture/BACKEND.md) | Backend implementation details |
 | [AIRFLOW_MIGRATION.md](docs/reference/AIRFLOW_MIGRATION.md) | Migration from Airflow |
 | [DESIGN_DECISIONS.md](docs/reference/DESIGN_DECISIONS.md) | Key design decisions |
-| [BACKLOG.md](docs/reference/BACKLOG.md) | Feature status and roadmap |
 
 ---
 
 ## Cost Comparison
 
-| | Airflow (MWAA) | slsflow |
+| | Airflow (MWAA) | polyris |
 |---|----------------|---------|
 | **Base cost** | ~$300/month | $0 |
 | **Per pipeline run** | $0 (included) | ~$0.01 |
@@ -584,7 +542,7 @@ See [SETUP_FROM_SCRATCH.md](docs/getting-started/SETUP_FROM_SCRATCH.md) for full
 
 ```bash
 pip install -e .          # pipeline development
-pip install -e ".[dev]"   # slsflow development (adds pytest, ruff, mypy)
+pip install -e ".[dev]"   # polyris development (adds pytest, ruff, mypy)
 ```
 
 ---
@@ -603,4 +561,4 @@ make check   # Lint + sync + test (before PR)
 
 ## License
 
-MIT
+Apache License 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -7,7 +7,6 @@ Domain-specific route handlers. Each module handles one domain:
 - pipelines_info: Pipeline observability (metrics, DAG, logs)
 - tasks: Task operations (retry, skip, fail, mark_success, stop, config)
 - executions: Execution control (stop, pause, resume, extend)
-- assets: Asset management (list, events, trigger, lineage)
 - health: Health checks and metrics
 
 (Team-tier route modules — backfill, notifications, slack, matrix, drift —
@@ -21,12 +20,13 @@ Each route module exports handler functions that:
 """
 
 # Route modules - Phase 2 complete
-from .assets import list_assets
 from .executions import (
-    get_all_runs, get_execution_children, get_execution_parent
+    get_all_runs, get_execution_children, get_execution_parent,
+    stop_execution, pause_execution, resume_execution, extend_pause
 )
 from .tasks import (
-    get_all_tasks, get_task_config, get_task_events
+    get_all_tasks, get_task_config, get_task_events,
+    retry_task, skip_task, fail_task, mark_success, stop_task, restart_task
 )
 from .pipelines_list import (
     list_pipelines, get_pipeline_status, get_pipeline_executions
@@ -38,16 +38,24 @@ from .pipelines_info import get_pipeline_dag
 from .health import health_check, health_check_simple, get_metrics
 
 __all__ = [
-    # assets
-    'list_assets',
     # executions
     'get_all_runs',
     'get_execution_children',
     'get_execution_parent',
+    'stop_execution',
+    'pause_execution',
+    'resume_execution',
+    'extend_pause',
     # tasks
     'get_all_tasks',
     'get_task_config',
     'get_task_events',
+    'retry_task',
+    'skip_task',
+    'fail_task',
+    'mark_success',
+    'stop_task',
+    'restart_task',
     # pipelines
     'list_pipelines',
     'get_pipeline_status',

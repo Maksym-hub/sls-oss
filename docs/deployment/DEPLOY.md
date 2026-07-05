@@ -1,4 +1,4 @@
-# slsflow-deploy — CloudFormation Pipeline Deployment
+# polyris-deploy — CloudFormation Pipeline Deployment
 
 CloudFormation-based pipeline deployment. AWS manages state natively.
 
@@ -10,25 +10,25 @@ CloudFormation-based pipeline deployment. AWS manages state natively.
 ```bash
 # Deploy from pipeline directory (uses config.py defaults)
 cd pipelines/acme/daily
-slsflow-deploy
+polyris-deploy
 
 # Deploy to specific stage
-slsflow-deploy --stage prod
+polyris-deploy --stage prod
 
 # Override AWS profile
-slsflow-deploy --profile my-aws-profile
+polyris-deploy --profile my-aws-profile
 
 # Stage + profile
-slsflow-deploy --stage prod --profile my-aws-profile
+polyris-deploy --stage prod --profile my-aws-profile
 
 # Preview without deploying
-slsflow-deploy --dry-run
+polyris-deploy --dry-run
 
 # Remove pipeline
-slsflow-deploy --destroy
+polyris-deploy --destroy
 
 # Multi-DAG file — deploy specific DAG
-slsflow-deploy --select acme-daily
+polyris-deploy --select acme-daily
 ```
 
 See [CLI.md](../reference/CLI.md) for full options reference.
@@ -46,23 +46,23 @@ State is managed by CloudFormation — create, update, and delete handled automa
 
 1. Shared infra deployed: `sam deploy` (writes SSM parameters)
 2. AWS credentials configured: `aws configure`
-3. slsflow installed: `pip install slsflow`
+3. polyris installed: `pip install polyris`
 
 ## Pipeline file
 
 Standard `dag.py` format:
 
 ```python
-from slsflow import DAG, task
+from polyris import DAG, task
 import os
 
-STAGE = os.environ.get("SLSFLOW_STAGE", "dev")
+STAGE = os.environ.get("POLYRIS_STAGE", "dev")
 
-with DAG("acme-daily", schedule="@daily", alerts={"slack": "#alerts"}) as dag:
+with DAG("acme-daily", schedule="@daily") as dag:
     @task.sfn(arn="arn:aws:states:...")
     def my_task(): pass
     my_task()
 
-# No deploy() call needed — slsflow-deploy reads the DAG automatically
+# No deploy() call needed — polyris-deploy reads the DAG automatically
 ```
 

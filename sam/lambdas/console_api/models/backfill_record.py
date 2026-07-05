@@ -3,13 +3,13 @@
 Moved out of dal/backfills_repo.py in v0.80.0 so the DAL stays
 persistence-only and the domain view (status/counter semantics) lives in
 the models layer. The terminal-status rule itself is owned by
-slsflow.backfill_status (the single authority); this record only adapts a
+polyris.backfill_status (the single authority); this record only adapts a
 DDB item to it.
 """
 from datetime import datetime, timezone
 from typing import Optional
 
-from slsflow.backfill_status import all_map_done, finalize_status
+from polyris.backfill_status import all_map_done, finalize_status
 from constants import BACKFILL_TERMINAL_STATUSES, BACKFILL_ACTIVE_STATUSES
 
 
@@ -45,7 +45,7 @@ class BackfillRecord:
     def target_pipeline(self) -> Optional[str]:
         return self.item.get("target_pipeline")
 
-    # ── Counters (typed; semantics per slsflow.backfill_status) ────────────
+    # ── Counters (typed; semantics per polyris.backfill_status) ────────────
     @property
     def total(self) -> int:
         """To-RUN partition count (excludes skip_completed pre-flight skips)."""

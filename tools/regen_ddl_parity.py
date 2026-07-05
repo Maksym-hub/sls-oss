@@ -7,7 +7,7 @@ must produce byte-identical output for every fixture's `expected` field.
 See ADR #46 for the design.
 
 When to run this script:
-  - You changed `_render_glue_ddl` in `slsflow/assets.py` and want the
+  - You changed `_render_glue_ddl` in `polyris/assets.py` and want the
     fixture to reflect the new output. After regenerating, update the
     TypeScript mirror in `ui/src/utils/ddl-glue.ts` to match — both
     parity tests must pass before merging.
@@ -41,8 +41,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from slsflow import Asset, Column, types as t
-from slsflow.assets import _render_glue_ddl
+from polyris import Asset, Column, types as t
+from polyris.assets import _render_glue_ddl
 
 
 def _col_to_dict(c: Column) -> dict:

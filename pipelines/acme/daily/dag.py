@@ -14,14 +14,14 @@ This pipeline demonstrates:
 - trigger_rule="all_done" for final marker task
 - Cross-pipeline asset dependencies (consumed by acme-feeds)
 """
-from slsflow import DAG, task, Asset, Column, types as t
-from slsflow.config import config
+from polyris import DAG, task, Asset, Column, types as t
+from polyris.config import config
 
 # =============================================================================
 # Test ARNs — replace with your actual Step Function ARNs
 # =============================================================================
-TEST_QUICK = "arn:aws:states:us-east-1:944861944755:stateMachine:test"
-TEST_FAIL  = "arn:aws:states:us-east-1:944861944755:stateMachine:test-fail"
+TEST_QUICK = "arn:aws:states:us-east-1:123456789012:stateMachine:test"
+TEST_FAIL  = "arn:aws:states:us-east-1:123456789012:stateMachine:test-fail"
 
 # =============================================================================
 # Assets - Raw (extracted from source)
@@ -283,7 +283,6 @@ daily_complete = Asset("acme/daily-complete")
 with DAG(
     dag_id="acme-daily",
     schedule="@daily",
-    alerts={"slack": "#data-alerts", "pagerduty": "warning"},
     group="acme",
     description="Acme daily ETL pipeline — extract, stage, transform"
 ) as dag:
@@ -424,4 +423,4 @@ with DAG(
 
     mark_daily_complete([v_match, v_norm, attrs, p_meas, s_clean, dist, quality, clf])
 
-# Deploy: slsflow-deploy
+# Deploy: polyris-deploy

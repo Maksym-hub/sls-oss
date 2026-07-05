@@ -11,7 +11,7 @@ single responsibility and future-proofing.
 
 Table schema (pipeline-tokens):
     PK: execution_name = backfill_id (e.g., "bf-a1b2c3d4")
-    Sentinel: pipeline_name = "_slsflow_bulk_backfill"
+    Sentinel: pipeline_name = "_polyris_bulk_backfill"
     Discriminator: record_type = "backfill"
     GSI: backfill-id-index (PK: backfill_id) — used for child execution lookup
 
@@ -30,7 +30,7 @@ from utils import scan_all, query_all
 # Sentinel value for Backfill record's pipeline_name field. Distinguishes
 # Backfill records from regular pipeline executions. Filtered out by
 # /runs and /executions list endpoints.
-BACKFILL_SENTINEL_PIPELINE_NAME = "_slsflow_bulk_backfill"
+BACKFILL_SENTINEL_PIPELINE_NAME = "_polyris_bulk_backfill"
 
 # Per ADR #51 — RECORD_TTL_DAYS same as executions for consistency.
 BACKFILL_TTL_SECONDS = 30 * 24 * 60 * 60

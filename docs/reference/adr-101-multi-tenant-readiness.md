@@ -3,7 +3,7 @@
 > **Status:** Accepted — direction recorded, mechanism proven by spike. **No code
 > changes.** The entitlement foundation (ADR #98–100) is already the right base for
 > the future multi-tenant SaaS; building tenancy now would be premature structure.
-> A spike showed that in a single deployment with `SLSFLOW_TIER` unset, two tenants
+> A spike showed that in a single deployment with `POLYRIS_TIER` unset, two tenants
 > on different plans gate correctly (enterprise tenant → 200, team tenant → 403,
 > `feature_not_in_plan`) **reusing the same registry, `capabilities_for()`, and
 > `ee/team` vs `ee/enterprise` split** — only the tier *source* changed
@@ -12,8 +12,8 @@
 
 ## Context
 
-Today SLSFlow is **single-tenant**: one deployment serves one customer, the tier
-comes from `SLSFLOW_TIER` (one value per stack, ADR #100), and data is keyed by
+Today Polyris is **single-tenant**: one deployment serves one customer, the tier
+comes from `POLYRIS_TIER` (one value per stack, ADR #100), and data is keyed by
 domain (`pipeline_name`, `execution_name`, `asset_name`) with **no tenant
 partition** in any of the seven tables.
 

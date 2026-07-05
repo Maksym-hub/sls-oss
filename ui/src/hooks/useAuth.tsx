@@ -6,7 +6,7 @@ import { asStringArray } from '@/utils/formatters';
 /**
  * Auth Context and Hooks using AWS Amplify
  * 
- * This module provides authentication state management for the slsflow Console
+ * This module provides authentication state management for the polyris Console
  * using AWS Amplify Auth library with Cognito User Pool.
  * 
  * Features:
@@ -66,15 +66,16 @@ export const AUTH_STATE = {
 // -----------------------------------------------------------------------------
 
 /**
- * Check if auth is enabled in config
+ * Check if auth is enabled.
+ *
+ * Delegates to the single resolver in lib/config (which reads window.CONFIG
+ * first and falls back to NEXT_PUBLIC_AUTH_ENABLED via `??`). This module used
+ * to re-implement the check with a `!== undefined` guard, which treated a
+ * `null` in config.js (the local-dev "fall through to .env" sentinel) as
+ * "defined but not true" and silently disabled auth — diverging from config.ts.
+ * One resolver, one behaviour.
  */
-const isAuthEnabled = () => {
-    // Read lazily from window.CONFIG to ensure it is loaded after config.js
-    if (typeof window !== 'undefined' && window.CONFIG?.AUTH?.enabled !== undefined) {
-        return window.CONFIG.AUTH.enabled === true;
-    }
-    return config.AUTH?.enabled === true;
-};
+const isAuthEnabled = () => config.AUTH?.enabled === true;
 
 /**
  * Extract user info from Amplify user object

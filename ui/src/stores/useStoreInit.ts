@@ -103,6 +103,7 @@ export function useStoreInit({ pipelines }: UseStoreInitOptions) {
         const urlMode = params.get('mode') || urlState.mode;
         store.setDate(urlDate || toDateString(new Date()));
         if (urlMode && isViewMode(urlMode)) store.setViewMode(urlMode);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-once initialization from URL state
         setIsInitialized(true);
     // Mount-only: initialize store from URL state once.
     // eslint-disable-next-line react-hooks/exhaustive-deps

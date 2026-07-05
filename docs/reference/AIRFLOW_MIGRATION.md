@@ -2,11 +2,11 @@
 
 ## Overview
 
-slsflow's DSL deliberately mirrors Airflow's ergonomics (`@task`, `>>`, the
+polyris's DSL deliberately mirrors Airflow's ergonomics (`@task`, `>>`, the
 `DAG()` context), so the *authoring* experience will feel familiar. This guide
-is for teams moving off Airflow — it maps the concepts you know onto slsflow.
+is for teams moving off Airflow — it maps the concepts you know onto polyris.
 
-slsflow is **not** Airflow-compatible, and this is not a drop-in migration. What
+polyris is **not** Airflow-compatible, and this is not a drop-in migration. What
 that means in practice:
 
 - **Carries over:** the mental model and most authoring syntax — DAGs, tasks,
@@ -42,14 +42,13 @@ with DAG(
     ...
 ```
 
-**slsflow:**
+**polyris:**
 ```python
-from slsflow import DAG
+from polyris import DAG
 
 with DAG(
     dag_id='my_pipeline',
-    schedule='@daily',
-    alerts={'slack': '#my-channel'},  # Required!
+    schedule='@daily',  # Required!
     catchup=False,
     default_args={'retries': 2}
 ) as dag:
@@ -57,7 +56,7 @@ with DAG(
 ```
 
 **Key differences:**
-- `alerts` parameter is required
+- alerts are configured in the UI (Settings → Alerts), not the DAG; the old `alerts=` parameter is deprecated
 - `schedule_interval` → `schedule`
 - `start_date` not required (use EventBridge schedule)
 
@@ -74,9 +73,9 @@ def my_task():
     return "result"
 ```
 
-**slsflow:**
+**polyris:**
 ```python
-from slsflow import task
+from polyris import task
 
 @task.sfn(arn="arn:aws:states:...")
 def my_task():
@@ -86,7 +85,7 @@ def my_task():
 **Key differences:**
 - Must specify task type: `@task.sfn`, `@task.lambda_`, `@task.glue`, etc.
 - For SFN tasks, must provide `arn`
-- Task output is automatically passed to downstream tasks via DynamoDB (up to 200KB per task, similar to Airflow XCom)
+- Task output is passed automatically to downstream **`@task.lambda_` and `@task.sfn`** tasks via DynamoDB (similar to Airflow XCom). Service tasks (`glue`/`ecs`/`athena`/`emr`/`batch`) don't receive inline `upstream` — AWS returns only job status, so they exchange data via their own sinks (e.g. S3).
 
 ---
 
@@ -98,7 +97,7 @@ task_a >> task_b >> task_c
 [task_a, task_b] >> task_c
 ```
 
-**slsflow:** Same syntax!
+**polyris:** Same syntax!
 ```python
 task_a >> task_b >> task_c
 [task_a, task_b] >> task_c
@@ -108,7 +107,7 @@ task_a >> task_b >> task_c
 
 ### Operators → Task Types
 
-| Airflow Operator | slsflow Equivalent |
+| Airflow Operator | polyris Equivalent |
 |------------------|-------------------|
 | PythonOperator | `@task.lambda_` |
 | BashOperator | `@task.ecs` or `@task.lambda_` |
@@ -123,7 +122,7 @@ task_a >> task_b >> task_c
 
 ### XCom → Built-in Data Passing
 
-slsflow automatically passes task outputs between dependent tasks via DynamoDB — no extra setup needed.
+polyris passes task outputs to downstream **lambda and SFN** tasks automatically via DynamoDB — no extra setup. Service tasks return job status (not data); pass their results via S3.
 
 **Airflow XCom:**
 ```python
@@ -139,9 +138,9 @@ data = produce()
 consume(data)
 ```
 
-**slsflow (automatic):**
+**polyris (automatic):**
 
-Each downstream task receives an `upstream` object in its input with outputs from all dependencies:
+Each downstream **lambda or SFN** task receives an `upstream` object in its input with outputs from its dependencies (service tasks don't — see note above):
 
 ```python
 # Task A (child SFN) returns:
@@ -194,20 +193,20 @@ wait_for_file = S3KeySensor(
 )
 ```
 
-**slsflow Asset:**
+**polyris Asset:**
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 data_file = Asset('data/daily')
 
 # Producer pipeline
-with DAG('producer', schedule='@daily', alerts={'slack': '#ch'}) as dag:
+with DAG('producer', schedule='@daily') as dag:
     @task.sfn(arn=..., outlets=[data_file])
     def produce():
         pass
 
 # Consumer pipeline (triggered by asset)
-with DAG('consumer', schedule=[data_file], alerts={'slack': '#ch'}) as dag:
+with DAG('consumer', schedule=[data_file]) as dag:
     @task.sfn(arn=...)
     def consume():
         pass
@@ -217,7 +216,7 @@ with DAG('consumer', schedule=[data_file], alerts={'slack': '#ch'}) as dag:
 
 ### Trigger Rules
 
-| Airflow | slsflow | Description |
+| Airflow | polyris | Description |
 |---------|---------|-------------|
 | `all_success` | `all_success` | All deps succeeded (default) |
 | `one_success` | `one_success` | At least one succeeded |
@@ -233,7 +232,7 @@ with DAG('consumer', schedule=[data_file], alerts={'slack': '#ch'}) as dag:
 
 ### Step 1: Identify Task Types
 
-Map your Airflow operators to slsflow task types:
+Map your Airflow operators to polyris task types:
 
 ```python
 # Before: Airflow
@@ -244,7 +243,7 @@ scrape = PythonOperator(
     python_callable=scrape_data
 )
 
-# After: slsflow (using Lambda)
+# After: polyris (using Lambda)
 @task.lambda_(function_name='scrape-function')
 def scrape():
     pass
@@ -281,10 +280,10 @@ with DAG('my_dag', schedule_interval='@daily') as dag:
     t2 = PythonOperator(task_id='task2', python_callable=func2)
     t1 >> t2
 
-# After: slsflow
-from slsflow import DAG, task
+# After: polyris
+from polyris import DAG, task
 
-with DAG('my_dag', schedule='@daily', alerts={'slack': '#ch'}) as dag:
+with DAG('my_dag', schedule='@daily') as dag:
     @task.lambda_(function_name='func1')
     def task1(): pass
     
@@ -297,7 +296,7 @@ with DAG('my_dag', schedule='@daily', alerts={'slack': '#ch'}) as dag:
 
 ### Step 4: Handle Inter-Task Communication
 
-slsflow automatically passes task outputs via DynamoDB. Your child SFN/Lambda just needs to return JSON:
+polyris automatically passes task outputs via DynamoDB. Your child SFN/Lambda just needs to return JSON:
 
 ```python
 # Task 1: Returns output (automatically saved to DynamoDB)
@@ -325,7 +324,7 @@ sensor = ExternalTaskSensor(
     external_task_id='final_task'
 )
 
-# After: slsflow asset
+# After: polyris asset
 upstream_complete = Asset('upstream/complete')
 
 # In upstream DAG
@@ -333,7 +332,7 @@ upstream_complete = Asset('upstream/complete')
 def final_task(): pass
 
 # In downstream DAG
-with DAG('downstream', schedule=[upstream_complete], alerts={'slack': '#ch'}) as dag:
+with DAG('downstream', schedule=[upstream_complete]) as dag:
     ...
 ```
 
@@ -344,11 +343,6 @@ with DAG('downstream', schedule=[upstream_complete], alerts={'slack': '#ch'}) as
 with DAG(
     'my_dag',
     schedule='@daily',
-    alerts={
-        'slack': '#my-channel',
-        'slack_mentions': ['YOUR_SLACK_USER_ID'],  # Optional: tag users/groups
-        'pagerduty': 'critical'  # Optional
-    }
 ) as dag:
     ...
 ```
@@ -357,14 +351,14 @@ with DAG(
 
 ## Feature Comparison
 
-| Feature | Airflow | slsflow |
+| Feature | Airflow | polyris |
 |---------|---------|---------|
 | Cost (idle) | ~$300/month (MWAA) | $0 |
 | Scaling | Manual | Automatic |
 | UI | Built-in | Web Console |
 | Alerting | Callbacks | Slack + PagerDuty |
 | Trigger Rules | ✓ | ✓ |
-| XCom | ✓ | ✓ (via DynamoDB, automatic, up to 200KB) |
+| XCom | ✓ | ✓ lambda & SFN tasks (via DynamoDB); service tasks pass data via S3 |
 | Sensors | ✓ | Asset triggers |
 | Backfill | ✓ | ✓ (with UI) |
 | Pause/Resume | ✓ | ✓ |
@@ -376,11 +370,10 @@ with DAG(
 These Airflow features are not directly supported:
 
 1. **Dynamic task generation** - Use Map state instead
-2. **Task Instance retries** - Configure at task level
-3. **SubDAGs** - Use nested Step Functions
-4. **Pools** - Use Step Functions concurrency limits
-5. **Connections/Hooks** - Use AWS Secrets Manager
-6. **Variables (web UI)** - Use pipeline variables or SSM
+2. **SubDAGs** - Use nested Step Functions
+3. **Pools** - Use Step Functions concurrency limits
+4. **Connections/Hooks** - Use AWS Secrets Manager
+5. **Variables (web UI)** - Use pipeline variables or SSM
 
 ### Built-in Task Variables
 
@@ -443,9 +436,9 @@ with DAG(
     wait >> extract >> transform >> load
 ```
 
-**slsflow DAG:**
+**polyris DAG:**
 ```python
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
 source_data = Asset('source/daily')
 processed_data = Asset('processed/daily')
@@ -453,7 +446,6 @@ processed_data = Asset('processed/daily')
 with DAG(
     'etl_pipeline',
     schedule=[source_data],  # Triggered by asset
-    alerts={'slack': '#etl-alerts'},
     catchup=False
 ) as dag:
     

@@ -71,10 +71,10 @@ describe('useCapabilitiesQuery', () => {
 
 describe('useCan', () => {
   it('grants only capabilities in the set', async () => {
-    mockApi.get.mockResolvedValue({ ok: true, tier: 'team', capabilities: ['backfill', 'execution.controls'] });
+    mockApi.get.mockResolvedValue({ ok: true, tier: 'team', capabilities: ['backfill', 'pipeline.observability'] });
     const { result } = renderHook(() => useCan(), { wrapper: wrapper(makeQc()) });
     await waitFor(() => expect(result.current('backfill')).toBe(true));
-    expect(result.current('execution.controls')).toBe(true);
+    expect(result.current('pipeline.observability')).toBe(true);
     expect(result.current('cost.reporting')).toBe(false); // enterprise cap absent on team
   });
 

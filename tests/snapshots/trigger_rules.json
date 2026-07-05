@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"trigger_rules\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"source\", \"task_type\": \"sfn\", \"dependencies\": []}, {\"task_id\": \"needs_all_done\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}, {\"task_id\": \"needs_one_failed\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}, {\"task_id\": \"needs_none_skipped\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}], \"dag\": {\"nodes\": [{\"id\": \"source\", \"name\": \"source\"}, {\"id\": \"needs_all_done\", \"name\": \"needs_all_done\"}, {\"id\": \"needs_one_failed\", \"name\": \"needs_one_failed\"}, {\"id\": \"needs_none_skipped\", \"name\": \"needs_none_skipped\"}], \"edges\": [{\"from\": \"source\", \"to\": \"needs_all_done\"}, {\"from\": \"source\", \"to\": \"needs_one_failed\"}, {\"from\": \"source\", \"to\": \"needs_none_skipped\"}]}, \"slsflow_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"trigger_rules\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"source\", \"task_type\": \"sfn\", \"dependencies\": []}, {\"task_id\": \"needs_all_done\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}, {\"task_id\": \"needs_one_failed\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}, {\"task_id\": \"needs_none_skipped\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}], \"dag\": {\"nodes\": [{\"id\": \"source\", \"name\": \"source\"}, {\"id\": \"needs_all_done\", \"name\": \"needs_all_done\"}, {\"id\": \"needs_one_failed\", \"name\": \"needs_one_failed\"}, {\"id\": \"needs_none_skipped\", \"name\": \"needs_none_skipped\"}], \"edges\": [{\"from\": \"source\", \"to\": \"needs_all_done\"}, {\"from\": \"source\", \"to\": \"needs_one_failed\"}, {\"from\": \"source\", \"to\": \"needs_none_skipped\"}]}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -77,7 +77,7 @@
     },
     "Check_Register_Only": {
       "Type": "Choice",
-      "Comment": "Skip task execution if register_only=true (used by slsflow-register CLI)",
+      "Comment": "Skip task execution if register_only=true (used by polyris-register CLI)",
       "Choices": [
         {
           "Condition": "{% $states.input.register_only = true %}",
@@ -123,9 +123,7 @@
                   "orchestration_timeout": 86400,
                   "wait_before": 0,
                   "trigger_rule": "all_success",
-                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}",
-                  "alerts": {},
-                  "slack_mentions_formatted": ""
+                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
                 }
               },
               "End": true
@@ -164,9 +162,7 @@
                   "orchestration_timeout": 86400,
                   "wait_before": 0,
                   "trigger_rule": "all_done",
-                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}",
-                  "alerts": {},
-                  "slack_mentions_formatted": ""
+                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
                 }
               },
               "End": true
@@ -205,9 +201,7 @@
                   "orchestration_timeout": 86400,
                   "wait_before": 0,
                   "trigger_rule": "one_failed",
-                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}",
-                  "alerts": {},
-                  "slack_mentions_formatted": ""
+                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
                 }
               },
               "End": true
@@ -246,9 +240,7 @@
                   "orchestration_timeout": 86400,
                   "wait_before": 0,
                   "trigger_rule": "none_skipped",
-                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}",
-                  "alerts": {},
-                  "slack_mentions_formatted": ""
+                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
                 }
               },
               "End": true

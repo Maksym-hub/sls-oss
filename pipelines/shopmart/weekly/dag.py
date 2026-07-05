@@ -7,9 +7,9 @@ This pipeline demonstrates PUSH-BASED cross-pipeline orchestration:
 - The feeds pipeline subscribes to this asset
 - No cron needed on feeds — it starts automatically when this emits
 """
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
-TEST_QUICK = "arn:aws:states:us-east-1:944861944755:stateMachine:test"
+TEST_QUICK = "arn:aws:states:us-east-1:123456789012:stateMachine:test"
 
 daily_complete  = Asset("shopmart/daily-complete")
 weekly_complete = Asset("shopmart/weekly-complete")
@@ -17,7 +17,6 @@ weekly_complete = Asset("shopmart/weekly-complete")
 with DAG(
     dag_id="shopmart-weekly",
     schedule="cron(0 22 ? * SUN *)",
-    alerts={"slack": "#data-alerts"},
     group="shopmart",
     description="Shopmart weekly — waits for 7 consecutive daily completions"
 ) as dag:
@@ -33,4 +32,4 @@ with DAG(
 
     mark_weekly_complete()
 
-# Deploy: slsflow-deploy
+# Deploy: polyris-deploy

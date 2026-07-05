@@ -1,6 +1,6 @@
 # Development Scripts
 
-Utility commands for maintaining and validating the slsflow codebase.
+Utility commands for maintaining and validating the polyris codebase.
 
 ---
 
@@ -153,14 +153,14 @@ All tests run automatically on push/PR to main via GitHub Actions (`.github/work
 ### Python Syntax
 
 ```bash
-python -m py_compile slsflow/*.py
+python -m py_compile polyris/*.py
 python -m py_compile sam/lambdas/**/*.py
 ```
 
 ### Type Checking (optional)
 
 ```bash
-mypy slsflow/ --ignore-missing-imports
+mypy polyris/ --ignore-missing-imports
 ```
 
 ### JavaScript Linting (optional)

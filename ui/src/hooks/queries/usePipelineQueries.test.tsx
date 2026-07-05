@@ -5,7 +5,6 @@ import {
     usePipelinesQuery,
     usePipelineDetailQuery,
     usePipelineExecutionsQuery,
-    usePipelineMetricsQuery,
 } from './usePipelineQueries';
 
 // Mock api
@@ -175,31 +174,5 @@ describe('usePipelineExecutionsQuery', () => {
         
         expect(api.get).toHaveBeenCalledWith('/pipeline-executions?name=test-pipeline&date=2024-01-15');
         expect(result.current.data).toEqual(mockExecutions);
-    });
-});
-
-describe('usePipelineMetricsQuery', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-    });
-
-    it('should fetch metrics', async () => {
-        const mockMetrics = [
-            { name: 'duration', value: 120 },
-            { name: 'success_rate', value: 0.95 },
-        ];
-        api.get.mockResolvedValue({ metrics: mockMetrics });
-        
-        const { result } = renderHook(
-            () => usePipelineMetricsQuery('test-pipeline'),
-            { wrapper: createWrapper() }
-        );
-        
-        await waitFor(() => {
-            expect(result.current.isSuccess).toBe(true);
-        });
-        
-        expect(api.get).toHaveBeenCalledWith('/pipeline-metrics?name=test-pipeline');
-        expect(result.current.data).toEqual(mockMetrics);
     });
 });

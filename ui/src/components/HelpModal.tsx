@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { getApiUrl } from '@/lib/config';
 import { BaseModal, ModalHeader, ModalBody, ModalFooter } from './BaseModal';
-import { useKeyboardShortcuts, SHORTCUTS } from '@/hooks';
+import { useKeyboardShortcuts } from '@/hooks';
+import { paidSurface } from '@/ee-active.generated';
 import {
     BookOpen,
     Keyboard,
@@ -146,8 +147,8 @@ function KeyboardShortcutsTab() {
             title: 'Pipeline view modes',
             items: [
                 { key: 'D', action: 'Switch to DAG view' },
-                { key: 'G', action: 'Switch to Gantt view' },
-                { key: 'C', action: 'Switch to Calendar view' },
+                { key: 'G', action: 'Switch to Gantt view (Team)' },
+                { key: 'C', action: 'Switch to Calendar view (Team)' },
             ],
         },
         {
@@ -377,6 +378,12 @@ function IconsLegendTab() {
 function BackfillDocsTab() {
     return (
         <div className="hm-backfill-docs">
+            <div className="hm-help-section hm-help-section--note">
+                <p><strong>Team edition.</strong> Backfill is a Team-tier feature.
+                The open-source build ships the engine, assets, and lineage; the
+                backfill orchestrator, its views, and the <code>polyris-backfill</code>
+                CLI are part of the Team edition.</p>
+            </div>
             <div className="hm-help-section">
                 <h4>What is Backfill?</h4>
                 <p>Backfill rebuilds a pipeline or asset across a range of partitions (typically dates).
@@ -550,7 +557,7 @@ function CopyBlock({ children }: { children: React.ReactNode }) {
  * is on (ADR #65). The examples below are authored WITHOUT it and the header is
  * injected centrally here, so it is shown on all ~25 of them and can never drift
  * out of sync across copies (Principle #1). Examples reference `$API_TOKEN` —
- * the user exports it once (`export API_TOKEN=slsf_…`) so every example is
+ * the user exports it once (`export API_TOKEN=plrs_…`) so every example is
  * copy-paste runnable. Idempotent: skips injection if an Authorization header is
  * already present, and leaves non-curl strings untouched.
  */
@@ -606,11 +613,15 @@ function ApiReferenceTab() {
                 <CopyBlock>{BASE}</CopyBlock>
                 <p className="hm-help-note mt-2">
                     {isPlaceholder && <>Replace <code>{'{api-id}'}</code> with your API Gateway ID. </>}
-                    The <code>/dev</code> stage is part of the URL. All requests require a valid
-                    token (Cognito or a PAT) in the <code>Authorization</code> header — the examples
-                    use <code>$API_TOKEN</code>, so export it once:{' '}
-                    <code>export API_TOKEN=slsf_…</code> (create a PAT under your menu →
-                    Settings → API Tokens). Click any endpoint to see a full curl example.
+                    The <code>/dev</code> stage is part of the URL. An{' '}
+                    <code>Authorization</code> header is required only when the API runs
+                    with <code>AUTH_ENABLED=true</code>; the examples use{' '}
+                    <code>$API_TOKEN</code>, so export it once:{' '}
+                    <code>export API_TOKEN=…</code>.{' '}
+                    {paidSurface.ApiTokensSection
+                        ? <>Create a PAT (<code>plrs_…</code>) under your menu → Settings → API Tokens, or use a Cognito access token.</>
+                        : <>Use a Cognito access token (personal access tokens are a Team-edition feature).</>}
+                    {' '}Click any endpoint to see a full curl example.
                 </p>
             </div>
             
@@ -630,9 +641,6 @@ function ApiReferenceTab() {
                     />
                     <ApiEndpointDetail method="GET" path="/api/pipeline-executions?name=X&date=Y" desc="List SFN executions for date"
                         example={`curl "${BASE}/api/pipeline-executions?name=acme-daily&date=2026-02-17"`}
-                    />
-                    <ApiEndpointDetail method="GET" path="/api/pipeline-metrics?name=X" desc="Get pipeline duration metrics"
-                        example={`curl "${BASE}/api/pipeline-metrics?name=acme-daily"`}
                     />
                     <ApiEndpointDetail method="GET" path="/api/pipeline-logs?name=X" desc="Get recent pipeline logs"
                         example={`curl "${BASE}/api/pipeline-logs?name=acme-daily"`}

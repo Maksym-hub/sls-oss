@@ -1,16 +1,19 @@
 /**
  * SettingsModal — container for user/account settings, opened from UserMenu.
  *
- * Settings are organised into sections shown in a left sidebar. Today there is
- * one section (API Tokens); the SECTIONS array is the single place to register
- * more (appearance, notifications, …) — add an entry and it appears in the nav
- * with no other wiring. Each section renders its own self-contained component.
+ * Settings are organised into sections shown in a left sidebar. Decision Timeout
+ * is a free section present in every build (it self-gates to read-only off Team);
+ * API Tokens and Alerts are Team-tier and come from the paid surface (absent in
+ * the OSS build, ADR #99). The SECTIONS array is the single place to register more
+ * — add an entry and it appears in the nav with no other wiring. Each section
+ * renders its own self-contained component.
  */
 
 import React, { useState } from 'react';
 import { BaseModal, ModalHeader, ModalFooter } from './BaseModal';
 import { paidSurface } from '@/ee-active.generated';
-import { KeyRound, Settings } from 'lucide-react';
+import { KeyRound, Settings, Bell, Clock } from 'lucide-react';
+import { DecisionTimeoutSection } from './DecisionTimeoutSection';
 
 interface SettingsSection {
     id: string;
@@ -22,14 +25,31 @@ interface SettingsSection {
 // Team-tier sections come from the EE surface (absent in the OSS build, ADR #99).
 // Register any free settings sections here directly; order = sidebar order.
 const ApiTokensSection = paidSurface.ApiTokensSection;
+const AlertsSection = paidSurface.AlertsSection;
 
 const SECTIONS: SettingsSection[] = [
+    // Free: present in every build. The section self-gates editing to Team
+    // (read-only with a hint in OSS) — see DecisionTimeoutSection / ADR #103 1b.
+    {
+        id: 'decision-timeout',
+        label: 'Decision Timeout',
+        icon: <Clock size={16} />,
+        render: () => <DecisionTimeoutSection />,
+    },
     ...(ApiTokensSection
         ? [{
               id: 'tokens',
               label: 'API Tokens',
               icon: <KeyRound size={16} />,
               render: () => <ApiTokensSection />,
+          }]
+        : []),
+    ...(AlertsSection
+        ? [{
+              id: 'alerts',
+              label: 'Alerts',
+              icon: <Bell size={16} />,
+              render: () => <AlertsSection />,
           }]
         : []),
 ];

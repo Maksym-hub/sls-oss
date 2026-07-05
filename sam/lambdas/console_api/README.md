@@ -1,6 +1,6 @@
 # Console API
 
-Pipeline management API for slsflow orchestration system.
+Pipeline management API for polyris orchestration system.
 
 ## Structure
 

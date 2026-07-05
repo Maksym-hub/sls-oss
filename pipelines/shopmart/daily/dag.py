@@ -8,10 +8,10 @@ This pipeline demonstrates:
 - Multiple parallel extraction tasks
 - Asset-based lineage across the full pipeline
 """
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
-TEST_QUICK = "arn:aws:states:us-east-1:944861944755:stateMachine:test"
-TEST_FAIL  = "arn:aws:states:us-east-1:944861944755:stateMachine:test-fail"
+TEST_QUICK = "arn:aws:states:us-east-1:123456789012:stateMachine:test"
+TEST_FAIL  = "arn:aws:states:us-east-1:123456789012:stateMachine:test-fail"
 
 # Raw
 listings_raw = Asset("shopmart/listings_raw", extra={"type": "scraped"})
@@ -48,7 +48,6 @@ daily_complete = Asset("shopmart/daily-complete")
 with DAG(
     dag_id="shopmart-daily",
     schedule="@daily",
-    alerts={"slack": "#data-alerts"},
     group="shopmart",
     description="Shopmart daily ETL pipeline"
 ) as dag:
@@ -167,4 +166,4 @@ with DAG(
 
     mark_daily_complete([v_match, v_norm, attrs, p_meas, s_clean, dist, quality, clf])
 
-# Deploy: slsflow-deploy
+# Deploy: polyris-deploy

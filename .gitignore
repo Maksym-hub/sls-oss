@@ -1,5 +1,5 @@
 # =============================================================================
-# slsflow .gitignore
+# polyris .gitignore
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -119,4 +119,7 @@ logs/
 *.pem
 *.key
 secrets.json
+
+# Deploy config carries inline secrets — only the sanitized .example is tracked.
+sam/samconfig.toml
 

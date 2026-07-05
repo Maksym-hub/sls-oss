@@ -6,7 +6,7 @@ to ensure consistency across all Lambda functions and API routes.
 
 v0.80.0 (ADR #83) — TaskStatus / TriggerRule / PipelineStatus / BackfillStatus
 / AssetOperator and the TASK_* / BACKFILL_* status sets are the single-source,
-codegen-generated definitions (from slsflow/constants.py), re-exported here.
+codegen-generated definitions (from polyris/constants.py), re-exported here.
 The previous hand-maintained copies were an unguarded SSoT duplicate (the
 drift check only validates constants_generated); their dead console-only
 extras (TriggerRule.DEFAULT/EARLY_TRIGGER/WAIT_ALL, PipelineStatus.PAUSED/
@@ -117,7 +117,7 @@ class BackfillLimits:
 # Sentinel pipeline_name for Backfill records in the pipeline-tokens table.
 # Backfill records share the table with executions; this sentinel + record_type
 # discriminator (per ADR #51) keeps them filtered out of execution queries.
-BACKFILL_SENTINEL_PIPELINE_NAME = '_slsflow_bulk_backfill'
+BACKFILL_SENTINEL_PIPELINE_NAME = '_polyris_bulk_backfill'
 
 
 # ──────────────────────────────────────────────────────────────────────────────

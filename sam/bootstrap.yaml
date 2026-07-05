@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  SLSFlow Release Infrastructure — deploy once to set up CI/CD pipeline.
+  Polyris Release Infrastructure — deploy once to set up CI/CD pipeline.
   Creates: GitHub OIDC provider, IAM release role, public S3 releases bucket.
 
 # =============================================================================
@@ -15,12 +15,12 @@ Parameters:
   GitHubRepo:
     Type: String
     Description: GitHub repository name
-    Default: slsflow
+    Default: polyris
 
   ReleasesBucketName:
     Type: String
     Description: Name for the public S3 bucket that stores releases
-    Default: slsflow-releases
+    Default: polyris-releases
 
 # =============================================================================
 # Resources
@@ -69,7 +69,7 @@ Resources:
         - Key: ManagedBy
           Value: cloudformation
         - Key: Purpose
-          Value: slsflow-releases
+          Value: polyris-releases
 
   ReleasesBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -91,8 +91,8 @@ Resources:
   GitHubReleaseRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: slsflow-github-release
-      Description: Assumed by GitHub Actions via OIDC to publish SLSFlow releases
+      RoleName: polyris-github-release
+      Description: Assumed by GitHub Actions via OIDC to publish Polyris releases
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -109,7 +109,7 @@ Resources:
                   - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/tags/*"
                   - !Sub "repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main"
       Policies:
-        - PolicyName: SLSFlowReleasePolicy
+        - PolicyName: PolyrisReleasePolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -154,7 +154,7 @@ Resources:
         - Key: ManagedBy
           Value: cloudformation
         - Key: Purpose
-          Value: slsflow-github-release
+          Value: polyris-github-release
 
 # =============================================================================
 # Outputs
@@ -162,7 +162,7 @@ Resources:
 Outputs:
 
   ReleasesBucketName:
-    Description: S3 bucket for SLSFlow releases
+    Description: S3 bucket for Polyris releases
     Value: !Ref ReleasesBucket
 
   ReleasesBucketArn:

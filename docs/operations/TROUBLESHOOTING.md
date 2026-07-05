@@ -1,9 +1,9 @@
 # Troubleshooting Guide
 
-Common issues and solutions for slsflow operations.
+Common issues and solutions for polyris operations.
 
 > **API auth (`AUTH_ENABLED=true`):** every API call below except `/api/health*`
-> and `/api/metrics` needs `-H "Authorization: Bearer <token>"` (a PAT `slsf_…`
+> and `/api/metrics` needs `-H "Authorization: Bearer <token>"` (a PAT `plrs_…`
 > or a Cognito token). The `curl` examples omit it for brevity. A **401
 > Unauthorized** means a missing/expired/revoked token — regenerate or revoke
 > via the Console (avatar → API Tokens). See `docs/features/api-tokens.md`.
@@ -12,7 +12,7 @@ Common issues and solutions for slsflow operations.
 
 ## Pipeline Issues
 
-> **Note:** Table names follow the pattern `{namespace}-{stage}-slsflow-{table}`.
+> **Note:** Table names follow the pattern `{namespace}-{stage}-polyris-{table}`.
 > Replace `${NAMESPACE}` and `${STAGE}` with your actual values (e.g., `mycompany-dev`).
 
 
@@ -23,7 +23,7 @@ Common issues and solutions for slsflow operations.
 **Check:**
 1. EventBridge rule exists and is enabled:
    ```bash
-   aws events list-rules --name-prefix "slsflow"
+   aws events list-rules --name-prefix "polyris"
    aws events describe-rule --name "your-pipeline-schedule"
    ```
 
@@ -35,11 +35,11 @@ Common issues and solutions for slsflow operations.
 3. Pipeline is registered:
    ```bash
    aws dynamodb get-item \
-     --table-name ${NAMESPACE}-${STAGE}-slsflow-pipeline-registry \
+     --table-name ${NAMESPACE}-${STAGE}-polyris-pipeline-registry \
      --key '{"pipeline_name": {"S": "your-pipeline"}}'
    ```
 
-**Fix:** Re-deploy pipeline with `slsflow-deploy` or manually enable rule in AWS Console.
+**Fix:** Re-deploy pipeline with `polyris-deploy` or manually enable rule in AWS Console.
 
 ---
 
@@ -76,7 +76,7 @@ curl -X POST https://api.example.com/api/execution-stop?id={arn}
 2. **Subscription exists** in DynamoDB:
    ```bash
    aws dynamodb scan \
-     --table-name ${NAMESPACE}-${STAGE}-slsflow-dep-subscriptions \
+     --table-name ${NAMESPACE}-${STAGE}-polyris-dep-subscriptions \
      --filter-expression "contains(subscriber_name, :task)" \
      --expression-attribute-values '{":task": {"S": "your-task"}}'
    ```
@@ -153,24 +153,24 @@ curl -X POST https://api.example.com/api/execution-stop?id={arn}
 
 ### Pipeline not in UI after deploy
 
-**Symptoms:** Deployed with `slsflow-deploy` but pipeline doesn't appear in sidebar.
+**Symptoms:** Deployed with `polyris-deploy` but pipeline doesn't appear in sidebar.
 
 **Check:**
-1. `slsflow-deploy` output shows `PipelineRegistration` created:
+1. `polyris-deploy` output shows `PipelineRegistration` created:
    ```
-   +  slsflow:PipelineRegistration  my-pipeline-reg  created (2s)
+   +  polyris:PipelineRegistration  my-pipeline-reg  created (2s)
    ```
 
 2. Pipeline exists in registry:
    ```bash
    aws dynamodb get-item \
-     --table-name ${NAMESPACE}-${STAGE}-slsflow-pipeline-registry \
+     --table-name ${NAMESPACE}-${STAGE}-polyris-pipeline-registry \
      --key '{"pipeline_name": {"S": "my-pipeline"}}'
    ```
 
 **Fix:**
-- If PipelineRegistration failed: `slsflow-deploy` again (retry)
-- If registration missing: `slsflow-register --name my-pipeline`
+- If PipelineRegistration failed: `polyris-deploy` again (retry)
+- If registration missing: `polyris-register --name my-pipeline`
 - Legacy environments without Dynamic Provider: wait 1-5 min for EventBridge auto-registration
 
 ---
@@ -183,7 +183,7 @@ curl -X POST https://api.example.com/api/execution-stop?id={arn}
 1. **Asset subscription exists**:
    ```bash
    aws dynamodb query \
-     --table-name ${NAMESPACE}-${STAGE}-slsflow-asset-subscriptions \
+     --table-name ${NAMESPACE}-${STAGE}-polyris-asset-subscriptions \
      --key-condition-expression "asset_name = :asset" \
      --expression-attribute-values '{":asset": {"S": "your-asset"}}'
    ```
@@ -191,7 +191,7 @@ curl -X POST https://api.example.com/api/execution-stop?id={arn}
 2. **Asset event was emitted**:
    ```bash
    aws dynamodb query \
-     --table-name ${NAMESPACE}-${STAGE}-slsflow-asset-events \
+     --table-name ${NAMESPACE}-${STAGE}-polyris-asset-events \
      --key-condition-expression "asset_name = :asset" \
      --expression-attribute-values '{":asset": {"S": "your-asset"}}' \
      --scan-index-forward false \
@@ -201,7 +201,7 @@ curl -X POST https://api.example.com/api/execution-stop?id={arn}
 3. **For AND triggers** — check queued events:
    ```bash
    aws dynamodb query \
-     --table-name ${NAMESPACE}-${STAGE}-slsflow-queued-asset-events \
+     --table-name ${NAMESPACE}-${STAGE}-polyris-queued-asset-events \
      --key-condition-expression "dag_id_date = :key" \
      --expression-attribute-values '{":key": {"S": "your-dag#2026-01-15"}}'
    ```
@@ -225,26 +225,6 @@ curl -X POST https://api.example.com/api/execution-stop?id={arn}
 
 ## Deployment Issues
 
-### "alerts parameter is required"
-
-Every DAG needs alerts configuration:
-
-```python
-# Option 1: Slack alerts (recommended)
-with DAG("pipeline", alerts={"slack": "#your-channel"}) as dag:
-    ...
-
-# Option 2: PagerDuty
-with DAG("pipeline", alerts={"pagerduty": "routing-key"}) as dag:
-    ...
-
-# Option 3: Explicitly disable (not recommended for production)
-with DAG("test-pipeline", alerts=None) as dag:
-    ...
-```
-
----
-
 ### "SSM parameter not found" error
 
 **Symptoms:** Pipeline deployment fails reading SSM parameters.
@@ -254,7 +234,7 @@ with DAG("test-pipeline", alerts=None) as dag:
    ```bash
    cd sam
    # (set Stage=dev in samconfig.toml)
-   aws cloudformation describe-stacks --stack-name slsflow-dev --query "Stacks[0].Outputs"
+   aws cloudformation describe-stacks --stack-name polyris-dev --query "Stacks[0].Outputs"
    ```
 
 2. Run `sam deploy` first to write SSM parameters:
@@ -269,7 +249,7 @@ with DAG("test-pipeline", alerts=None) as dag:
 ---
 
 
-**Symptoms:** `slsflow-deploy` fails with "stack already exists".
+**Symptoms:** `polyris-deploy` fails with "stack already exists".
 
 **Fix:**
 ```bash
@@ -386,7 +366,7 @@ curl -X POST https://api.example.com/api/pipeline-run?name={name} \
 ```bash
 # List paused
 aws dynamodb scan \
-  --table-name ${NAMESPACE}-${STAGE}-slsflow-pipeline-registry \
+  --table-name ${NAMESPACE}-${STAGE}-polyris-pipeline-registry \
   --filter-expression "paused = :true" \
   --expression-attribute-values '{":true": {"BOOL": true}}'
 
@@ -398,7 +378,7 @@ curl -X POST https://api.example.com/api/execution-resume?id={id}
 
 ## Common Setup Errors
 
-### `ModuleNotFoundError: No module named 'slsflow'`
+### `ModuleNotFoundError: No module named 'polyris'`
 
 
 ```yaml
@@ -424,20 +404,3 @@ ENVIRONMENTS = {
 }
 ```
 
-### `ValueError: DAG 'X': 'alerts' parameter is required`
-
-Every DAG must have an `alerts` parameter. Use `alerts=None` to explicitly disable:
-
-```python
-with DAG("my-pipeline", schedule="@daily", alerts={"slack": "#alerts"}) as dag: ...
-with DAG("my-pipeline", schedule="@daily", alerts=None) as dag: ...  # No alerts
-```
-
----
-
-## Getting Help
-
-- **Logs:** CloudWatch Logs → `/aws/lambda/slsflow-*`
-- **Executions:** Step Functions Console → State Machines
-- **Data:** DynamoDB Console → Tables starting with `slsflow-`
-- **Slack:** #slsflow-support

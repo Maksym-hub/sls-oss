@@ -1,8 +1,8 @@
-# slsflow Python DSL Reference
+# polyris Python DSL Reference
 
 ## Overview
 
-slsflow provides a Python DSL for defining data pipelines that compile to AWS
+polyris provides a Python DSL for defining data pipelines that compile to AWS
 Step Functions. The DSL borrows Airflow's ergonomics — `@task`, the `>>`
 dependency operator, and a `DAG()` context manager — so it feels familiar if
 you've used Airflow. It is *not* Airflow-compatible: pipelines run on Step
@@ -14,12 +14,11 @@ do not carry over.
 ## DAG Definition
 
 ```python
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
 with DAG(
     dag_id="my-pipeline",
     schedule="@daily",
-    alerts={"slack": "#alerts"},  # Required!
     description="My data pipeline",
     tags=["production", "etl"],
     variables={
@@ -35,7 +34,7 @@ with DAG(
 |-----------|------|----------|-------------|
 | `dag_id` | str | Yes | Unique pipeline identifier |
 | `schedule` | str/Asset/list | No | Schedule: cron, preset, or assets |
-| `alerts` | dict/None | **Yes** | Alert configuration (see below) |
+| `alerts` | dict/None | No | **Deprecated** (ADR #103) — ignored; configure alerts in Settings → Alerts |
 | `description` | str | No | Human-readable description |
 | `tags` | list | No | Tags for organization |
 | `variables` | dict | No | Pipeline variables |
@@ -53,13 +52,11 @@ from datetime import timedelta
 with DAG(
     "my-pipeline",
     schedule="@daily",
-    alerts={"slack": "#alerts"},
     default_args={
         "retries": 2,
         "retry_delay": timedelta(minutes=10),
         "execution_timeout": timedelta(hours=4),
         "orchestration_timeout": timedelta(hours=12),  # Wait for deps up to 12h
-        "slack_channel": "#data-alerts",
     }
 ) as dag:
     # All tasks inherit these defaults unless overridden
@@ -67,41 +64,20 @@ with DAG(
     def fragile_task(): pass
 ```
 
-### Alerts Configuration (Required!)
+### Alerts Configuration
 
-```python
-# Slack only
-alerts={"slack": "#my-channel"}
-
-# PagerDuty only (severity: critical, error, warning, info)
-alerts={"pagerduty": "critical"}
-
-# Both
-alerts={"slack": "#alerts", "pagerduty": "error"}
-
-# With mentions — tag specific people/groups on failure
-alerts={
-    "slack": "#alerts",
-    "slack_mentions": ["YOUR_SLACK_USER_ID", "S04ABCDEF"]  # user ID + user group ID
-}
-
-# Explicitly disabled (for test pipelines)
-alerts=None
-```
-
-**`slack_mentions` format:**
-- User ID: `"YOUR_SLACK_USER_ID"` or `"@YOUR_SLACK_USER_ID"` → tags `<@YOUR_SLACK_USER_ID>` in Slack
-- User group: `"S04ABCDEF"` or `"@S04ABCDEF"` → tags `<!subteam^S04ABCDEF>` in Slack
-- Special: `"here"` → `@here`, `"channel"` → `@channel`
-
-If `slack_mentions` is omitted, no default mentions are used.
-
-**Forgetting alerts will raise an error:**
-```
-ValueError: DAG 'my-pipeline': 'alerts' parameter is required.
-```
-
----
+> **Deprecated (ADR #103).** The `alerts=` argument is no longer used. It is
+> accepted for one release with a `DeprecationWarning` and then ignored — remove
+> it from your DAGs. Alert delivery moved out of the DSL:
+>
+> - **Browser notifications** (in-app) are automatic and free — no setup.
+> - **Slack / PagerDuty** are configured per-pipeline in the UI under
+>   **Settings → Alerts** (Team tier), not in code. There you set the channel,
+>   mentions, severity, channel mode, and the webhook / routing key (stored as
+>   SSM secrets — only the parameter name is kept in the registry).
+>
+> Old DAGs that still pass `alerts={...}` keep importing; the argument is dropped
+> at parse time with a warning. See the Settings → Alerts how-to for the new flow.
 
 ## Schedule Options
 
@@ -124,7 +100,7 @@ DAG(schedule="rate(1 day)")
 ### Asset-Based (Cross-Pipeline Triggers)
 
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 asset_a = Asset("processed/acme")
 asset_b = Asset("processed/ulta")
@@ -169,8 +145,7 @@ def my_task():
 ```python
 @task.lambda_(
     function_name="my-function",
-    payload={"key": "value"},
-    invocation_type="RequestResponse"
+    payload={"key": "value"}
 )
 def process_data():
     pass
@@ -195,9 +170,10 @@ def etl_job():
 @task.ecs(
     cluster="my-cluster",
     task_definition="my-task:1",
-    launch_type="FARGATE",
+    launch_type="FARGATE",          # FARGATE requires at least one subnet
     subnets=["subnet-xxx"],
     security_groups=["sg-xxx"],
+    assign_public_ip="ENABLED",     # ENABLED for a public subnet without a NAT gateway
     container_overrides={
         "containerOverrides": [{
             "name": "main",
@@ -208,6 +184,9 @@ def etl_job():
 def container_job():
     pass
 ```
+
+`NetworkConfiguration` is sent only when `subnets` are provided; EC2 launch type
+with `bridge`/`host` networking can omit them.
 
 ### Athena Task
 
@@ -221,6 +200,10 @@ def container_job():
 def run_query():
     pass
 ```
+
+Omit `output_location` to use the workgroup's enforced output location — the
+wrapper then omits `ResultConfiguration` rather than sending an empty
+`OutputLocation` (which `StartQueryExecution` rejects).
 
 ### EMR Task
 
@@ -262,7 +245,10 @@ def batch_job():
 | `execution_timeout` | timedelta | 24 hours | Max task execution time |
 | `orchestration_timeout` | timedelta | same as execution_timeout | Max time waiting for dependencies |
 | `retries` | int | 0 | Number of retry attempts |
-| `retry_delay` | timedelta | 5 minutes | Delay between retries |
+| `retry_delay` | timedelta | 5 minutes | Delay between retries (base delay when backoff is on) |
+| `retry_exponential_backoff` | bool | False | Double the wait each retry: `min(retry_delay·2^n, max_retry_delay)` |
+| `max_retry_delay` | timedelta | none (3600s cap) | Ceiling for exponential backoff |
+| `retry_jitter` | bool | False | Randomise each wait into `[base/2, base)` (avoids retry stampede) |
 | `wait_before` | int | 0 | Wait N seconds before executing |
 | `trigger_rule` | str | "all_success" | When to trigger task (see table below) |
 | `role` | str | "same" | Cross-account role: 'acq', 'etl', 'same' |
@@ -270,7 +256,6 @@ def batch_job():
 | `inlets` | list | [] | Assets consumed by this task |
 | `wait_for` | list | [] | Assets to wait for: `[asset]`, `[asset.within(hours=24)]`, `[asset.consecutive(days=7)]` |
 | `skip_on_backfill` | bool | False | Skip this task by default during backfill |
-| `slack_channel` | str | - | Override DAG's Slack channel |
 
 ```python
 from datetime import timedelta
@@ -293,7 +278,7 @@ def my_task():
 
 ## Trigger Rules
 
-> **Full Airflow parity** — slsflow supports all 11 trigger rules from Apache Airflow.
+> **Full Airflow parity** — polyris supports all 11 trigger rules from Apache Airflow.
 > This is unique among serverless orchestrators; Prefect and Dagster have no equivalent.
 
 | Rule | Description | Use Case |
@@ -413,7 +398,7 @@ aggregate(a, b, c)
 ### Definition
 
 ```python
-from slsflow import Asset
+from polyris import Asset
 
 # Simple asset
 processed = Asset(name="processed/acme")
@@ -446,7 +431,6 @@ def process_data():
 with DAG(
     "feeds",
     schedule=[processed],  # Triggered when processed is ready
-    alerts={"slack": "#alerts"}
 ) as dag:
     ...
 ```
@@ -460,7 +444,6 @@ with DAG(
 ```python
 with DAG(
     "my-pipeline",
-    alerts={"slack": "#alerts"},
     variables={
         "current_date": "{% $substringBefore($now(), 'T') %}",
         "environment": "prod"
@@ -491,10 +474,10 @@ When running backfill, these variables are auto-generated:
 ## Complete Example
 
 ```python
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 import os
 
-STAGE = os.environ.get("SLSFLOW_STAGE", "dev")
+STAGE = os.environ.get("POLYRIS_STAGE", "dev")
 
 # Assets
 raw_data = Asset("raw/acme", group="acme")
@@ -503,7 +486,6 @@ processed = Asset("processed/acme", group="acme")
 with DAG(
     dag_id="acme-etl",
     schedule="@daily",
-    alerts={"slack": "#acme-alerts", "pagerduty": "error"},
     description="Acme ETL pipeline",
     tags=["production", "acme"]
 ) as dag:
@@ -546,7 +528,7 @@ with DAG(
     notify(t)
 
 # Deploy
-# Deploy: slsflow-deploy --stage $STAGE
+# Deploy: polyris-deploy --stage $STAGE
 ```
 
 ---
@@ -557,23 +539,23 @@ Run these from the pipeline directory:
 
 ```bash
 # Validate pipeline
-slsflow-validate
+polyris-validate
 
 # Validate with details
-slsflow-validate -v
+polyris-validate -v
 
 # Generate Step Functions JSON
-slsflow-output --json
+polyris-output --json
 
 # Generate Mermaid diagram
-slsflow-output --mermaid
+polyris-output --mermaid
 
 # Show DAG as ASCII graph
-slsflow-output --graph
+polyris-output --graph
 
 # Generate asset registry JSON
-slsflow-output --assets
+polyris-output --assets
 
 # Deploy
-slsflow-deploy --stage dev
+polyris-deploy --stage dev
 ```

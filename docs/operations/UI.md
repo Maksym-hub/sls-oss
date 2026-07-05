@@ -2,7 +2,7 @@
 
 ## Overview
 
-The slsflow Web Console is a React-based single-page application for monitoring and managing pipelines.
+The polyris Web Console is a React-based single-page application for monitoring and managing pipelines.
 
 ---
 
@@ -388,13 +388,19 @@ npm test -- --run src/components/DAGGraphFlow.test.tsx  # Single file
 
 ## Configuration
 
-The UI loads config from `/config.js`:
+The UI loads config at runtime from `/config.js` (which wins over baked
+`NEXT_PUBLIC_*` — ADR #94). `API_URL` is the full API Gateway invoke URL,
+**including the stage and the trailing `/api`** — route paths in the app are
+appended without `/api` (so the base must end in `/api`):
 
 ```javascript
 window.CONFIG = {
-  API_URL: "https://xxx.execute-api.region.amazonaws.com"
+  API_URL: "https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev/api"
 };
 ```
+
+On a real deploy `ui/deploy.sh` writes this automatically as the `ConsoleApiUrl`
+CloudFormation output + `/api`.
 
 ---
 
@@ -407,24 +413,79 @@ window.CONFIG = {
 
 ## Development
 
-### Local Dev Server
+### Local UI against a deployed API
+
+The console is a **static export** — there is no Next.js server and no
+server-side proxy, so the browser calls the deployed API Gateway **directly**.
+This works from `localhost` out of the box: the API's CORS is wide open
+(`Access-Control-Allow-Origin: *`, all methods, `Authorization` allowed), and it
+answers `OPTIONS` preflight, so GET/POST/PUT/DELETE all succeed cross-origin.
 
 ```bash
 cd ui
-npm run dev
-# Opens http://localhost:3000
+npm run dev            # http://localhost:3000
 ```
 
-### Environment
+For **local development, use `ui/.env.local`** (below). Leave `ui/public/config.js`
+alone — its default empty `API_URL` falls through to your `.env.local`.
+`config.js` is the *runtime* file `ui/deploy.sh` generates for the **deployed**
+site; a non-empty `API_URL` there wins over `.env.local`, so for local work just
+use `.env.local`.
 
-Create `ui/.env.local`:
-```
-# Required: server-side proxy to API Gateway
-API_GATEWAY_URL=https://xxx.execute-api.region.amazonaws.com/api
-
-# Optional: auth config
+**Without auth** (API deployed with `AUTH_ENABLED=false`):
+```env
+# Full invoke URL: <id>.execute-api.<region>.amazonaws.com/<stage>/api
+NEXT_PUBLIC_API_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev/api
 NEXT_PUBLIC_AUTH_ENABLED=false
 ```
+
+**With Cognito** (API deployed with `AUTH_ENABLED=true`): add the pool/client the
+`console-api` Lambda validates against. Amplify signs in with email/password
+directly — there are **no OAuth callback URLs to register** for localhost.
+```env
+NEXT_PUBLIC_API_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev/api
+NEXT_PUBLIC_AUTH_ENABLED=true
+NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-east-1_XXXXXXXXX
+NEXT_PUBLIC_COGNITO_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
+NEXT_PUBLIC_COGNITO_REGION=us-east-1
+```
+
+> Common gotcha: `NEXT_PUBLIC_API_URL` must be the **full** URL with **both** the
+> stage and `/api` (`…/dev/api`). Just the host, or just `/api`, or the stage
+> without `/api`, all 404. The variable is `NEXT_PUBLIC_API_URL` — not
+> `API_GATEWAY_URL` (that was the old Route-Handler proxy, removed with the static
+> export).
+
+> **`Cannot connect to API: UNAUTHORIZED` (401)?** The local UI isn't sending a
+> token the deployed API accepts. `NEXT_PUBLIC_AUTH_ENABLED` only controls whether
+> the **UI sends** a token — the API enforces based on its own `AUTH_ENABLED` (set
+> at deploy), so a 401 means the API has auth **on** while the UI isn't
+> authenticating. Work through this checklist:
+>
+> 1. **Turn auth on in the UI** — `NEXT_PUBLIC_AUTH_ENABLED=true` in `ui/.env.local`.
+>    (`ui/public/config.js` ships with `AUTH.enabled: null` precisely so this env
+>    var wins locally; if you ever set `enabled: false` there it silently overrides
+>    the env var — `config.ts` resolves `enabled` with `??`.)
+> 2. **Match the API's Cognito pool/client** — set `NEXT_PUBLIC_COGNITO_USER_POOL_ID`
+>    and `NEXT_PUBLIC_COGNITO_CLIENT_ID` to **exactly** what the `console-api` Lambda
+>    has (`COGNITO_USER_POOL_ID` / `COGNITO_CLIENT_ID` env vars — the Lambda is the
+>    source of truth). A token from a *different* pool is rejected → 401. If the
+>    deployed `/config.js` shows a different pool than the Lambda, that's deploy
+>    drift — rerun `ui/deploy.sh`.
+> 3. **Clear stale caches, then restart** — `NEXT_PUBLIC_*` are baked at startup, so
+>    editing `.env` needs a `npm run dev` restart (and `rm -rf ui/.next` if a value
+>    still looks stale). Crucially, `/config.js` is loaded by a plain
+>    `<script src="/config.js">` with no cache-busting, so the **browser caches it**
+>    — after editing `ui/public/config.js` you must hard-reload with cache disabled
+>    (DevTools → Network → "Disable cache" → reload) or use a fresh private window,
+>    or the old `AUTH.enabled` keeps winning. Quick check: run `window.CONFIG` in the
+>    DevTools console and confirm `AUTH.enabled` is what you expect.
+> 4. **Sign out, then sign in** — a session cached from a previous/different pool
+>    survives a restart and keeps sending the wrong token. (A fresh private window
+>    covers this and the config.js cache at once — no cached session, no extensions.)
+>
+> Or, if you want token-free local access, redeploy the API with `AUTH_ENABLED=false`
+> and set `NEXT_PUBLIC_AUTH_ENABLED=false`.
 
 ---
 

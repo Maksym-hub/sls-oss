@@ -7,19 +7,19 @@ This feature adds pull-based cross-pipeline asset dependencies via the `wait_for
 ## DSL Usage
 
 ```python
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
 inventory = Asset("inventory", uri="s3://bucket/inventory/")
 catalog = Asset("catalog")
 
 # Producer pipeline
-with DAG("producer", schedule="@daily", alerts={"slack": "#alerts"}) as pipeline:
+with DAG("producer", schedule="@daily") as pipeline:
     @task.sfn(arn="${extract_arn}", outlets=[inventory])
     def extract():
         pass
 
 # Consumer pipeline - waits for inventory asset
-with DAG("consumer", schedule="@hourly", alerts={"slack": "#alerts"}) as pipeline:
+with DAG("consumer", schedule="@hourly") as pipeline:
     @task.sfn(arn="${process_arn}", wait_for=[inventory])
     def process():
         pass
@@ -148,9 +148,9 @@ Run_Task helper
 ## Files Changed
 
 ### DSL
-- `slsflow/assets.py` - Added `AssetRef` class, `Asset.within()` method
-- `slsflow/task.py` - Added `wait_for` parameter
-- `slsflow/generators.py` - Added `_serialize_wait_for()` function
+- `polyris/assets.py` - Added `AssetRef` class, `Asset.within()` method
+- `polyris/task.py` - Added `wait_for` parameter
+- `polyris/generators.py` - Added `_serialize_wait_for()` function
 
 ### SFN Templates
 - `sam/sfn_templates/dependency_wrapper/sfn.tpl.json` - Pass wait_for to registration

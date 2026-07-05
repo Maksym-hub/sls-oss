@@ -112,23 +112,6 @@ export function usePipelineExecutionsQuery(pipelineName: string, date: string) {
     });
 }
 
-/**
- * usePipelineMetricsQuery - Fetch pipeline metrics
- */
-export function usePipelineMetricsQuery(pipelineName: string) {
-    return useQuery({
-        queryKey: queryKeys.pipelineMetrics(pipelineName),
-        queryFn: async () => {
-            const data = await api.get(`/pipeline-metrics?name=${pipelineName}`);
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            return data.metrics || [];
-        },
-        enabled: !!pipelineName,
-        staleTime: 30 * 1000, // Metrics are stable for 30 seconds
-    });
-}
 
 /**
  * useCalendarExecutionsQuery - Fetch executions for a specific month (calendar view)

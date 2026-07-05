@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"step_direct_wait\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"extract\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"extract\", \"name\": \"extract\"}], \"edges\": []}, \"slsflow_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"step_direct_wait\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"extract\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"extract\", \"name\": \"extract\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -77,7 +77,7 @@
     },
     "Check_Register_Only": {
       "Type": "Choice",
-      "Comment": "Skip task execution if register_only=true (used by slsflow-register CLI)",
+      "Comment": "Skip task execution if register_only=true (used by polyris-register CLI)",
       "Choices": [
         {
           "Condition": "{% $states.input.register_only = true %}",
@@ -123,9 +123,7 @@
                   "orchestration_timeout": 86400,
                   "wait_before": 0,
                   "trigger_rule": "all_success",
-                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}",
-                  "alerts": {},
-                  "slack_mentions_formatted": ""
+                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
                 }
               },
               "End": true

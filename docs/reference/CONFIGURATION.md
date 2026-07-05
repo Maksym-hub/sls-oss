@@ -1,6 +1,6 @@
 # Configuration
 
-SLSFlow uses `config.py` in your pipelines repo for project settings.
+Polyris uses `config.py` in your pipelines repo for project settings.
 
 ---
 
@@ -8,7 +8,7 @@ SLSFlow uses `config.py` in your pipelines repo for project settings.
 
 ```bash
 # Generate config.py template
-slsflow-init --project
+polyris-init --project
 ```
 
 Or create manually:
@@ -44,7 +44,7 @@ DEFAULT_STAGE = "dev"
 ## Configuration Priority
 
 1. **CLI arguments** — `--stage`, `--profile`, `--namespace`
-2. **Environment variables** — `SLSFLOW_*`
+2. **Environment variables** — `POLYRIS_*`
 3. **config.py** — `ENVIRONMENTS[stage]`
 
 ---
@@ -53,13 +53,13 @@ DEFAULT_STAGE = "dev"
 
 | Setting | config.py key | Environment Variable | Default |
 |---------|--------------|----------------------|---------|
-| Namespace | `namespace` | `SLSFLOW_NAMESPACE` | `"slsflow"` |
-| Stage | `stage` / `DEFAULT_STAGE` | `SLSFLOW_STAGE` | `"dev"` |
-| Region | `region` | `SLSFLOW_REGION` | `"us-east-1"` |
-| Profile | `profile` | `SLSFLOW_PROFILE` | `None` (AWS default) |
-| Account ID | `account_id` | `SLSFLOW_ACCOUNT_ID` | `None` (no guard) |
+| Namespace | `namespace` | `POLYRIS_NAMESPACE` | `"polyris"` |
+| Stage | `stage` / `DEFAULT_STAGE` | `POLYRIS_STAGE` | `"dev"` |
+| Region | `region` | `POLYRIS_REGION` | `"us-east-1"` |
+| Profile | `profile` | `POLYRIS_PROFILE` | `None` (AWS default) |
+| Account ID | `account_id` | `POLYRIS_ACCOUNT_ID` | `None` (no guard) |
 
-When `account_id` is set, `slsflow-deploy` verifies that the AWS credentials resolve to the expected account before deploying. This prevents accidental deployment to the wrong account.
+When `account_id` is set, `polyris-deploy` verifies that the AWS credentials resolve to the expected account before deploying. This prevents accidental deployment to the wrong account.
 
 ---
 
@@ -92,9 +92,9 @@ Usage in pipeline:
 ## Multi-Stage Deploy
 
 ```bash
-slsflow-deploy --stage dev
-slsflow-deploy --stage prod
-slsflow-deploy --stage prod --profile my-prod-profile  # override profile
+polyris-deploy --stage dev
+polyris-deploy --stage prod
+polyris-deploy --stage prod --profile my-prod-profile  # override profile
 ```
 
 ---
@@ -106,10 +106,10 @@ For GitHub Actions or other CI systems:
 ```yaml
 - name: Deploy
   env:
-    SLSFLOW_NAMESPACE: mycompany
-    SLSFLOW_STAGE: prod
+    POLYRIS_NAMESPACE: mycompany
+    POLYRIS_STAGE: prod
     AWS_PROFILE: prod
-  run: slsflow-deploy
+  run: polyris-deploy
 ```
 
 ---

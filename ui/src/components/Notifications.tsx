@@ -18,7 +18,7 @@ import type { Notification as NotificationType } from '@/types';
  */
 function getInitialShownNotifs(): Set<string> {
     try {
-        const saved = localStorage.getItem('slsflow-shown-browser-notifs');
+        const saved = localStorage.getItem('polyris-shown-browser-notifs');
         if (saved) {
             const { ids, timestamp } = JSON.parse(saved);
             if (Date.now() - timestamp < 4 * MS.HOUR) {
@@ -40,7 +40,7 @@ interface NotificationsProps {
 function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
     const [dismissed, setDismissed] = useState<Set<string>>(() => {
         try {
-            const saved = localStorage.getItem('slsflow-dismissed-notifications');
+            const saved = localStorage.getItem('polyris-dismissed-notifications');
             return saved ? new Set(asStringArray(JSON.parse(saved))) : new Set();
         } catch {
             return new Set();
@@ -64,7 +64,7 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
     // Save dismissed to localStorage
     useEffect(() => {
         try {
-            localStorage.setItem('slsflow-dismissed-notifications', JSON.stringify([...dismissed]));
+            localStorage.setItem('polyris-dismissed-notifications', JSON.stringify([...dismissed]));
         } catch {
             // localStorage may be unavailable
         }
@@ -119,7 +119,7 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
         
         // Persist to localStorage
         try {
-            localStorage.setItem('slsflow-shown-browser-notifs', JSON.stringify({
+            localStorage.setItem('polyris-shown-browser-notifs', JSON.stringify({
                 ids: [...shownBrowserNotifs],
                 timestamp: Date.now()
             }));

@@ -1,5 +1,5 @@
 {
-  "name": "slsflow-sfn-jsonata-tests",
+  "name": "polyris-sfn-jsonata-tests",
   "private": true,
   "description": "JSONata expression tests for SFN templates",
   "scripts": {

@@ -1,4 +1,4 @@
-"""Tests for slsflow.adapters.pydantic_ — pydantic model → List[Column]."""
+"""Tests for polyris.adapters.pydantic_ — pydantic model → List[Column]."""
 from __future__ import annotations
 
 import datetime as dt
@@ -12,9 +12,9 @@ import pytest
 pydantic = pytest.importorskip("pydantic")
 from pydantic import BaseModel, Field
 
-from slsflow import schema as s
-from slsflow.adapters.pydantic_ import pydantic_to_columns
-from slsflow.schema import Column
+from polyris import schema as s
+from polyris.adapters.pydantic_ import pydantic_to_columns
+from polyris.schema import Column
 
 
 # =============================================================================
@@ -229,7 +229,7 @@ class TestAdapterContract:
 class TestAssetFromPydantic:
 
     def test_basic_construction(self):
-        from slsflow import Asset
+        from polyris import Asset
 
         class Order(BaseModel):
             order_id: int = Field(description="Primary key")
@@ -243,7 +243,7 @@ class TestAssetFromPydantic:
         assert a.schema[0].description == 'Primary key'
 
     def test_default_name_from_model_class(self):
-        from slsflow import Asset
+        from polyris import Asset
 
         class MyTable(BaseModel):
             id: int
@@ -252,7 +252,7 @@ class TestAssetFromPydantic:
         assert a.name == 'MyTable'
 
     def test_rejects_explicit_schema_kwarg(self):
-        from slsflow import Asset
+        from polyris import Asset
 
         class M(BaseModel):
             x: int

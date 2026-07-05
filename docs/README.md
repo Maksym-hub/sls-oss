@@ -1,4 +1,4 @@
-# slsflow Documentation
+# polyris Documentation
 
 ## Getting Started
 
@@ -22,7 +22,6 @@
 
 | Document | Description |
 |----------|-------------|
-| [AI_ASSISTANT.md](tools/AI_ASSISTANT.md) | AI pipeline generation (FREE!) |
 | [LOCAL_TESTING.md](tools/LOCAL_TESTING.md) | validate, dry_run, mock execution |
 | [REGISTRATION.md](tools/REGISTRATION.md) | Pipeline registration CLI |
 | [DEVELOPMENT.md](tools/DEVELOPMENT.md) | Dev scripts, testing, code quality |
@@ -31,7 +30,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [DEPLOY.md](deployment/DEPLOY.md) | Pipeline deployment (slsflow-deploy) |
+| [DEPLOY.md](deployment/DEPLOY.md) | Pipeline deployment (polyris-deploy) |
 | [SAM.md](deployment/SAM.md) | SAM infrastructure deployment and parameters |
 | [RELEASE.md](deployment/RELEASE.md) | Release process and Launch Stack |
 | [CROSS_ACCOUNT_ROLES.md](deployment/CROSS_ACCOUNT_ROLES.md) | Multi-account IAM setup |
@@ -60,4 +59,4 @@
 | [CONFIGURATION.md](reference/CONFIGURATION.md) | config.py settings, environments, cross-account roles |
 | [AIRFLOW_MIGRATION.md](reference/AIRFLOW_MIGRATION.md) | Migration from Airflow |
 | [DESIGN_DECISIONS.md](reference/DESIGN_DECISIONS.md) | Key design decisions |
-| [BACKLOG.md](reference/BACKLOG.md) | Feature status and roadmap |
+| [ROADMAP.md](reference/ROADMAP.md) | Planned features and direction |

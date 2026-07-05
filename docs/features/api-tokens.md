@@ -1,6 +1,6 @@
 # API Tokens (Personal Access Tokens)
 
-This is the canonical guide for authenticating to the slsflow Console API from
+This is the canonical guide for authenticating to the polyris Console API from
 outside the browser — scripts, CI, and the API examples in the docs. Browser
 sessions use Cognito (see [authentication.md](./authentication.md)); everything
 else uses a **Personal Access Token (PAT)**.
@@ -16,8 +16,8 @@ Added in v0.87.0 — see ADR #65
 
 ## What a PAT is
 
-- A string shaped like `slsf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`.
-- Sent as a normal bearer credential: `Authorization: Bearer slsf_…`.
+- A string shaped like `plrs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`.
+- Sent as a normal bearer credential: `Authorization: Bearer plrs_…`.
 - Stored server-side **only as a SHA-256 hash** — the plaintext is shown exactly
   once, at creation, and can never be retrieved again.
 - Carries a scope — `read`, `write`, or `admin` (see below) — that bounds what
@@ -44,8 +44,8 @@ explicitly when you need it. A request whose scope is too low gets **403**
 Console picker, or via the API:
 
 ```bash
-curl -X POST "$SLSFLOW_API_URL/api/tokens" \
-  -H "Authorization: Bearer $SLSFLOW_TOKEN" -H "Content-Type: application/json" \
+curl -X POST "$POLYRIS_API_URL/api/tokens" \
+  -H "Authorization: Bearer $POLYRIS_TOKEN" -H "Content-Type: application/json" \
   -d '{"name": "ci-pipeline", "scope": "write", "expires_in_days": 90}'
 ```
 
@@ -64,11 +64,11 @@ scopes existed keep full (`admin`) access.
 ### Via the API
 
 ```bash
-curl -X POST "$SLSFLOW_API_URL/api/tokens" \
-  -H "Authorization: Bearer $SLSFLOW_TOKEN" \
+curl -X POST "$POLYRIS_API_URL/api/tokens" \
+  -H "Authorization: Bearer $POLYRIS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "ci-pipeline", "expires_in_days": 90}'
-# -> 201 { "token_id": "tok_…", "name": "ci-pipeline", "token": "slsf_…", ... }
+# -> 201 { "token_id": "tok_…", "name": "ci-pipeline", "token": "plrs_…", ... }
 #    "token" is present ONLY in this response.
 ```
 
@@ -81,10 +81,10 @@ still off.)
 Export it once, then every example just works:
 
 ```bash
-export SLSFLOW_API_URL=https://abc123.execute-api.us-east-1.amazonaws.com
-export SLSFLOW_TOKEN=slsf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+export POLYRIS_API_URL=https://abc123.execute-api.us-east-1.amazonaws.com
+export POLYRIS_TOKEN=plrs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
-curl -H "Authorization: Bearer $SLSFLOW_TOKEN" "$SLSFLOW_API_URL/api/pipelines"
+curl -H "Authorization: Bearer $POLYRIS_TOKEN" "$POLYRIS_API_URL/api/pipelines"
 ```
 
 `/api/health` and `/api/metrics` never require a token.
@@ -93,11 +93,11 @@ curl -H "Authorization: Bearer $SLSFLOW_TOKEN" "$SLSFLOW_API_URL/api/pipelines"
 
 ```bash
 # list (hashes/plaintext never returned)
-curl -H "Authorization: Bearer $SLSFLOW_TOKEN" "$SLSFLOW_API_URL/api/tokens"
+curl -H "Authorization: Bearer $POLYRIS_TOKEN" "$POLYRIS_API_URL/api/tokens"
 
 # revoke by id (from the list, or the Console)
-curl -X DELETE -H "Authorization: Bearer $SLSFLOW_TOKEN" \
-  "$SLSFLOW_API_URL/api/tokens?id=tok_ab12cd34"
+curl -X DELETE -H "Authorization: Bearer $POLYRIS_TOKEN" \
+  "$POLYRIS_API_URL/api/tokens?id=tok_ab12cd34"
 ```
 
 In the Console, the same list lives under avatar → **Settings** → **API Tokens**, each with a
@@ -116,5 +116,5 @@ In the Console, the same list lives under avatar → **Settings** → **API Toke
 
 The e2e suite can authenticate with a PAT instead of the Cognito
 `admin-initiate-auth` dance — generate one, store it as a CI secret, and pass it
-as `SLSFLOW_ID_TOKEN` (any valid bearer credential is accepted by the gate).
+as `POLYRIS_ID_TOKEN` (any valid bearer credential is accepted by the gate).
 See `tests/e2e/README.md`.

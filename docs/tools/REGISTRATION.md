@@ -2,7 +2,7 @@
 
 ## Overview
 
-slsflow pipelines must be registered in DynamoDB tables for:
+polyris pipelines must be registered in DynamoDB tables for:
 - **UI discovery** - Console shows pipelines from `pipeline_registry`
 - **Asset triggers** - `notify_asset_consumers` SFN queries `asset_subscriptions`
 
@@ -10,16 +10,16 @@ Registration happens automatically in three ways:
 
 | Method | When | Automatic | Latency |
 |--------|------|-----------|---------|
-| **slsflow-deploy lifecycle** | `slsflow-deploy` / `slsflow-deploy --destroy` | ✅ Yes | ~2-3 seconds |
+| **polyris-deploy lifecycle** | `polyris-deploy` / `polyris-deploy --destroy` | ✅ Yes | ~2-3 seconds |
 | **Pipeline run** | Every execution (self-healing) | ✅ Yes | 0 (inline) |
-| **CLI** | Manual `slsflow-register` command | ❌ No | ~2-3 seconds |
+| **CLI** | Manual `polyris-register` command | ❌ No | ~2-3 seconds |
 
-## slsflow-deploy Lifecycle Registration
+## polyris-deploy Lifecycle Registration
 
-When you deploy with `slsflow-deploy`, the `PipelineRegistration` dynamic resource handles the full lifecycle:
+When you deploy with `polyris-deploy`, the `PipelineRegistration` dynamic resource handles the full lifecycle:
 
 ```
-slsflow-deploy (create)
+polyris-deploy (create)
     │
     ▼
 StateMachine created
@@ -37,12 +37,12 @@ StartExecution(register_only=true)
 
 **On update** (DAG changed): re-runs registration with new structure. If DAG unchanged (`dag_hash` match), skips entirely.
 
-**On destroy** (`slsflow-deploy --destroy`): cleans up DynamoDB directly:
+**On destroy** (`polyris-deploy --destroy`): cleans up DynamoDB directly:
 - Deletes `pipeline_registry` entry (removes from UI sidebar)
 - Deletes `asset_subscriptions` entries (stops phantom triggers)
 
 ```
-slsflow-deploy --destroy
+polyris-deploy --destroy
     │
     ▼
 PipelineRegistration.delete()
@@ -90,17 +90,17 @@ This ensures pipelines stay registered even if:
 
 ## Manual Registration (CLI)
 
-Use `slsflow-register` to register without running tasks:
+Use `polyris-register` to register without running tasks:
 
 ```bash
 # Install
-pip install slsflow
+pip install polyris
 
 # Register by ARN
-slsflow-register arn:aws:states:us-east-1:123456789:stateMachine:my-pipeline
+polyris-register arn:aws:states:us-east-1:123456789:stateMachine:my-pipeline
 
 # Register by name
-slsflow-register --name my-pipeline --region us-east-1
+polyris-register --name my-pipeline --region us-east-1
 ```
 
 ### Authentication
@@ -109,19 +109,19 @@ Uses standard AWS credential chain (same as AWS CLI):
 
 ```bash
 # Default credentials (env vars, instance profile)
-slsflow-register --name my-pipeline
+polyris-register --name my-pipeline
 
 # AWS profile from ~/.aws/credentials or ~/.aws/config
-slsflow-register --name my-pipeline --profile prod
+polyris-register --name my-pipeline --profile prod
 
 # AWS_PROFILE environment variable
-AWS_PROFILE=prod slsflow-register --name my-pipeline
+AWS_PROFILE=prod polyris-register --name my-pipeline
 
 # Assume IAM role
-slsflow-register --name my-pipeline --role-arn arn:aws:iam::123:role/deploy
+polyris-register --name my-pipeline --role-arn arn:aws:iam::123:role/deploy
 
 # Cross-account (profile + role)
-slsflow-register --name my-pipeline --profile dev --role-arn arn:aws:iam::456:role/prod
+polyris-register --name my-pipeline --profile dev --role-arn arn:aws:iam::456:role/prod
 ```
 
 ### Options
@@ -138,10 +138,10 @@ slsflow-register --name my-pipeline --profile dev --role-arn arn:aws:iam::456:ro
 ### Example Output
 
 ```
-$ slsflow-register --name feeds-pipeline --profile prod
+$ polyris-register --name feeds-pipeline --profile prod
 
 🔍 Looking for pipeline 'feeds-pipeline' in us-east-1...
-   Found: arn:aws:states:us-east-1:123:stateMachine:slsflow-prod-feeds-pipeline
+   Found: arn:aws:states:us-east-1:123:stateMachine:polyris-prod-feeds-pipeline
 
 📝 Registering pipeline...
    Using profile: prod
@@ -168,11 +168,11 @@ $ slsflow-register --name feeds-pipeline --profile prod
 # GitHub Actions
 deploy:
   steps:
-    - run: slsflow-deploy --yes
+    - run: polyris-deploy --yes
     
     # Optional: explicit registration (EventBridge handles this too)
     - run: |
-        slsflow-register \
+        polyris-register \
           --name ${{ env.PIPELINE_NAME }} \
           --region ${{ env.AWS_REGION }} \
           --profile deploy
@@ -183,14 +183,14 @@ deploy:
 ### Pipeline not appearing in UI
 
 1. Check `pipeline_registry` table in DynamoDB
-2. Run `slsflow-register --name <pipeline>`
+2. Run `polyris-register --name <pipeline>`
 3. Or trigger pipeline once manually
 
 ### Asset triggers not working
 
 1. Check `asset_subscriptions` table in DynamoDB
 2. Verify `asset_schedule` in pipeline definition
-3. Run `slsflow-register --name <pipeline>`
+3. Run `polyris-register --name <pipeline>`
 
 ### "Profile not found" error
 

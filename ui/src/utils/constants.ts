@@ -69,7 +69,7 @@ export const VIEW_MODES = {
 
 // Task status categories
 // Task status values + terminal set are the SINGLE generated source
-// (slsflow/constants.py → generated/enums.ts, gated by check-generate-enums).
+// (polyris/constants.py → generated/enums.ts, gated by check-generate-enums).
 // Re-exported here so existing importers keep working; this file no longer
 // hand-maintains the status vocabulary (ADR #93).
 import { TASK_STATUS, TASK_TERMINAL_STATUSES } from '@/generated/enums';

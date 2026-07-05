@@ -56,4 +56,12 @@ export default [
       '@typescript-eslint/no-empty-object-type': 'off',
     },
   },
+
+  // Tests legitimately use `any` for mocks/fixtures.
+  {
+    files: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
 ];

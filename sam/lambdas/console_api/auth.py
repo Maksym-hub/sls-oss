@@ -7,7 +7,7 @@ this module provides the one check that runs there (the same "one helper, all
 routes" shape as cors_response).
 
 Accepts either credential on `Authorization: Bearer <token>`:
-  - slsflow Personal Access Token (PAT), "slsf_..."  -> SHA-256 hash lookup
+  - polyris Personal Access Token (PAT), "plrs_..."  -> SHA-256 hash lookup
   - Cognito access/ID token (browser via Amplify)     -> offline JWKS RS256 verify
 
 Enforcement is gated by AUTH_ENABLED and is on by default (the deployed
@@ -39,7 +39,7 @@ from logger import log
 
 # Token format: prefix keeps the gate's branch trivial and makes a leaked
 # token greppable in logs / secret scanners (cf. GitHub's `ghp_`).
-TOKEN_PREFIX = "slsf_"
+TOKEN_PREFIX = "plrs_"
 TOKEN_ENTROPY_BYTES = 32  # 256 bits
 
 # Always-public path prefixes (no token required).
@@ -201,7 +201,7 @@ def _extract_bearer(event: dict) -> str:
 
 
 def verify_pat(token: str, repo) -> Principal:
-    """Verify a slsflow PAT against the hash store. Checks revoke + expiry."""
+    """Verify a polyris PAT against the hash store. Checks revoke + expiry."""
     digest = hash_token(token)
     rec = repo.get_by_hash(digest)
     # Constant-time compare even though the lookup was by hash — defends the

@@ -106,7 +106,6 @@
           "task_arn": "{% $states.input.item.task_arn.S %}",
           "dependencies": "{% $exists($states.input.item.dependencies.S) ? $parse($states.input.item.dependencies.S) : [] %}",
           "cross_account_role": "{% $exists($states.input.item.cross_account_role.S) ? $states.input.item.cross_account_role.S : 'same' %}",
-          "slack_channel": "{% $exists($states.input.item.slack_channel.S) ? $states.input.item.slack_channel.S : '#alerts' %}",
           "pipeline_name": "{% $exists($states.input.item.pipeline_name.S) ? $states.input.item.pipeline_name.S : 'unknown' %}",
           "pipeline_execution": "{% $exists($states.input.item.pipeline_execution.S) ? $states.input.item.pipeline_execution.S : 'unknown' %}",
           "pipeline_execution_short": "{% $exists($states.input.item.pipeline_execution_short.S) ? $states.input.item.pipeline_execution_short.S : 'unknown' %}",
@@ -120,9 +119,7 @@
           "outlets": "{% $exists($states.input.item.outlets.S) ? $parse($states.input.item.outlets.S) : [] %}",
           "task_run_id": "{% $exists($states.input.item.task_run_id.S) ? $states.input.item.task_run_id.S : $states.input.execution_name %}",
           "attempt": "{% ($exists($states.input.item.attempt.N) ? $number($states.input.item.attempt.N) : 1) + 1 %}",
-          "is_restart": true,
-          "alerts": "{% $exists($states.input.item.alerts_json.S) ? $parse($states.input.item.alerts_json.S) : {} %}",
-          "slack_mentions_formatted": "{% $exists($states.input.item.slack_mentions_formatted.S) ? $states.input.item.slack_mentions_formatted.S : '' %}"
+          "is_restart": true
         }
       },
       "Output": {

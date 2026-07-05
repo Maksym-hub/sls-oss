@@ -386,6 +386,14 @@
         width: 100%;
     }
 
+    /* Empty / unavailable-feature state */
+    .empty-state {
+        padding: 2rem 1rem;
+    }
+    .empty-state__action button {
+        width: 100%;
+    }
+
     /* ActionModal — full-width textarea on mobile */
     .am-params-textarea {
         font-size: 0.75rem;

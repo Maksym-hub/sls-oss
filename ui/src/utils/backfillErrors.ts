@@ -3,7 +3,7 @@
  *
  * Backend (sam/lambdas/console_api/routes/backfill.py) returns errors as
  * `{ error: 'code', message: 'detail' }`. The set of codes is the canonical
- * registry BACKFILL_ERROR_CODES, generated from slsflow/constants.py into
+ * registry BACKFILL_ERROR_CODES, generated from polyris/constants.py into
  * @/generated/enums. This map MUST have an entry for every code in that
  * registry — enforced by backfillErrors.test.ts (keys ⊇ BACKFILL_ERROR_CODES),
  * which replaces the old hand-maintained "critical codes" list that silently

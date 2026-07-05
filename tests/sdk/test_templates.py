@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, 'sam', 'lambdas', 'console_api'))
 
 def test_orchestration_timeout_default():
     """orchestration_timeout defaults to execution_timeout."""
-    from slsflow.task import Task
+    from polyris.task import Task
     t = Task(task_id='test', execution_timeout=timedelta(hours=2))
     assert t.orchestration_timeout is None
     assert t.orchestration_timeout_seconds == 7200  # Same as execution_timeout
@@ -35,7 +35,7 @@ def test_orchestration_timeout_default():
 
 def test_orchestration_timeout_explicit():
     """orchestration_timeout can be set independently."""
-    from slsflow.task import Task
+    from polyris.task import Task
     t = Task(
         task_id='test',
         execution_timeout=timedelta(hours=2),
@@ -47,7 +47,7 @@ def test_orchestration_timeout_explicit():
 
 def test_orchestration_timeout_via_default_args():
     """orchestration_timeout propagates through default_args."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG(
         'test-dag',
@@ -68,7 +68,7 @@ def test_orchestration_timeout_via_default_args():
 
 def test_orchestration_timeout_override_default_args():
     """Task-level orchestration_timeout overrides default_args."""
-    from slsflow import DAG, task
+    from polyris import DAG, task
 
     with DAG(
         'test-dag',
@@ -92,8 +92,8 @@ def test_orchestration_timeout_override_default_args():
 
 def test_orchestration_timeout_in_generated_sfn():
     """Generator passes orchestration_timeout to wrapper input."""
-    from slsflow import DAG, task
-    from slsflow.generators import generate_step_function_json
+    from polyris import DAG, task
+    from polyris.generators import generate_step_function_json
 
     with DAG('test-gen', schedule=None, alerts=None) as dag:
         @task.sfn(
@@ -123,8 +123,8 @@ def test_orchestration_timeout_in_generated_sfn():
 
 def test_orchestration_timeout_default_in_generated_sfn():
     """Default orchestration_timeout = execution_timeout in generated SFN."""
-    from slsflow import DAG, task
-    from slsflow.generators import generate_step_function_json
+    from polyris import DAG, task
+    from polyris.generators import generate_step_function_json
 
     with DAG('test-gen-default', schedule=None, alerts=None) as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123:stateMachine:test')
@@ -187,24 +187,45 @@ def test_backfill_orchestrator_template_removed():
 def test_route_table_completeness():
     """Free (open-core) routes are always registered.
 
-    This runs in both the full build (58 routes) and the OSS-stripped build
-    (16 free routes), so it asserts the *free subset* is present rather than an
-    exact count. The full 58-route surface (incl. Team routes) is pinned by
+    Runs in both the full build (63 routes) and the OSS-stripped build
+    (27 free routes), so it asserts the *free subset* is present rather than an
+    exact count. The full 63-route surface (incl. Team routes) is pinned by
     ee/team/tests/test_route_table_ee.py, which only runs when `ee` is present.
-    See ADR #98.
+    The asset console route `GET /api/assets` moved to Team (ADR #105); task
+    intervention (skip/fail/success/stop/restart[/retry]) and execution control
+    (stop/pause/resume/extend) are free (ADR #110). See ADR #98.
     """
     from main import ROUTES
 
-    # Free floor: the OSS build serves exactly these 16; the full build adds Team
-    # routes on top. Never fewer than the free set.
-    assert len(ROUTES) >= 16
+    # The free intervention surface must always be present (ADR #110) — a free
+    # build that 404s these is the regression this guard exists to catch.
+    free_intervention = [
+        ('POST', '/api/task-skip'), ('POST', '/api/task-fail'), ('POST', '/api/task-success'),
+        ('POST', '/api/task-stop'), ('POST', '/api/task-restart'), ('POST', '/api/task-retry'),
+        ('POST', '/api/execution-stop'), ('POST', '/api/execution-pause'),
+        ('POST', '/api/execution-resume'), ('POST', '/api/execution-extend'),
+    ]
+    for method, path in free_intervention:
+        assert (method, path) in ROUTES, f"Missing free intervention route: {method} {path}"
+
+    # Config mutation stays Team — must be ABSENT from the OSS-stripped build.
+    # (In the full build ee adds it; this assert only holds when ee is stripped.)
+    try:
+        import ee  # noqa: F401
+        ee_present = True
+    except ImportError:
+        ee_present = False
+    if not ee_present:
+        assert ('PUT', '/api/task-config') not in ROUTES, "task-config PUT must be Team-only"
+
+    # Loose free-floor sanity check; the full build adds Team routes on top.
+    assert len(ROUTES) >= 26
 
     # Critical *free* routes must always exist (present in both tiers).
     critical = [
         ('GET', '/api/pipelines'),
         ('GET', '/api/tasks'),
         ('GET', '/api/runs'),
-        ('GET', '/api/assets'),
         ('GET', '/api/health'),
         ('POST', '/api/pipeline-run'),
         ('POST', '/api/pipeline-register'),

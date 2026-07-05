@@ -22,7 +22,7 @@ class TaskStatus:
     """Task execution status values.
 
     v0.79.5 (ADR #77) — class-level sets moved to module-level
-    constants generated from slsflow/constants.py.
+    constants generated from polyris/constants.py.
     """
     WAITING = 'waiting'
     WAITING_PAUSED = 'waiting_paused'
@@ -55,7 +55,7 @@ try:
     )
 except ImportError:
     # Fallback (mostly for direct unit tests of _shared/constants.py):
-    # these match the canonical values in slsflow/constants.py.
+    # these match the canonical values in polyris/constants.py.
     TASK_TERMINAL_STATUSES = {'success', 'succeeded', 'failed', 'skipped',
                               'aborted', 'upstream_failed'}
     TASK_SUCCESS_STATUSES = {'success', 'succeeded', 'skipped'}

@@ -3,11 +3,18 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "slsflow"
-version = "0.91.0"
+name = "polyris"
+version = "0.92.0"
 description = "Airflow-compatible Python DSL for AWS Step Functions"
 readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "boto3",
 ]
@@ -19,17 +26,6 @@ dependencies = [
 
 
 [project.optional-dependencies]
-# AI Assistant - all FREE options!
-ai = [
-    "ollama>=0.1.0",       # Local AI (FREE)
-    "groq>=0.4.0",         # Cloud AI (FREE tier)
-]
-# Paid AI options (optional)
-ai-paid = [
-    "anthropic>=0.18.0",
-    "openai>=1.0.0",
-    "google-generativeai>=0.3.0",
-]
 # Development dependencies
 dev = [
     "pytest>=7.0.0",
@@ -38,9 +34,10 @@ dev = [
     "pytest-mock>=3.0.0",  # mocker fixture
     "ruff>=0.1.0",         # Linter & formatter
     "mypy>=1.0.0",         # Type checking
-    "pyarrow>=14.0.0",     # for adapter tests (slsflow.adapters.pyarrow)
-    "pydantic>=2.0.0",     # for adapter tests (slsflow.adapters.pydantic_)
+    "pyarrow>=14.0.0",     # for adapter tests (polyris.adapters.pyarrow)
+    "pydantic>=2.0.0",     # for adapter tests (polyris.adapters.pydantic_)
     "jsonata-python>=0.5.0",  # evaluate SFN template JSONata in CI (ADR #85)
+    "rsa>=4.9",            # console_api auth.py imports rsa (Cognito JWT verify, ADR #65)
 ]
 # Schema bridge to the pyarrow ecosystem (Iceberg, Parquet, BigQuery, ...).
 # Required to use Asset.from_pyarrow / Asset.from_parquet helpers.
@@ -52,23 +49,24 @@ pydantic = [
     "pydantic>=2.0.0",
 ]
 all = [
-
-    "ollama>=0.1.0",
-    "groq>=0.4.0",
     "pyarrow>=14.0.0",
     "pydantic>=2.0.0",
 ]
 
 [project.scripts]
-slsflow = "slsflow.cli:main"
-slsflow-deploy = "slsflow.deploy:main"
-slsflow-init = "slsflow.init:main"
-slsflow-output = "slsflow.output:main"
-slsflow-register = "slsflow.register:main"
-slsflow-validate = "slsflow.validation:main"
+polyris = "polyris.cli:main"
+polyris-deploy = "polyris.deploy:main"
+polyris-init = "polyris.init:main"
+polyris-output = "polyris.output:main"
+polyris-register = "polyris.register:main"
+polyris-validate = "polyris.validation:main"
+
+[tool.setuptools.package-data]
+polyris = ["py.typed"]
 
 [tool.setuptools.packages.find]
-include = ["slsflow*"]
+include = ["polyris*"]
+exclude = ["polyris._ee*"]
 
 [tool.ruff]
 target-version = "py311"
@@ -83,6 +81,10 @@ ignore = [
     "W291",  # trailing whitespace
     "W293",  # blank line contains whitespace
 ]
+
+[tool.ruff.format]
+# preserve = don't rewrite ' -> " (some smoke tests grep source for quote style)
+quote-style = "preserve"
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
@@ -112,3 +114,36 @@ markers = [
     "backend: Backend API tests (routes, alerting, handlers)",
     "integration: Integration tests (cross-layer, requires mocked AWS)",
 ]
+
+[tool.coverage.run]
+source = ["polyris"]
+omit = [
+    # AWS / CLI / build-tooling — exercised by e2e/smoke (#15, #16), not unit
+    # coverage. Mocking AWS just to colour these lines would only test the mock
+    # (#11, #13, #14). Excluded from the pure-logic core floor (Principle #22).
+    "polyris/deploy.py",
+    "polyris/register.py",
+    "polyris/init.py",
+    "polyris/local.py",
+    "polyris/output.py",
+    "polyris/roles.py",
+    "polyris/codegen/sync_enums.py",
+    # codegen drift-checkers run as a blocking CI step (see ci.yml); they read
+    # the repo tree and diff generated vs committed output. Unit-testing them
+    # would mean mocking the filesystem (#11/#13), so they stay e2e/CI-covered
+    # like sync_enums above.
+    "polyris/codegen/check_sfn_templates.py",
+    "polyris/codegen/check_shared_constants.py",
+    "polyris/codegen/check_backfill_status_parity.py",
+    "polyris/__init__.py",
+    "polyris/*/__init__.py",
+]
+
+[tool.coverage.report]
+# Pure-logic core floor (Principle #22). The measured core — every module not
+# in the AWS/CLI/build omit list above — is fully covered. The floor is the
+# achieved level: any new logic line must arrive with a test or a justified
+# `# pragma: no cover`, never a silent coverage regression.
+fail_under = 100
+precision = 1
+show_missing = true

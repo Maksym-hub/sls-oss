@@ -7,9 +7,9 @@ This pipeline demonstrates PUSH-BASED cross-pipeline dependency:
 - No cron schedule — starts as soon as the weekly pipeline finishes
 - Compare with acme-feeds which uses PULL-BASED (within days) dependency
 """
-from slsflow import DAG, task, Asset
+from polyris import DAG, task, Asset
 
-TEST_QUICK = "arn:aws:states:us-east-1:944861944755:stateMachine:test"
+TEST_QUICK = "arn:aws:states:us-east-1:123456789012:stateMachine:test"
 
 # Cross-pipeline dependency (PUSH mode)
 weekly_complete = Asset("shopmart/weekly-complete")
@@ -23,7 +23,6 @@ feeds_complete = Asset("shopmart/feeds-complete")
 with DAG(
     dag_id="shopmart-feeds",
     schedule=weekly_complete,  # PUSH: triggered when weekly-complete materializes
-    alerts={"slack": "#data-alerts"},
     group="shopmart",
     description="Shopmart feeds — push-triggered by weekly pipeline completion"
 ) as dag:
@@ -63,4 +62,4 @@ with DAG(
     exp = build_exports([ret, brd, anl])
     mark_feeds_complete(exp)
 
-# Deploy: slsflow-deploy
+# Deploy: polyris-deploy

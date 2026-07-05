@@ -3,7 +3,6 @@
 Handles task operations:
 - get_all_tasks: List all tasks with filters
 - get_task_config: Get task configuration
-- update_task_config: Update task configuration
 - skip_task: Skip a waiting/failed task
 - fail_task: Mark task as failed
 - mark_success: Mark task as successful manually
@@ -341,7 +340,6 @@ def get_task_config(task_name: str, event: Dict) -> Dict:
         'execution_name': execution_name,
         'config': {
             'timeout_seconds': safe_int(item.get('timeout_seconds'), 14400),
-            'slack_channel': item.get('slack_channel', '#alerts'),
             'max_retries': safe_int(item.get('max_retries'), 3)
         },
         # Runtime state (read-only, for reference)
@@ -414,8 +412,524 @@ def get_task_events(execution_name: str, event: Dict) -> Dict:
     })
 
 
+
+def _write_notify_warning(
+    execution_name: str, task_name: str, pipeline_execution: str, pipeline_name: str, date: str, error: str
+) -> None:
+    """Write a warning record to pipeline-tokens when notify_dependents fails.
+
+    This makes the failure visible in the Notifications bell in UI,
+    which polls pipeline-tokens for status=failed records.
+    """
+    try:
+        warn_key = f"_notify_warn_{execution_name}"
+        executions_repo.put(
+            {
+                'execution_name': warn_key,
+                'task_name': task_name,
+                'pipeline_execution': pipeline_execution,
+                'pipeline_name': pipeline_name,
+                'date': date,
+                'status': 'failed',
+                'error': f'Downstream notification failed: {error}. Downstream tasks may be stuck waiting.',
+                'finished_at': datetime.now(timezone.utc).isoformat(),
+                'ttl': int(datetime.now(timezone.utc).timestamp()) + 86400,  # 24h TTL
+            }
+        )
+    except Exception as e:
+        log.error("_write_notify_warning", "Failed to write warning", error=str(e))
+
+
+def retry_task(task_name: str, event: Dict) -> Dict:
+    """Retry a failed/skipped task.
+
+    DEPRECATED: This endpoint is deprecated. Use restart_task instead.
+    This function now simply delegates to restart_task for backward compatibility.
+    """
+    # Delegate to restart_task for actual functionality
+    return restart_task(task_name, event)
+
+
+def _execute_task_action(
+    task_name: str,
+    event: Dict,
+    *,
+    action_name: str,
+    target_status: str,
+    use_resolved_check: bool,
+    include_error_field: bool = False,
+    stop_error: str,
+    default_reason: str = None,
+    default_stop_cause: str = None,
+    callback_fn,
+    success_message: str,
+) -> Dict:
+    """Shared implementation for skip_task, fail_task, mark_success.
+
+    Claim-first pattern: update DynamoDB status before executing side-effects.
+
+    Args:
+        action_name: For logging and record_manual_decision ('skip', 'fail', 'mark_success')
+        target_status: New DynamoDB status ('skipped', 'failed', 'success')
+        use_resolved_check: True = block only resolved (success/skipped), allow recovery from failed.
+                            False = block all terminal states.
+        include_error_field: If True, include error field in UpdateExpression (for fail_task)
+        stop_error: First arg to stop_task_executions ('Skipped', 'ManuallyFailed', 'ManuallySucceeded')
+        default_reason: If set, extract 'reason' from body with this as default. None = no reason.
+        default_stop_cause: Fallback stop_cause when reason is None (e.g. 'Task skipped via UI').
+        callback_fn: callable(token, task_name, reason) that sends orchestration callback
+        success_message: Template for 200 response message (use {execution_name})
+    """
+    body, err = safe_parse_body(event)
+    if err:
+        return err
+    date = body.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    pipeline_execution = body.get('pipeline_execution', '')
+    reason = body.get('reason', default_reason) if default_reason else None
+
+    # Resolve task using unified resolver (handles both formats with pagination)
+    item, execution_name = resolve_task_item(task_name, date, pipeline_execution)
+
+    if not item:
+        log.warn(action_name, "Task not found", task_name=task_name, date=date)
+        return cors_response(404, {'error': f'Task not found: {task_name} on {date}'})
+
+    orchestration_token = item.get('orchestration_token')
+    actual_task_name = item.get('task_name', task_name)
+    pipeline_execution = item.get('pipeline_execution', '')
+    pipeline_execution_short = item.get('pipeline_execution_short', '')
+    current_status = item.get('status', '')
+
+    # Check if action is blocked by current status
+    if use_resolved_check:
+        if current_status in RESOLVED_TASK_STATUSES:
+            return cors_response(
+                409,
+                {
+                    'error': f'Task already resolved: {current_status}',
+                    'execution_name': execution_name,
+                    'current_status': current_status,
+                },
+            )
+        condition_expr = RESOLVED_CONDITION_EXPRESSION
+        expr_values_fn = build_resolved_expression_values
+    else:
+        if is_terminal_status(current_status):
+            return cors_response(
+                409,
+                {
+                    'error': f'Task already in terminal state: {current_status}',
+                    'execution_name': execution_name,
+                    'current_status': current_status,
+                },
+            )
+        condition_expr = TERMINAL_CONDITION_EXPRESSION
+        expr_values_fn = build_condition_expression_values
+
+    # Ensure pipeline_execution_short has a value (critical for notify_dependents)
+    pipeline_execution_short = ensure_pipeline_execution_short(pipeline_execution, pipeline_execution_short)
+    if not pipeline_execution_short:
+        log.warn(action_name, "No pipeline_execution_short, event notification may fail", execution_name=execution_name)
+
+    # Claim: update status FIRST (with ConditionExpression as race condition guard)
+    try:
+        if include_error_field:
+            executions_repo.update(
+                execution_name,
+                'SET #s = :status, finished_at = :finished, #e = :error',
+                expr_values=expr_values_fn(
+                    {':status': target_status, ':finished': datetime.now(timezone.utc).isoformat(), ':error': reason}
+                ),
+                expr_names={'#s': 'status', '#e': 'error'},
+                condition_expr=condition_expr,
+            )
+        else:
+            executions_repo.update(
+                execution_name,
+                'SET #s = :status, finished_at = :finished',
+                expr_values=expr_values_fn(
+                    {':status': target_status, ':finished': datetime.now(timezone.utc).isoformat()}
+                ),
+                expr_names={'#s': 'status'},
+                condition_expr=condition_expr,
+            )
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            log.warn(
+                action_name, "Race condition: Task became terminal during operation", execution_name=execution_name
+            )
+            return cors_response(
+                409,
+                {'error': 'Task status changed during operation (race condition)', 'execution_name': execution_name},
+            )
+        else:
+            raise
+
+    # Side-effects AFTER successful claim
+    stop_cause = reason or default_stop_cause or f'Task {action_name} via UI'
+    stop_task_executions(item, stop_error, stop_cause)
+    record_manual_decision(execution_name, action_name, stop_cause, item)
+
+    log.info(action_name, "Successfully completed", execution_name=execution_name, actual_task_name=actual_task_name)
+
+    # Send orchestration callback
+    if orchestration_token:
+        try:
+            callback_fn(orchestration_token, actual_task_name, reason)
+        except (sfn.exceptions.TaskTimedOut, sfn.exceptions.TaskDoesNotExist):
+            # Token expired or already consumed (e.g. mark_success/skip on waiting_decision task
+            # where orchestration_token was already consumed by notify_dependents).
+            # Expected — continue to notify_dependents so downstream unblocks.
+            log.warn(
+                action_name,
+                "Orchestration token expired/consumed — continuing to notify dependents",
+                execution_name=execution_name,
+            )
+        except sfn.exceptions.InvalidToken:
+            # Invalid token format — continue
+            log.warn(
+                action_name,
+                "Invalid orchestration token — continuing to notify dependents",
+                execution_name=execution_name,
+            )
+        except Exception as e:
+            err_str = str(e)
+            log.error(action_name, "Failed orchestration callback", execution_name=execution_name, error=err_str)
+            if 'AccessDenied' in err_str:
+                detail = 'IAM permission missing: states:SendTaskSuccess. Run sam deploy to fix.'
+            else:
+                detail = err_str
+            return cors_response(
+                500,
+                {
+                    'error': 'Failed to send orchestration callback',
+                    'detail': detail,
+                    'execution_name': execution_name,
+                },
+            )
+    else:
+        # No token means task failed before Run_Task recorded it (e.g. IAM error at startup)
+        # Still notify dependents so downstream tasks can unblock
+        log.warn(
+            action_name,
+            "No orchestration token — task may have failed before starting",
+            execution_name=execution_name,
+            task=actual_task_name,
+        )
+
+    # Notify dependents via SFN helper
+    if not notify_dependents_via_sfn(
+        task_name=actual_task_name,
+        status=target_status,
+        date=item.get('date', date),
+        pipeline_execution_short=pipeline_execution_short,
+        pipeline_execution=pipeline_execution,
+    ):
+        log.warn(
+            action_name,
+            "Failed to notify dependents — downstream tasks may stay waiting",
+            execution_name=execution_name,
+        )
+        _write_notify_warning(
+            execution_name=execution_name,
+            task_name=actual_task_name,
+            pipeline_execution=pipeline_execution,
+            pipeline_name=item.get('pipeline_name', 'unknown'),
+            date=item.get('date', date),
+            error='SFN start_execution failed',
+        )
+
+    resolve_pagerduty(item)
+    return cors_response(
+        200, {'message': success_message.format(execution_name=execution_name), 'execution_name': execution_name}
+    )
+
+
+def skip_task(task_name: str, event: Dict) -> Dict:
+    """Skip a waiting/failed task.
+
+    Supports both execution_name (full) and task_name (requires date lookup).
+    """
+    return _execute_task_action(
+        task_name,
+        event,
+        action_name='skip',
+        target_status='skipped',
+        use_resolved_check=True,
+        stop_error='Skipped',
+        default_reason='Task skipped via UI',
+        callback_fn=lambda token, name, _reason: sfn.send_task_success(
+            taskToken=token, output=json.dumps({'status': 'skipped', 'task_name': name})
+        ),
+        success_message='Skip triggered for {execution_name}',
+    )
+
+
+def fail_task(task_name: str, event: Dict) -> Dict:
+    """Mark a running task as failed and stop its wrapper.
+
+    Supports both execution_name (full) and task_name (requires date lookup).
+    """
+    return _execute_task_action(
+        task_name,
+        event,
+        action_name='fail',
+        target_status='failed',
+        use_resolved_check=False,
+        include_error_field=True,
+        stop_error='ManuallyFailed',
+        default_reason='Manually failed by user',
+        callback_fn=lambda token, _name, reason: sfn.send_task_failure(
+            taskToken=token, error='ManuallyFailed', cause=reason
+        ),
+        success_message='Task {execution_name} marked as failed',
+    )
+
+
+def mark_success(task_name: str, event: Dict) -> Dict:
+    """Mark a task as successful manually.
+
+    Supports both execution_name (full) and task_name (requires date lookup).
+
+    Use cases:
+    - Task stuck but work completed (verified via logs/S3)
+    - Manual intervention - work done by human
+    - Testing - quickly mark task as done
+    """
+    return _execute_task_action(
+        task_name,
+        event,
+        action_name='mark_success',
+        target_status='success',
+        use_resolved_check=True,
+        stop_error='ManuallySucceeded',
+        default_reason='Manually marked successful by user',
+        callback_fn=lambda token, name, reason: sfn.send_task_success(
+            taskToken=token,
+            output=json.dumps({'status': 'success', 'task_name': name, 'manual': True, 'reason': reason}),
+        ),
+        success_message='Task {execution_name} marked as successful',
+    )
+
+
+def stop_task(task_name: str, event: Dict) -> Dict:
+    """Stop a running task (pause) without marking as failed. Task can be resumed later.
+    Also handles stopping waiting tasks by marking them as aborted.
+
+    Supports both execution_name (full) and task_name (requires date lookup).
+    """
+    body, err = safe_parse_body(event)
+    if err:
+        return err
+    date = body.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    pipeline_execution = body.get('pipeline_execution', '')
+
+    # Resolve task using unified resolver (handles both formats with pagination)
+    item, execution_name = resolve_task_item(task_name, date, pipeline_execution)
+
+    if not item:
+        return cors_response(404, {'error': f'Task not found: {task_name} on {date}'})
+
+    current_status = item.get('status', '')
+
+    # Check if already terminal BEFORE doing anything
+    if is_terminal_status(current_status):
+        return cors_response(
+            409,
+            {
+                'error': f'Task already in terminal state: {current_status}',
+                'execution_name': execution_name,
+                'current_status': current_status,
+            },
+        )
+
+    actual_task_name = item.get('task_name', task_name)
+    pipeline_execution = item.get('pipeline_execution', '')
+    pipeline_execution_short = item.get('pipeline_execution_short', '')
+    orchestration_token = item.get('orchestration_token')
+
+    # Ensure pipeline_execution_short has a value (critical for notify_dependents)
+    pipeline_execution_short = ensure_pipeline_execution_short(pipeline_execution, pipeline_execution_short)
+    if not pipeline_execution_short:
+        log.warn("stop_task", "No pipeline_execution_short, event notification may fail", execution_name=execution_name)
+
+    # Determine final status based on current status
+    # Running tasks become 'stopped', waiting tasks become 'aborted'
+    if current_status in TASK_WAITING_STATUSES:
+        final_status = TaskStatus.ABORTED
+    else:
+        final_status = TaskStatus.STOPPED
+
+    # Claim: update status FIRST (only if not already terminal)
+    try:
+        executions_repo.update(
+            execution_name,
+            'SET #s = :status, finished_at = :finished',
+            expr_values=build_condition_expression_values(
+                {':status': final_status, ':finished': datetime.now(timezone.utc).isoformat()}
+            ),
+            expr_names={'#s': 'status'},
+            condition_expr=TERMINAL_CONDITION_EXPRESSION,
+        )
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            log.info(
+                "stop_task", "Task already in terminal state, skipping status update", execution_name=execution_name
+            )
+            return cors_response(
+                409,
+                {
+                    'error': 'Task already in terminal state',
+                    'execution_name': execution_name,
+                    'current_status': current_status,
+                },
+            )
+        else:
+            raise
+
+    # Side-effects AFTER successful claim
+    stop_task_executions(item, 'Stopped', 'Task stopped via UI - can be restarted')
+    record_manual_decision(execution_name, 'stop', 'Task stopped via UI', item)
+
+    # For aborted tasks: send orchestration callback if token exists
+    # This prevents pipeline from hanging waiting for callback
+    if final_status == 'aborted' and orchestration_token:
+        try:
+            sfn.send_task_failure(taskToken=orchestration_token, error='TaskAborted', cause='Task aborted via UI')
+        except Exception as e:
+            log.error("stop_task", "Failed orchestration callback", execution_name=execution_name, error=str(e))
+
+    # Notify dependents ONLY for aborted (terminal status)
+    # stopped is NOT terminal - task can be restarted, so don't notify dependents yet
+    if final_status == 'aborted':
+        if not notify_dependents_via_sfn(
+            task_name=actual_task_name,
+            status=final_status,
+            date=item.get('date', date),
+            pipeline_execution_short=pipeline_execution_short,
+            pipeline_execution=pipeline_execution,
+        ):
+            log.error("stop_task", "Failed to notify dependents", execution_name=execution_name)
+            _write_notify_warning(
+                execution_name=execution_name,
+                task_name=actual_task_name,
+                pipeline_execution=pipeline_execution,
+                pipeline_name=item.get('pipeline_name', 'unknown'),
+                date=item.get('date', date),
+                error='SFN start_execution failed during stop',
+            )
+
+    return cors_response(
+        200,
+        {
+            'message': f'Task {execution_name} {final_status}. Use Restart to resume.',
+            'execution_name': execution_name,
+            'status': final_status,
+        },
+    )
+
+
+def restart_task(task_name: str, event: Dict) -> Dict:
+    """Restart a task by calling the restart_task_helper Step Function.
+
+    Supports both execution_name (full) and task_name (requires date lookup).
+    """
+    body, err = safe_parse_body(event)
+    if err:
+        return err
+    date = body.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    pipeline_execution = body.get('pipeline_execution', '')
+
+    # Resolve task using unified resolver (handles both formats with pagination)
+    item, execution_name = resolve_task_item(task_name, date, pipeline_execution)
+
+    if not item:
+        return cors_response(404, {'error': f'Task not found: {task_name} on {date}'})
+
+    current_status = item.get('status', '')
+
+    # Only terminal tasks can be restarted
+    if not is_terminal_status(current_status):
+        return cors_response(
+            409,
+            {
+                'error': f'Task not in terminal state: {current_status}. Only completed/failed/skipped tasks can be restarted.',
+                'execution_name': execution_name,
+                'current_status': current_status,
+            },
+        )
+
+    # Get the restart helper ARN from environment
+    restart_helper_arn = os.environ.get('RESTART_HELPER_ARN')
+
+    if restart_helper_arn:
+        # Record manual decision for timeline
+        record_manual_decision(execution_name, 'restart', 'Task restarted via UI', item)
+
+        # Call restart_task_helper Step Function
+        try:
+            exec_id = uuid.uuid4().hex[:8]
+            restart_name = f"restart-{execution_name[:60]}-{exec_id}"
+            result = sfn.start_execution(
+                stateMachineArn=restart_helper_arn,
+                name=restart_name,
+                input=json.dumps({'execution_name': execution_name}),
+            )
+            return cors_response(
+                200, {'message': f'Restart initiated for {execution_name}', 'execution_arn': result['executionArn']}
+            )
+        except Exception as e:
+            log.error("unknown", "Unexpected error", error=str(e))
+            return cors_response(500, {'error': f'Failed to start restart: {str(e)}'})
+    else:
+        # Fallback: stop all executions and reset status
+        stop_task_executions(item, 'RestartRequested', 'Task restart requested via UI')
+
+        # Record manual decision for timeline
+        record_manual_decision(execution_name, 'restart', 'Task restart (fallback) via UI', item)
+
+        # Reset status (only if still in terminal state - race condition guard)
+        RESTART_CONDITION = '#s IN (:success, :failed, :skipped, :aborted, :upstream_failed)'
+        try:
+            executions_repo.update(
+                execution_name,
+                'SET #s = :status, started_at = :started, finished_at = :finished, #e = :error',
+                expr_values=build_condition_expression_values(
+                    {
+                        ':status': 'waiting',
+                        ':started': datetime.now(timezone.utc).isoformat(),
+                        ':finished': None,
+                        ':error': None,
+                    }
+                ),
+                expr_names={'#s': 'status', '#e': 'error'},
+                condition_expr=RESTART_CONDITION,
+            )
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                return cors_response(
+                    409, {'error': 'Task state changed (already restarted?)', 'execution_name': execution_name}
+                )
+            else:
+                raise
+
+        return cors_response(
+            200,
+            {
+                'message': f'Task {execution_name} reset. Re-trigger pipeline to restart.',
+                'execution_name': execution_name,
+            },
+        )
+
 def register(router) -> None:
     """Register the free task read routes. See ADR #97."""
     router.add('GET', '/api/tasks', get_all_tasks)
     router.add('GET', '/api/task-config', get_task_config, 'name')
     router.add('GET', '/api/task-events', get_task_events, 'name')
+    # Task intervention — free (ADR #110): fix a stuck/failed task on a live run.
+    router.add('POST', '/api/task-retry', retry_task, 'name')
+    router.add('POST', '/api/task-skip', skip_task, 'name')
+    router.add('POST', '/api/task-fail', fail_task, 'name')
+    router.add('POST', '/api/task-success', mark_success, 'name')
+    router.add('POST', '/api/task-stop', stop_task, 'name')
+    router.add('POST', '/api/task-restart', restart_task, 'name')

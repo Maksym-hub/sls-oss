@@ -52,7 +52,7 @@ def _compare_or_update(name: str, generated: dict):
 
 
 def _run_snapshot(name: str, builder):
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
     dag = builder()
     asl_json = generate_step_function_json(dag)
     asl = json.loads(asl_json)
@@ -66,7 +66,7 @@ def _run_snapshot(name: str, builder):
 
 def _build_step_direct_wait():
     """Task + Wait direct step — simplest mixed DAG."""
-    from slsflow import DAG, task, Wait
+    from polyris import DAG, task, Wait
 
     with DAG("step_direct_wait", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
@@ -81,7 +81,7 @@ def _build_step_direct_wait():
 
 def _build_step_direct_pass():
     """Pass step with output transformation."""
-    from slsflow import DAG, task, Pass
+    from polyris import DAG, task, Pass
 
     with DAG("step_direct_pass", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
@@ -102,7 +102,7 @@ def _build_step_direct_pass():
 
 def _build_step_direct_sns_sqs():
     """SNS + SQS direct steps — service integration coverage."""
-    from slsflow import DAG, task, SNSTask, SQSTask
+    from polyris import DAG, task, SNSTask, SQSTask
 
     with DAG("step_direct_sns_sqs", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
@@ -129,7 +129,7 @@ def _build_step_direct_sns_sqs():
 
 def _build_step_direct_s3():
     """S3 get + put operations — tests both operation types."""
-    from slsflow import DAG, task, S3Task
+    from polyris import DAG, task, S3Task
 
     with DAG("step_direct_s3", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:transform")
@@ -158,7 +158,7 @@ def _build_step_direct_s3():
 
 def _build_step_direct_eventbridge():
     """EventBridge + Bedrock direct steps."""
-    from slsflow import DAG, task, EventBridgeTask, BedrockTask
+    from polyris import DAG, task, EventBridgeTask, BedrockTask
 
     with DAG("step_direct_eventbridge", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
@@ -185,7 +185,7 @@ def _build_step_direct_eventbridge():
 
 def _build_step_direct_http():
     """HTTP task step — API call integration."""
-    from slsflow import DAG, task, HttpTask
+    from polyris import DAG, task, HttpTask
 
     with DAG("step_direct_http", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
@@ -206,7 +206,7 @@ def _build_step_direct_http():
 
 def _build_step_direct_dynamodb():
     """DynamoDB operations — put_item and query."""
-    from slsflow import DAG, task, DynamoDBTask
+    from polyris import DAG, task, DynamoDBTask
 
     with DAG("step_direct_dynamodb", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
@@ -238,7 +238,7 @@ def _build_step_direct_dynamodb():
 
 def _build_step_wrapper_lambda():
     """LambdaTask through wrapper — Step API (not @task decorator)."""
-    from slsflow import DAG, task, LambdaTask
+    from polyris import DAG, task, LambdaTask
 
     with DAG("step_wrapper_lambda", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
@@ -258,7 +258,7 @@ def _build_step_wrapper_lambda():
 
 def _build_step_wrapper_glue():
     """GlueTask through wrapper with dependencies on Task."""
-    from slsflow import DAG, task, GlueTask
+    from polyris import DAG, task, GlueTask
 
     with DAG("step_wrapper_glue", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:prepare")
@@ -281,7 +281,7 @@ def _build_step_wrapper_glue():
 
 def _build_step_wrapper_ecs_athena():
     """ECS + Athena through wrapper — both with deps on Task."""
-    from slsflow import DAG, task, ECSTask, AthenaTask
+    from polyris import DAG, task, ECSTask, AthenaTask
 
     with DAG("step_wrapper_ecs_athena", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
@@ -326,7 +326,7 @@ def _build_step_mixed_full():
       notify_sns (direct, no deps)
       validate_lambda (wrapper, depends on extract)
     """
-    from slsflow import DAG, task, Wait, SNSTask, LambdaTask
+    from polyris import DAG, task, Wait, SNSTask, LambdaTask
 
     with DAG("step_mixed_full", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
@@ -425,7 +425,7 @@ def test_snapshot_step_mixed_full():
 
 def test_all_step_scenarios_produce_valid_asl():
     """Every Step scenario generates valid ASL."""
-    from slsflow.generators import generate_step_function_json, validate_asl
+    from polyris.generators import generate_step_function_json, validate_asl
 
     for name, builder in STEP_SCENARIOS.items():
         dag = builder()
@@ -441,7 +441,7 @@ def test_all_step_scenarios_produce_valid_asl():
 
 def test_all_step_scenarios_branch_count():
     """Branch count == tasks + steps."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     for name, builder in STEP_SCENARIOS.items():
         dag = builder()
@@ -463,7 +463,7 @@ def test_all_step_scenarios_branch_count():
 
 def test_direct_steps_run_inline():
     """Direct steps (wait/pass/sns/sqs/s3) produce inline ASL, NOT wrapper calls."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_direct_wait()
     asl = json.loads(generate_step_function_json(dag))
@@ -485,7 +485,7 @@ def test_direct_steps_run_inline():
 
 def test_wrapper_steps_use_wrapper():
     """Wrapper steps (lambda/glue/ecs/athena via Step API) go through wrapper SFN."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_wrapper_lambda()
     asl = json.loads(generate_step_function_json(dag))
@@ -508,7 +508,7 @@ def test_wrapper_steps_use_wrapper():
 
 def test_wrapper_step_has_dependencies():
     """Wrapper steps carry dependency info to the wrapper."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_wrapper_lambda()
     asl = json.loads(generate_step_function_json(dag))
@@ -528,7 +528,7 @@ def test_wrapper_step_has_dependencies():
 
 def test_wrapper_step_glue_has_task_config():
     """GlueTask wrapper step carries job_name and arguments in task_config."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_wrapper_glue()
     asl = json.loads(generate_step_function_json(dag))
@@ -549,7 +549,7 @@ def test_wrapper_step_glue_has_task_config():
 
 def test_wrapper_step_ecs_has_network_config():
     """ECS wrapper step carries cluster, task_definition, subnets."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_wrapper_ecs_athena()
     asl = json.loads(generate_step_function_json(dag))
@@ -571,7 +571,7 @@ def test_wrapper_step_ecs_has_network_config():
 
 def test_sns_step_produces_correct_resource():
     """SNS direct step uses sns:publish resource."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_direct_sns_sqs()
     asl = json.loads(generate_step_function_json(dag))
@@ -592,7 +592,7 @@ def test_sns_step_produces_correct_resource():
 
 def test_sqs_step_has_delay():
     """SQS step carries delay_seconds."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_direct_sns_sqs()
     asl = json.loads(generate_step_function_json(dag))
@@ -611,7 +611,7 @@ def test_sqs_step_has_delay():
 
 def test_s3_put_has_body_and_content_type():
     """S3 put_object step carries body and content_type."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_direct_s3()
     asl = json.loads(generate_step_function_json(dag))
@@ -633,7 +633,7 @@ def test_s3_put_has_body_and_content_type():
 
 def test_dynamodb_query_has_index():
     """DynamoDB query step carries KeyConditionExpression and IndexName."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_direct_dynamodb()
     asl = json.loads(generate_step_function_json(dag))
@@ -654,7 +654,7 @@ def test_dynamodb_query_has_index():
 
 def test_http_step_has_headers():
     """HTTP step carries method, headers, body."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_direct_http()
     asl = json.loads(generate_step_function_json(dag))
@@ -676,7 +676,7 @@ def test_http_step_has_headers():
 
 def test_mixed_dag_has_all_branches():
     """Mixed DAG has both task and step branches with correct types."""
-    from slsflow.generators import generate_step_function_json
+    from polyris.generators import generate_step_function_json
 
     dag = _build_step_mixed_full()
     asl = json.loads(generate_step_function_json(dag))
@@ -718,8 +718,8 @@ def test_mixed_dag_has_all_branches():
 
 def test_direct_step_with_deps_raises():
     """Direct step (Wait) cannot have dependencies — must raise ValueError."""
-    from slsflow import DAG, task, Wait
-    from slsflow.generators import generate_step_function_json
+    from polyris import DAG, task, Wait
+    from polyris.generators import generate_step_function_json
 
     with DAG("invalid_direct_deps", schedule=None, alerts=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
@@ -736,8 +736,8 @@ def test_direct_step_with_deps_raises():
 
 def test_wrapper_step_depending_on_direct_step_raises():
     """Wrapper step (LambdaTask) cannot depend on direct step (Wait)."""
-    from slsflow import DAG, task, Wait, LambdaTask
-    from slsflow.generators import generate_step_function_json
+    from polyris import DAG, task, Wait, LambdaTask
+    from polyris.generators import generate_step_function_json
 
     with DAG("invalid_wrapper_on_direct", schedule=None, alerts=None) as dag:
         wait = Wait(step_id="my_wait", seconds=10)
@@ -755,8 +755,8 @@ def test_wrapper_step_depending_on_direct_step_raises():
 
 def test_task_depending_on_direct_step_raises():
     """@task cannot depend on direct step (SNS)."""
-    from slsflow import DAG, task, SNSTask
-    from slsflow.generators import generate_step_function_json
+    from polyris import DAG, task, SNSTask
+    from polyris.generators import generate_step_function_json
 
     with DAG("invalid_task_on_direct", schedule=None, alerts=None) as dag:
         notify = SNSTask(

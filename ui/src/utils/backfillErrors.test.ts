@@ -66,7 +66,7 @@ describe('formatBackfillError', () => {
         // Replaces the old hand-maintained `criticalCodes` list, which silently
         // fell behind the backend (missing the v83 downstream / v81 upstream
         // codes, still listing dead ones) yet stayed green. BACKFILL_ERROR_CODES
-        // is generated from slsflow/constants.py and pinned to the route's
+        // is generated from polyris/constants.py and pinned to the route's
         // emitted literals by test_backfill_error_registry — so this assertion
         // fails the moment a new backend code lacks UI text (ADR #94).
         const unmapped: string[] = [];

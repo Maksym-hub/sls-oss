@@ -509,6 +509,58 @@ textarea:focus-visible {
     background: var(--bg-secondary);
 }
 
+/* Empty / unavailable-feature state (EmptyState: ComingSoon, EeFeatureFallback, …) */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 4rem 2rem;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.empty-state__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 9999px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+.empty-state__icon svg {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+.empty-state__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-width: 24rem;
+}
+
+.empty-state__title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.empty-state__description {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.empty-state__action {
+    margin-top: 0.25rem;
+}
+
 /* Error Boundary Styles */
 .eb-error-boundary-container {
     display: flex;

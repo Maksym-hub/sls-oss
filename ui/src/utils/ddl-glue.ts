@@ -1,5 +1,5 @@
 /**
- * Glue/Hive DDL renderer — TypeScript mirror of `slsflow.assets._render_glue_ddl`.
+ * Glue/Hive DDL renderer — TypeScript mirror of `polyris.assets._render_glue_ddl`.
  *
  * Why this exists: the UI bundle ships independently of the Python SDK and
  * cannot import Python at runtime. To keep the "Copy as DDL" button instant

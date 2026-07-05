@@ -8,9 +8,9 @@ import re
 
 import pytest
 
-from slsflow.backfill_status import finalize_status, all_map_done
-from slsflow.constants import BackfillStatus, BACKFILL_TERMINAL_STATUSES
-from slsflow.codegen.check_backfill_status_parity import (
+from polyris.backfill_status import finalize_status, all_map_done
+from polyris.constants import BackfillStatus, BACKFILL_TERMINAL_STATUSES
+from polyris.codegen.check_backfill_status_parity import (
     check_parity,
     extract_finalize_jsonata,
     TEMPLATE,
@@ -71,7 +71,7 @@ class TestSfnParity:
         bad_file = tmp_path / "sfn.tpl.json"
         bad_file.write_text(json.dumps(original))
         monkeypatch.setattr(
-            'slsflow.codegen.check_backfill_status_parity.TEMPLATE', bad_file,
+            'polyris.codegen.check_backfill_status_parity.TEMPLATE', bad_file,
         )
         assert check_parity() == 1
 
@@ -85,6 +85,6 @@ class TestSfnParity:
         bad_file = tmp_path / "sfn.tpl.json"
         bad_file.write_text(json.dumps(original))
         monkeypatch.setattr(
-            'slsflow.codegen.check_backfill_status_parity.TEMPLATE', bad_file,
+            'polyris.codegen.check_backfill_status_parity.TEMPLATE', bad_file,
         )
         assert check_parity() == 1
