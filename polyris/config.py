@@ -40,7 +40,6 @@ See docs/reference/CONFIGURATION.md for details.
 
 import importlib.util
 import os
-import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 

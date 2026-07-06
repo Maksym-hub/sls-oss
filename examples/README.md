@@ -1,15 +1,23 @@
 # polyris examples
 
-Four small, self-contained pipelines that build up the core concepts. Every one
-runs **locally with no AWS account** — explore the DSL, see the generated Step
-Functions definition, and iterate before you deploy anything.
+Self-contained pipelines that build up the DSL. Every one runs **locally with no
+AWS account** — explore the DSL, see the generated Step Functions definition, and
+iterate before you deploy anything.
+
+The first three are minimal intros; `04`–`08` each exercise a slice of the full
+feature surface (task types, branching, direct steps, operational settings, and a
+realistic end-to-end run).
 
 | Example | Concept |
 |---|---|
 | [`01_hello_world`](01_hello_world/dag.py) | The smallest pipeline — one scheduled task |
 | [`02_linear_etl`](02_linear_etl/dag.py) | `extract → transform → load`; passing data between tasks |
 | [`03_fan_in_trigger_rule`](03_fan_in_trigger_rule/dag.py) | Parallel tasks + a `trigger_rule` (`all_done`) |
-| [`04_assets_lineage`](04_assets_lineage/dag.py) | Typed assets, lineage, and a pull-based `wait_for` dependency |
+| [`04_multi_service`](04_multi_service/dag.py) | One of every task type: `sfn`, `lambda_`, `glue`, `athena`, `ecs`, `emr`, `batch` + `default_args` + cross-account `role` |
+| [`05_branching`](05_branching/dag.py) | Fan-out / fan-in, trigger rules, `chain()` / `cross_downstream()` |
+| [`06_direct_steps`](06_direct_steps/dag.py) | Direct service steps (`Wait`, `Pass`, `SNS`, `SQS`, `S3`), `wait_before`, `rate(...)`, `variables` |
+| [`07_operational`](07_operational/dag.py) | Retries + backoff, timeouts, `skip_on_backfill`, `catchup`, concurrency limits |
+| [`08_realistic`](08_realistic/dag.py) | A plausible daily analytics pipeline combining several services end to end |
 
 ## Run one locally
 

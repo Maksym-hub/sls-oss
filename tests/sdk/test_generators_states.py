@@ -8,7 +8,6 @@ asset-lineage iterator, ``generate_eventbridge_schedule`` and ``generate_all_ass
 """
 from __future__ import annotations
 
-import json
 from datetime import timedelta
 
 from polyris import DAG, task, Asset

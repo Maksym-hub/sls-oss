@@ -48,7 +48,7 @@ export function HelpModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
     useKeyboardShortcuts({
         's': () => setActiveTab('shortcuts'),
         'i': () => setActiveTab('icons'),
-        'b': () => setActiveTab('backfill'),
+        'b': () => { if (paidSurface.BackfillsView) setActiveTab('backfill'); },
         'a': () => setActiveTab('api'),
     }, { enabled: isOpen });
     
@@ -68,12 +68,14 @@ export function HelpModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                 >
                     <Palette size={14} /> Icons
                 </button>
-                <button 
-                    className={`nav-tab nav-tab--sm ${activeTab === 'backfill' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('backfill')}
-                >
-                    <ContextIcons.backfill size={14} /> Backfill
-                </button>
+                {paidSurface.BackfillsView && (
+                    <button 
+                        className={`nav-tab nav-tab--sm ${activeTab === 'backfill' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('backfill')}
+                    >
+                        <ContextIcons.backfill size={14} /> Backfill
+                    </button>
+                )}
                 <button 
                     className={`nav-tab nav-tab--sm ${activeTab === 'api' ? 'active' : ''}`}
                     onClick={() => setActiveTab('api')}
@@ -147,8 +149,9 @@ function KeyboardShortcutsTab() {
             title: 'Pipeline view modes',
             items: [
                 { key: 'D', action: 'Switch to DAG view' },
-                { key: 'G', action: 'Switch to Gantt view (Team)' },
-                { key: 'C', action: 'Switch to Calendar view (Team)' },
+                // Gantt & Calendar are paid view-modes — only listed when present.
+                ...(paidSurface.GanttChart ? [{ key: 'G', action: 'Switch to Gantt view' }] : []),
+                ...(paidSurface.CalendarView ? [{ key: 'C', action: 'Switch to Calendar view' }] : []),
             ],
         },
         {
@@ -378,12 +381,6 @@ function IconsLegendTab() {
 function BackfillDocsTab() {
     return (
         <div className="hm-backfill-docs">
-            <div className="hm-help-section hm-help-section--note">
-                <p><strong>Team edition.</strong> Backfill is a Team-tier feature.
-                The open-source build ships the engine, assets, and lineage; the
-                backfill orchestrator, its views, and the <code>polyris-backfill</code>
-                CLI are part of the Team edition.</p>
-            </div>
             <div className="hm-help-section">
                 <h4>What is Backfill?</h4>
                 <p>Backfill rebuilds a pipeline or asset across a range of partitions (typically dates).
@@ -620,7 +617,7 @@ function ApiReferenceTab() {
                     <code>export API_TOKEN=…</code>.{' '}
                     {paidSurface.ApiTokensSection
                         ? <>Create a PAT (<code>plrs_…</code>) under your menu → Settings → API Tokens, or use a Cognito access token.</>
-                        : <>Use a Cognito access token (personal access tokens are a Team-edition feature).</>}
+                        : <>Use a Cognito access token.</>}
                     {' '}Click any endpoint to see a full curl example.
                 </p>
             </div>

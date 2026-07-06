@@ -109,7 +109,6 @@
                   "task_type": "sfn",
                   "dependencies": [],
                   "cross_account_role": "same",
-                  "slack_channel": "",
                   "token": "{% $states.context.Task.Token %}",
                   "pipeline_name": "step_direct_sns_sqs",
                   "pipeline_execution": "{% $states.context.Execution.Name %}",

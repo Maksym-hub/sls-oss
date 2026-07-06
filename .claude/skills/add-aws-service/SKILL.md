@@ -44,13 +44,18 @@ points, in order:
    - add a `@task.<service>(...)` classmethod to `TaskDecorator` (mirror
      `TaskDecorator.glue` / `.ecs`): declare **only the service-specific
      params** explicitly (required keyword args; structural checks raise
-     `ValueError` — this is the real "validation") and take the shared 13
-     via `**common: Unpack[CommonTaskKwargs]`, calling
+     `ValueError` — this is the real "validation") and take the shared common
+     params via `**common: Unpack[CommonTaskKwargs]`, calling
      `_validate_common_kwargs("<service>", common)` before the
      `self._create_task(..., **common)` forward (ADR #109). A **new common
      parameter** is added once — to `CommonTaskKwargs` + `_create_task`
-     (+ the `Task` field) — never per-decorator. Typos still fail fast: the
-     validator raises `TypeError` naming the decorator;
+     (+ the `Task` field) — never per-decorator. (Assets —
+     `outlets`/`inlets`/`wait_for` — are common params for exactly this reason:
+     every task type gets them via `**common`, and the generator handles them
+     generically. Do **not** re-declare them on your decorator.)
+     `test_every_task_decorator_accepts_common_kwargs` fails any decorator that
+     drops `**common`. Typos still fail fast: the validator raises `TypeError`
+     naming the decorator;
    - add the new decorator to the "base `@task` is not allowed" error list.
 3. **`polyris/generators.py`** — the codegen, in **two** dispatch sites (keep them
    in sync):
@@ -147,7 +152,10 @@ alternatives, the cost delta, and the orchestration shape (how it fits SFN-first
   field as a binding guard) and check every parameter arrives. This is the test
   that would have caught the emr break. Mirror the glue/ecs/emr contract tests.
 - **Decorator / Task** (`tests/sdk/`, e.g. `test_schema.py`) — `@task.<service>(…)`
-  produces the right `Task` and rejects missing required params.
+  produces the right `Task` and rejects missing required params. Your new type is
+  automatically swept by `test_every_task_decorator_accepts_common_kwargs` and
+  `test_all_task_types_wire_assets` in `test_run_task_template.py` (they discover
+  every `@task.*`) — if either fails, your decorator dropped `**common`.
 - **Template drift** (`tests/sdk/test_sfn_template_drift.py`) stays green.
 - **Adapter** (if added) — a `tests/sdk/test_adapters_<service>.py` mirroring
   `test_adapters_glue.py`.

@@ -109,7 +109,6 @@
                   "task_type": "sfn",
                   "dependencies": [],
                   "cross_account_role": "same",
-                  "slack_channel": "",
                   "token": "{% $states.context.Task.Token %}",
                   "pipeline_name": "diamond",
                   "pipeline_execution": "{% $states.context.Execution.Name %}",
@@ -148,7 +147,6 @@
                     "a"
                   ],
                   "cross_account_role": "same",
-                  "slack_channel": "",
                   "token": "{% $states.context.Task.Token %}",
                   "pipeline_name": "diamond",
                   "pipeline_execution": "{% $states.context.Execution.Name %}",
@@ -187,7 +185,6 @@
                     "a"
                   ],
                   "cross_account_role": "same",
-                  "slack_channel": "",
                   "token": "{% $states.context.Task.Token %}",
                   "pipeline_name": "diamond",
                   "pipeline_execution": "{% $states.context.Execution.Name %}",
@@ -227,7 +224,6 @@
                     "c"
                   ],
                   "cross_account_role": "same",
-                  "slack_channel": "",
                   "token": "{% $states.context.Task.Token %}",
                   "pipeline_name": "diamond",
                   "pipeline_execution": "{% $states.context.Execution.Name %}",

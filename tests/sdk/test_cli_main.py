@@ -16,9 +16,10 @@ class TestCliMain:
         out = capsys.readouterr().out
         assert rc == 0
         assert "Available commands:" in out
-        # The real OSS commands are listed; backfill is flagged Team tier.
+        # The real OSS commands are listed. polyris-backfill ships separately in
+        # polyris-ee and is not advertised in the open-source CLI index.
         assert "polyris-deploy" in out
-        assert "polyris-backfill" in out
+        assert "polyris-backfill" not in out
 
     def test_ignores_arguments_and_still_prints_index(self, capsys):
         # The bare command takes no subcommands; any argv just prints the index.

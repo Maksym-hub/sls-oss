@@ -119,10 +119,6 @@ def dag(
     owner: str = "airflow",
     max_active_tasks: int = 16,
     max_active_runs: int = 16,
-    # Alerts - DEPRECATED (ADR #103): configured in the Console UI now, not the DSL
-    alerts = None,
-    # SFN-specific (deprecated - use alerts instead)
-    slack_channel: str = "",
     **kwargs
 ):
     """
@@ -166,8 +162,6 @@ def dag(
                 owner=owner,
                 max_active_tasks=max_active_tasks,
                 max_active_runs=max_active_runs,
-                alerts=alerts,
-                slack_channel=slack_channel,
             )
             
             # Enter DAG context and execute function

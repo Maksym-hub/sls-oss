@@ -11,7 +11,7 @@ The Python source of truth for trigger rules is evaluate_deps/index.py.
 """
 
 import itertools
-from typing import List, Tuple
+from typing import List
 
 # All supported trigger rules
 TRIGGER_RULES = [

@@ -6,7 +6,7 @@ describe('EeFeatureFallback', () => {
     it('names the feature and explains it is gated to the paid tier', () => {
         render(<EeFeatureFallback feature="Backfills" />);
         expect(screen.getByText(/Backfills isn.t available in this edition/i)).toBeInTheDocument();
-        expect(screen.getByText('This is a Team-tier feature.')).toBeInTheDocument();
+        expect(screen.getByText('This feature isn’t available in this build.')).toBeInTheDocument();
     });
 
     it('omits the home button when no onHome handler is provided', () => {

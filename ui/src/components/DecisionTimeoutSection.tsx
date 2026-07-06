@@ -119,7 +119,7 @@ export function DecisionTimeoutSection() {
             </button>
           ) : (
             <span className="settings-readonly-hint">
-              <Lock size={12} /> Editable on Team
+              <Lock size={12} /> Read-only
             </span>
           )}
         </div>

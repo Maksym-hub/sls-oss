@@ -9,16 +9,15 @@ interface EeFeatureFallbackProps {
 }
 
 /**
- * Placeholder shown when a paid Team-tier view is not present in this edition
- * (ADR #99). Unlike {@link ComingSoon} (not-yet-shipped, coming to everyone),
- * this signals a capability gated behind the paid tier.
+ * Placeholder shown when a view is not present in this build (ADR #99) — a
+ * capability this deployment does not include.
  */
 export function EeFeatureFallback({ feature, onHome }: EeFeatureFallbackProps) {
     return (
         <EmptyState
             icon={Lock}
             title={`${feature} isn’t available in this edition.`}
-            description="This is a Team-tier feature."
+            description="This feature isn’t available in this build."
             action={onHome && (
                 <Button size="sm" variant="outline" onClick={onHome}>Go to Pipelines</Button>
             )}

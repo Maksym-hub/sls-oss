@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field
 
 from polyris import schema as s
 from polyris.adapters.pydantic_ import pydantic_to_columns
-from polyris.schema import Column
 
 
 # =============================================================================

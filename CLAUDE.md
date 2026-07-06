@@ -1034,8 +1034,7 @@ Free = authoring + basic read + running + **live-run intervention** (task action
 skip/fail/success/stop/restart, execution stop/pause/resume/extend); Team (in
 `ee/team/`) = pipeline-level lifecycle (pause/restart), backfill, assets console,
 alert integrations (Slack/PagerDuty), PATs, per-pipeline observability
-(logs/metrics), and config mutation (task-config PUT, decision-timeout PUT). The
-canonical free/Team/Enterprise map is `docs/reference/EDITIONS.md`.
+(logs/metrics), and config mutation (task-config PUT, decision-timeout PUT).
 
 Path params go via query string (e.g. `/api/tokens?id=…`), not REST path
 segments — the API is a single `/{proxy+}` integration, so adding a route needs

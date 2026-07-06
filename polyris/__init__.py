@@ -10,7 +10,6 @@ Example:
     with DAG(
         dag_id="my-etl",
         schedule="@daily",
-        alerts={"slack": "#alerts"},
         default_args={"retries": 2, "retry_delay": timedelta(minutes=5)},
     ) as dag:
         
@@ -46,7 +45,7 @@ Deploy Options:
     # Then: polyris-deploy
 """
 
-__version__ = "0.92.0"
+__version__ = "0.93.0"
 
 # Core classes
 from .config import config
@@ -56,7 +55,7 @@ from .task_group import TaskGroup, task_group
 from .xcom import XComArg
 
 # Assets
-from .assets import Asset, AssetAll, AssetAny, AssetAlias, Metadata, Watcher, generate_watchers_config
+from .assets import Asset, AssetAll, AssetAny, AssetAlias, Metadata, Watcher, generate_watchers_config, ExperimentalWarning
 
 # Schema (typed column system) — `types` module exposes type factories:
 #   from polyris import types as t
@@ -144,11 +143,9 @@ __all__ = [
     'TaskInstance',
     'XComArg',
     
-    # Assets
-    'Asset',
-    'AssetAll',
-    'AssetAny',
-    'AssetAlias',
+    # Assets: experimental and disabled by default (see polyris/assets.py) —
+    # intentionally omitted from the public API surface. The symbols remain
+    # importable for internal use and tests.
     'Metadata',
     'Watcher',
     'generate_watchers_config',

@@ -35,7 +35,6 @@ import json
 import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Callable
-from pathlib import Path
 from dataclasses import dataclass, field
 
 from .dag import DAG
@@ -126,10 +125,6 @@ def validate(dag: DAG, verbose: bool = True) -> Dict[str, Any]:
     # Check: Has tasks
     if not dag.tasks:
         errors.append("DAG has no tasks")
-    
-    # Check: Alerts configured
-    if not dag.alerts:
-        warnings.append("No alerts configured (use alerts={...} or alerts=None to explicitly disable)")
     
     # Check: Dependencies exist
     task_ids = {t.task_id for t in dag.tasks}
@@ -222,7 +217,6 @@ def dry_run(dag: DAG, show_asl: bool = False, show_mermaid: bool = True) -> None
     print(f"   ID: {dag.dag_id}")
     print(f"   Schedule: {dag.schedule or 'None (manual)'}")
     print(f"   Description: {dag.description or 'N/A'}")
-    print(f"   Alerts: {dag.alerts or 'Not configured'}")
     print(f"   Tags: {dag.tags or []}")
     print()
     

@@ -2,6 +2,137 @@
 
 ## Unreleased
 
+### Changed — assets ship disabled by default (still experimental)
+
+- **`Asset(...)` construction is gated off in the open-source build.** Assets
+  remain experimental — the API isn't frozen and there is no asset console in this
+  build — so `Asset(...)` now raises unless `_ASSETS_ENABLED` in
+  `polyris/assets.py` is `True` or `POLYRIS_ENABLE_ASSETS=1` is set (the test
+  suite opts in via the root `conftest.py`). The entire asset runtime (generator
+  serialization, wrapper events, `check_assets`, asset tables) is data-driven, so
+  it stays dormant with no code changes — only the single entry point is closed.
+  The asset DSL symbols are dropped from `polyris`'s public `__all__` (still
+  importable internally). Re-enabling later is one flag flip — see
+  `docs/reference/EXPERIMENTAL_ASSETS.md`.
+
+
+### Changed — public docs & CLI describe only what ships in the open-source build
+
+- **Removed paid-feature documentation and all tier wording** from user-facing
+  docs. `README.md`, `docs/features/{DSL,ASSETS,alerts}.md`, and
+  `docs/operations/API.md` no longer describe backfill, the asset console, or
+  Slack/PagerDuty alerts, and no longer reference "Team tier / Team edition" or
+  "coming soon" placeholders. Alerts docs now cover the free browser
+  notifications only. `docs/reference/EDITIONS.md` (the tier map) was removed.
+- **CLI:** `polyris --help` no longer lists `polyris-backfill` or a "Team tier"
+  section — it advertises only the commands the open-source build ships.
+
+### Changed — Assets & Backfills are paid-only surfaces in the OSS UI
+
+- The **Assets and Backfills nav tabs and "coming soon" placeholders are hidden**
+  in the open-source build. They render only when the paid surface supplies their
+  views (unchanged `paidSurface` mechanism), so a paid deployment is unaffected.
+  Direct visits to `/assets` or `/backfills` in OSS redirect to Pipelines. The
+  `ComingSoon` component (used only for these two) was removed.
+- **Removed tier-plan wording from the UI** — "Team tier / Team edition / Editable
+  on Team" in the help modal, decision-timeout section, and paid-feature fallback.
+  The free Gantt/Calendar view-mode shortcuts are no longer mislabeled "(Team)".
+
+### Removed — deprecated `alerts=` DAG argument
+
+- **`DAG(..., alerts={...})` no longer exists.** Alert delivery moved to the
+  Console UI (Settings → Alerts) in ADR #103; the DSL argument had been a
+  deprecated, ignored shim since then and is now removed root and branch (field,
+  validation, and the legacy `slack_channel`-from-`alerts` population). Passing
+  `alerts=` now raises `TypeError` — configure Slack / PagerDuty in the UI instead. The `polyris-init` scaffolder templates and the local dry-run/validate output were updated to match (they no longer emit or read `alerts=`).
+
+### Fixed — `all_success` deadlocked on the `succeeded` status alias (found by code review)
+
+- **The default trigger rule could hang a pipeline forever.**
+  `evaluate_deps._calculate_counts` counted successes with a hardcoded
+  `status == 'success'`, ignoring `'succeeded'` — the canonical Airflow-compat
+  alias and exactly what `normalize_execution_status()` produces from AWS Step
+  Functions' `SUCCEEDED`. A dependency reporting `'succeeded'` was counted as
+  neither success nor pending, so `all_success` (and every success-oriented rule)
+  stayed unsatisfied and the downstream task never ran. Now derived from the
+  canonical success set. The existing tests only used `'success'`, so 100%
+  coverage hid it — added a `'succeeded'`-alias regression test.
+- **Known gap (not yet fixed):** the `evaluate_deps`/`_shared` `constants.py`
+  `TaskStatus` is missing the `SUCCEEDED` member that `polyris/constants.py` and
+  the generated mirror define; `check_shared_constants` doesn't verify enum-member
+  completeness. Nothing references it today, so it's latent.
+
+### Fixed — ASL validator ignored Catch transitions (found by code review)
+
+- **`validate_asl` / `_find_reachable` did not follow `Catch` blocks.** Two
+  consequences: (1) error-handler states reachable only via a `Catch` (e.g. the
+  shared `Pipeline_Failed` state) were falsely reported "unreachable" on **every**
+  pipeline; (2) a `Catch` pointing at a non-existent state passed validation and
+  would only fail at deploy time in AWS. Both functions now traverse `Catch`
+  targets. DSL-generated ASL now validates with zero warnings.
+- **Lineage metadata dropped `AssetAll`/`AssetAny` groups.**
+  `_serialize_wait_for_metadata` handled single assets and refs but silently
+  skipped grouped (AND/OR) `wait_for` dependencies, so a task waiting on
+  `AssetAll([a, b])` showed no dependency in the UI/lineage while the runtime
+  correctly waited on both. It now mirrors the runtime serializer.
+
+- **`validate_asl` accepted an empty `Parallel`.** A Parallel state with an
+  empty `Branches: []` (produced by an empty DAG) passed validation but is
+  rejected by AWS at deploy time. The validator now flags it.
+- **Removed dead `event_bus_name` param** from `generate_asset_eventbridge_rules`
+  — it was accepted but never used (rules never referenced it), so custom-bus
+  routing silently did nothing. (Public-signature change; no caller passed it.)
+
+### Fixed — linter was ignoring unused imports; codebase-wide cleanup
+
+- **`F401` (imported-but-unused) was globally disabled** in `ruff` config (both
+  repos), so dead imports accumulated undetected. Scoped the ignore to
+  `__init__.py` only (where re-exports are intentional) and cleaned the fallout:
+  **73 unused imports removed** across `polyris/` and `tests/` (CE) plus one in
+  the EE overlay. Also removed a dead `multiple_outputs` `_create_task` param and
+  a redundant `if True:` guard in `validation.py`. Unused imports now fail CI.
+
+### Removed — dead Airflow-parity task fields
+
+- **Ten inert `Task` fields removed:** `pool`, `pool_slots`, `priority_weight`,
+  `weight_rule`, `queue`, `depends_on_past`, `wait_for_downstream`, `doc_json`,
+  `doc_yaml`, `doc_rst`. These were Airflow scheduling/doc concepts carried on the
+  dataclass (and `_create_task`) but **not exposed on any `@task.*` decorator**
+  (absent from `CommonTaskKwargs`, so unreachable) and **read by nothing** — the
+  same dead-field class as `slack_channel`. `AIRFLOW_MIGRATION.md` already states
+  these Airflow features are not supported (e.g. "Pools — use Step Functions
+  concurrency limits"), so the fields contradicted the documented design. `Task`
+  drops from 54 to 44 fields; behavior is unchanged.
+
+### Removed — dead `slack_channel` DAG/task field
+
+- **The legacy `slack_channel` field is gone from the DSL** (`DAG` and every
+  `@task.*`), along with its emission into the wrapper-input payload. It was the
+  last remnant of DSL-level alert routing (ADR #103): populated only from the old
+  `alerts=` argument, emitted into the ASL, and read by nothing at runtime (the
+  notify Lambda routes from the registry, not the payload). All 27 ASL snapshots
+  regenerated; the one-shot registry migration (`migrate_slack_channel`) is kept
+  for already-deployed pipelines carrying the legacy value.
+
+### Added — experimental-API warning on assets
+
+- **Constructing an `Asset` emits a `polyris.ExperimentalWarning` (once per
+  process).** Assets work end to end (define, produce, wait on, asset-triggered
+  schedules), but the API is not yet frozen and the visual asset console is not in
+  the open-source build. Silence it with
+  `warnings.filterwarnings("ignore", category=polyris.ExperimentalWarning)`.
+- **Assets are now clearly labelled experimental / not-for-production** in the
+  README and asset docs (`ASSETS.md`, `ASSET_PULL_FEATURE.md`, tutorial).
+- **Assets now work on every task type, not just `sfn`.** `outlets`, `inlets`,
+  and `wait_for` moved into the shared `CommonTaskKwargs` (ADR #109), so
+  `sfn`, `lambda_`, `glue`, `ecs`, `athena`, `emr`, and `batch` all accept them
+  uniformly via `**common` — the core, `Task`, and generator already handled
+  assets generically; only the decorator signatures had diverged. A structural
+  test (`test_every_task_decorator_accepts_common_kwargs`) now guards that any
+  future task type reuses the shared params instead of silently dropping them.
+- The experimental warning and doc banners remain temporary scaffolding tagged
+  `EXPERIMENTAL-ASSETS`; see `docs/reference/EXPERIMENTAL_ASSETS.md`.
+
 ### Fixed — open-core UI/docs consistency
 
 - **Backfills nav tab now appears in the open-source build.** The tab was gated
@@ -30,23 +161,6 @@
   from the user's `emr_step` (`task_config.step`) — the runtime contract (ADR #106)
   is unchanged. Added a static-structure guard test (the existing runtime-resolution
   tests passed either way and did not catch this).
-
-### Open-core — editions map + backfill "coming soon"
-
-- **`docs/reference/EDITIONS.md`** — a canonical Free / Team / Enterprise
-  capability map, the human-readable source of truth for the tier boundary
-  (referenced from `README.md` and `CLAUDE.md`). Fills the gap where the boundary
-  was only recorded piecemeal across ADRs, README, and code.
-- **`/backfills` shows a *coming soon* notice in the open-source build** (like
-  `/assets`, ADR #105) instead of a permanent paid-tier lock — backfill is on the
-  graduation roadmap. The Header badge/poll was already behind the paid nav-tab
-  (ADR #104), so no `/api/backfills` request is made in OSS.
-- **Entitlement registry corrected.** `console_api/ee/entitlements.py` no longer
-  lists task/execution intervention or browser notifications as Team capabilities
-  — they are free (ADR #110, ADR #103). Only config mutation (`task.config`)
-  remains from that area. No route or UI behaviour changes; the registry now
-  matches the shipped surface.
-
 
 ### Open-core — task & execution intervention moved to free (ADR #110)
 
@@ -77,7 +191,6 @@
   table, so the total is computed and a future re-strip of an intervention route
   fails immediately. The behavioural tests moved to `tests/backend/`; the Slack
   idempotency tests stayed in `ee/team/tests/`.
-
 
 ### SDK — contract hardening & typing (ADR #108, ADR #109)
 
@@ -114,7 +227,6 @@
 - **local runner:** dependency ids now read `node_id` (shared by `Task` and
   `Step`), matching the generators' own idiom — identical values for pure-task
   DAGs, no crash on bridged mixed deps.
-
 
 ### SDK — `@task` parameter parity, per-task retries, strict kwargs
 
@@ -190,7 +302,6 @@ stack was renamed). `SETUP_FROM_SCRATCH.md` and `QUICKSTART.md` set
 `samconfig.toml` (the single source of truth) while `./deploy.sh` and
 `aws cloudformation describe-stacks` need it passed in, kept identical to
 `samconfig.toml`. No code or behavior changes.
-
 
 ### Fix — empty Settings in OSS; wire the free Decision Timeout section (ADR #103 1b)
 
@@ -302,7 +413,6 @@ docs (ASSETS, ASSET_PULL_FEATURE, LOCAL_TESTING, DEPLOY), and the dead
 `SlackWebhookEndpoint` / `PagerDutyRoutingKey` / `DefaultSlackChannel` overrides from
 `samconfig.toml.example` (those CloudFormation parameters no longer exist).
 
-
 ### Open-core hardening — public surface reconciled with the split
 
 The AI assistant is a paid feature and no longer appears in the free repo: removed
@@ -317,7 +427,6 @@ console_api tests only (no EE-only ee/team/tests path) and takes rsa (auth.py, A
 from the [dev] extra. Corrected the console_api route count to 63 (full build) / 18
 (free).
 
-
 ### Docs — architecture aligned with ADR #103
 
 Rewrote the alerting architecture in ARCHITECTURE.md, BACKEND.md, and
@@ -330,7 +439,6 @@ entries (alerts are configured in the UI now; the DSL parameter is deprecated),
 removed slack_channel from the DSL parameter docs, and removed the dead
 snapshot-export section from RELEASE.md (the repos are decoupled, not generated).
 
-
 ### Global decision-wait timeout (ADR #103 1b)
 
 The decision-wait timeout (how long a failed task waits for a Skip/Success/Fail/
@@ -339,7 +447,6 @@ stored in a reserved registry record and read by the run_task SFN before the wai
 The value is visible to everyone (GET /api/settings/decision-timeout is free) and
 shown in Settings; editing it is Team-tier. UI: a Decision Timeout settings
 section, read-only on the free tier.
-
 
 ### Alerting — legacy field teardown (ADR #103)
 
@@ -351,7 +458,6 @@ dropped. Slack @-mentions now come from `alert_config.slack.mentions` (the
 interactive Slack action formats them), closing the gap left by removing the
 legacy formatted-mentions field. Stale alerts_json tests removed; suites green.
 
-
 ### Alerting Stage 4 (ADR #103) — docs
 
 The DSL `alerts=` argument is documented as deprecated (accepted one release,
@@ -361,12 +467,10 @@ tutorials, and the reference docs. Added a user-facing Settings → Alerts how-t
 mentions, action buttons), PagerDuty (severity, one-incident dedup), the Test
 button, and where secrets live (SSM).
 
-
 ### Alerting Stage 3 (ADR #103) — dead machinery removed
 
 Deleted the three transitional helper SFNs (pagerduty_alerter, pagerduty_resolver,
 interactive_choice_slack) now that all alert sends go through the notify Lambda. run_task/wrapper no longer reference them; the EventBridge Slack Connection + ApiDestination and the deploy-level PagerDuty params (PagerDutyRoutingKey, HasPagerDuty) are gone too. Stale tests removed/updated; suites green.
-
 
 ### Alerting (ADR #103) — РОЗЧЕПЛЕННЯ split
 
@@ -383,7 +487,6 @@ substitutions for run_task and `notify_function_arn` for the wrapper. The free
 build ships the framework with no actions registered (unknown action no-ops); the
 paid actions live in the paid repo. Live Slack-click / PD cycle still need a dev
 deploy to confirm end-to-end.
-
 
 The failure-alerting system is now split across the two repos. **Public (this
 repo) ships the free surface:**
@@ -402,7 +505,6 @@ repo) ships the free surface:**
 
 Slack/PagerDuty delivery, the alert-config API, secrets handling, and the
 Settings → Alerts UI live in the paid repo.
-
 
 Open-core refactor — **redeploy scope:** SDK reinstall (`pip install -e .`) for the
 `ai` move; console_api `sam deploy` for the route registry, Team-module split, and
@@ -1282,7 +1384,6 @@ cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
 ```
 
 ## v80.0 (0.80.0) - 2026-05-28
-
 
 Backfill status consolidation + correctness hardening (ADR #83). Removes
 the root cause of the ADR #81/#82 bug class — the "is this backfill done /
@@ -3878,7 +3979,6 @@ functions so the dead patterns can't return silently:
 Inlined here rather than deferred per Mike's direct request
 ("давай фіксити прям тут бо воно пізніше забудеться").
 
-
 ## v77.0 (0.77.0) - 2026-05-18
 
 ### Asset granularity — declarative partition cadence (ADR #50)
@@ -3964,7 +4064,6 @@ Asset("acme/hourly_events", granularity="hourly")
   - Data quality on cells → integrate with Great Expectations later
   - `partition_value` ≠ `execution_date` → v0.79 (SFN template change)
 
-
 ## v76.1 (0.76.1) - 2026-05-13
 
 ### Asset Matrix view — bugfix release
@@ -4018,7 +4117,6 @@ appropriately smaller fixed widths (200 / 160 / 130 px).
   - UI redeploy required (CSS only — no JS / TSX changes)
   - No DDB or SFN changes
   - Same backward-compatibility guarantees as v0.76.0
-
 
 ## v76.0 (0.76.0) - 2026-05-12
 
@@ -4161,7 +4259,6 @@ Frontend (new tab + cell renderer):
 Docs:
   - `docs/reference/DESIGN_DECISIONS.md` (ADR #49 — full history)
   - `docs/features/ASSETS.md` (Matrix section)
-
 
 ## v75.8 (0.75.8) - 2026-05-08
 

@@ -36,13 +36,51 @@ Example:
     # via task output parsing or explicit API calls.
 """
 
+import os
+import warnings
 from typing import List, Literal, Optional, Dict, Any, Union, TYPE_CHECKING, cast
 from dataclasses import dataclass, field
 
 from .schema import (
-    Column, Schema, column_to_dict, normalize_schema,
+    Schema, column_to_dict, normalize_schema,
     _polyris_type_to_jsonschema,
 )
+
+
+class ExperimentalWarning(UserWarning):
+    """Emitted when using a feature whose API may still change (currently: assets).
+
+    EXPERIMENTAL-ASSETS: this whole warning mechanism (class, module flag, and the
+    warn() call in Asset.__init__) is temporary scaffolding. Remove it when assets
+    graduate to stable — see docs/reference/EXPERIMENTAL_ASSETS.md.
+
+    Assets work end to end (define, produce, wait on, asset-triggered schedules),
+    but the API is not yet frozen and the visual asset console is not in the
+    open-source build. Silence this warning with:
+
+        import warnings, polyris
+        warnings.filterwarnings("ignore", category=polyris.ExperimentalWarning)
+    """
+
+
+# Warn once per process: the message is the same for every Asset, so repeating it
+# per construction is noise (define ten assets, get one warning, not ten).
+_EXPERIMENTAL_WARNED = False
+
+# EXPERIMENTAL-ASSETS: assets ship DISABLED in the v1 open-source release. Every
+# downstream asset path (generator serialization, wrapper events, check_assets,
+# asset tables) is data-driven, so it stays dormant as long as no Asset can be
+# constructed — nothing in the runtime needs to change. To graduate assets in a
+# later release, flip this flag to True (and retire the ExperimentalWarning
+# scaffolding above). See docs/reference/EXPERIMENTAL_ASSETS.md.
+# POLYRIS_ENABLE_ASSETS=1 opts in for local use / tests without shipping them on.
+_ASSETS_ENABLED = False
+
+
+def _assets_enabled() -> bool:
+    """Whether the experimental asset API may be constructed in this build."""
+    return _ASSETS_ENABLED or os.environ.get("POLYRIS_ENABLE_ASSETS") == "1"
+
 
 if TYPE_CHECKING:
     from .dag import DAG
@@ -129,7 +167,12 @@ class Metadata:
 class Asset:
     """
     Represents a logical data asset (Airflow 3.0 compatible).
-    
+
+    ⚠️  Experimental — the asset API may change in a future release, and the
+    visual asset console is not yet in the open-source build (engine only).
+    Constructing an Asset emits an ExperimentalWarning; silence it via
+    ``warnings.filterwarnings("ignore", category=polyris.ExperimentalWarning)``.
+
     Assets are used to:
     1. Declare what data a task produces (outlets)
     2. Declare what data a task consumes (inlets)
@@ -251,6 +294,23 @@ class Asset:
         granularity: Granularity = "daily",
         partition_start: Optional[str] = None,
     ):
+        if not _assets_enabled():
+            raise RuntimeError(
+                "polyris assets are an experimental feature and are disabled in "
+                "this release. Set POLYRIS_ENABLE_ASSETS=1 to opt in. See "
+                "docs/reference/EXPERIMENTAL_ASSETS.md."
+            )
+        global _EXPERIMENTAL_WARNED
+        if not _EXPERIMENTAL_WARNED:
+            _EXPERIMENTAL_WARNED = True
+            warnings.warn(
+                "polyris assets are experimental — the asset API (Asset, outlets, "
+                "wait_for, asset-triggered schedules) may change in a future release. "
+                "The visual asset console is not yet in the open-source build; "
+                "inspect lineage with `polyris-output --graph`.",
+                ExperimentalWarning,
+                stacklevel=2,
+            )
         # Post-init invariant: resolution below always sets a non-None name
         self.name: str
         # Support metadata as alias for extra

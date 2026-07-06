@@ -60,12 +60,14 @@ describe('Header', () => {
             expect(screen.getByText(/polyris Console/)).toBeInTheDocument();
         });
 
-        it('renders all navigation tabs', () => {
+        it('renders the free navigation tabs (Assets/Backfills are paid, hidden in OSS)', () => {
             render(<Header {...props} />);
             expect(screen.getByText('Pipelines')).toBeInTheDocument();
-            expect(screen.getByText('Assets')).toBeInTheDocument();
             expect(screen.getByText('All Tasks')).toBeInTheDocument();
             expect(screen.getByText('All Runs')).toBeInTheDocument();
+            // OSS paidSurface is empty → Assets & Backfills tabs are not rendered.
+            expect(screen.queryByText('Assets')).not.toBeInTheDocument();
+            expect(screen.queryByText('Backfills')).not.toBeInTheDocument();
         });
 
         it('renders Notifications and UserMenu', () => {
@@ -84,11 +86,11 @@ describe('Header', () => {
         });
 
         it('marks active tab based on pathname', () => {
-            setPathname('/assets/');
+            setPathname('/runs/');
             render(<Header {...props} />);
             const navPills = document.querySelector('.nav-pills');
-            const assetsTab = Array.from(navPills!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('Assets'));
-            expect(assetsTab?.classList.contains('active')).toBeTruthy();
+            const runsTab = Array.from(navPills!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('All Runs'));
+            expect(runsTab?.classList.contains('active')).toBeTruthy();
         });
 
         it('handles trailing slash and no slash equally', () => {
@@ -204,17 +206,14 @@ describe('Header', () => {
         });
     });
 
-    describe('Backfills nav tab (Team-tier slot)', () => {
+    describe('Backfills nav tab (paid surface)', () => {
         const props = { apiConnected: true, onNotificationNavigate: vi.fn() };
 
-        it('renders a plain Backfills tab in the OSS build — no badge, no poll', () => {
-            const { container } = render(<Header {...props} />);
-            // OSS paidSurface is an empty stub (ADR #99): BackfillNavTab is undefined,
-            // so a plain static Backfills tab is rendered instead — it navigates to
-            // the /backfills "coming soon" page (mirroring Assets) with NO active-count
-            // badge and no /api/backfills poll.
-            expect(screen.getByText('Backfills')).toBeInTheDocument();
-            expect(container.querySelectorAll('.nav-pill-badge').length).toBe(0);
+        it('does not render a Backfills tab in the OSS build (empty paid surface)', () => {
+            render(<Header {...props} />);
+            // OSS paidSurface is an empty stub (ADR #99): BackfillNavTab is undefined
+            // and there is no static fallback — Backfills is a paid-only surface.
+            expect(screen.queryByText('Backfills')).not.toBeInTheDocument();
         });
     });
 });

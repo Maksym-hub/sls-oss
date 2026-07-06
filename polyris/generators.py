@@ -13,14 +13,12 @@ This module contains all the generate_* functions:
 """
 
 from typing import Dict, Any, List, Tuple, Iterator, Optional, Callable, Set
-from datetime import datetime
 import json
-import os
 
-from .constants import SCHEDULE_PRESETS, TaskConfigKey
+from .constants import TaskConfigKey
 from .config import config
 from .dag import DAG
-from .task import Task, TaskInstance
+from .task import Task
 from .steps import (
     Step, Wait, Pass, Succeed, LambdaTask, DynamoDBTask, SNSTask, SQSTask,
     S3Task, GlueTask, AthenaTask, ECSTask, EventBridgeTask, BedrockTask, HttpTask,
@@ -162,6 +160,14 @@ def _serialize_wait_for_metadata(wait_for: List[Any]) -> List[Dict[str, Any]]:
                 result.append({"name": item.asset.name})
         elif isinstance(item, Asset):
             result.append({"name": item.name})
+        elif isinstance(item, (AssetAll, AssetAny)):
+            # Mirror the runtime serializer: grouped (AND/OR) dependencies must
+            # appear in lineage too, otherwise the UI shows no dependency at all.
+            operator = "AND" if isinstance(item, AssetAll) else "OR"
+            result.append({
+                "operator": operator,
+                "assets": _serialize_wait_for_metadata(item.assets),
+            })
     return result
 
 
@@ -295,10 +301,17 @@ def validate_asl(asl: Dict[str, Any]) -> Tuple[bool, List[str], List[str]]:
             if has_next:
                 all_next_refs.add(state["Next"])
         
-        # Parallel must have Branches
+        # Catch transitions (error handlers) — their targets must exist too.
+        # Without this, a Catch pointing at a non-existent state passes validation
+        # and only fails at deploy time in AWS.
+        for catcher in state.get("Catch", []):
+            if "Next" in catcher:
+                all_next_refs.add(catcher["Next"])
+        
+        # Parallel must have at least one branch (AWS rejects an empty Parallel)
         if state_type == "Parallel":
-            if "Branches" not in state:
-                errors.append(f"State '{state_name}': Parallel state missing 'Branches'")
+            if not state.get("Branches"):
+                errors.append(f"State '{state_name}': Parallel state has no branches (missing or empty; needs at least one)")
             else:
                 for i, branch in enumerate(state["Branches"]):
                     # Recursively validate branches
@@ -355,6 +368,13 @@ def _find_reachable(state_name: str, states: Dict, reachable: set) -> None:
     if "Next" in state:
         _find_reachable(state["Next"], states, reachable)
     
+    # Follow Catch (error handler) transitions — states reachable only via a
+    # Catch (e.g. a shared Pipeline_Failed handler) are otherwise mis-flagged
+    # as unreachable.
+    for catcher in state.get("Catch", []):
+        if "Next" in catcher:
+            _find_reachable(catcher["Next"], states, reachable)
+    
     # Follow Choice branches
     if state.get("Type") == "Choice":
         for choice in state.get("Choices", []):
@@ -387,7 +407,7 @@ def generate_debug_info(dag: "DAG") -> Dict[str, Any]:
     - validation: ASL validation results
     - asset_info: Asset triggers (if any)
     """
-    from .generators import generate_step_function_json, generate_dag_json
+    from .generators import generate_step_function_json
     
     debug = {
         "dag_id": dag.dag_id,
@@ -713,7 +733,6 @@ def _build_wrapper_input(
     dag: DAG,
     *,
     cross_account_role: str = "same",
-    slack_channel: str = "",
     orchestration_timeout: int = 3600,
     task_config: Optional[Dict] = None,
 ) -> Dict:
@@ -728,7 +747,6 @@ def _build_wrapper_input(
         "task_type": task_type,
         "dependencies": dependencies,
         "cross_account_role": cross_account_role,
-        "slack_channel": slack_channel,
         "token": JSONATA_TOKEN,
         "pipeline_name": dag.dag_id,
         "pipeline_execution": JSONATA_EXECUTION_NAME,
@@ -757,7 +775,7 @@ def _build_task_branch(task: Task, dag: DAG, wrapper_arn: str) -> Dict:
     
     Args:
         task: Task to generate branch for
-        dag: Parent DAG (for alerts, slack_channel, dag_id)
+        dag: Parent DAG (for dag_id)
         wrapper_arn: ARN of the wrapper state machine
     
     Returns:
@@ -778,7 +796,6 @@ def _build_task_branch(task: Task, dag: DAG, wrapper_arn: str) -> Dict:
     
     dep_names = [d.node_id for d in task.dependencies]
     task_arn = task.arn
-    slack_channel = task.slack_channel or dag.slack_channel
     
     # Build task_config based on task_type
     task_config: Dict[TaskConfigKey, Any] = {}
@@ -860,7 +877,6 @@ def _build_task_branch(task: Task, dag: DAG, wrapper_arn: str) -> Dict:
         dependencies=dep_names,
         dag=dag,
         cross_account_role=cross_account_role,
-        slack_channel=slack_channel,
         orchestration_timeout=task.orchestration_timeout_seconds,
         task_config=task_config,
     )
@@ -908,7 +924,7 @@ def _build_step_branch(step: Step, dag: DAG, wrapper_arn: str) -> Dict:
     
     Args:
         step: Step to generate branch for
-        dag: Parent DAG (for dag_id, slack_channel)
+        dag: Parent DAG (for dag_id)
         wrapper_arn: ARN of the wrapper state machine
     
     Returns:
@@ -984,7 +1000,6 @@ def _build_step_branch(step: Step, dag: DAG, wrapper_arn: str) -> Dict:
                     task_type=step.step_type,
                     dependencies=dep_names,
                     dag=dag,
-                    slack_channel=dag.slack_channel or "",
                     orchestration_timeout=step_timeout,
                     task_config=task_config,
                 ),
@@ -1489,7 +1504,7 @@ def generate_assets_json(dag: DAG) -> str:
     return json.dumps(result, indent=2)
 
 
-def generate_asset_eventbridge_rules(dags: List[DAG], event_bus_name: str = "default") -> Dict[str, Any]:
+def generate_asset_eventbridge_rules(dags: List[DAG]) -> Dict[str, Any]:
     """
     Generate EventBridge rules for asset-triggered DAGs.
     

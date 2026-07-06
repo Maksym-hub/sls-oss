@@ -3,7 +3,6 @@ E2E Tests — Tasks, Executions, Notifications endpoints.
 
 Read-only queries. Tests that mutate state are marked @pytest.mark.write.
 """
-import pytest
 
 
 # =============================================================================

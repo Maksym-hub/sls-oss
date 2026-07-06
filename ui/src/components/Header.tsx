@@ -20,7 +20,6 @@ import {
     Moon,
     Zap,
     ChevronRight,
-    History,
     Menu,
     X
 } from 'lucide-react';
@@ -58,11 +57,10 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
 
     const switchView = (view: string) => router.push(`/${view}/`);
 
-    // Backfills nav: the paid build ships BackfillNavTab (with a live active-count
-    // badge that polls /api/backfills). In OSS that slot is empty, so we render a
-    // plain static tab instead — it navigates to the /backfills "coming soon" page
-    // (mirroring Assets) and does NOT poll. Either way there is a Backfills tab.
+    // Assets & Backfills are paid surfaces. The OSS build ships neither the views
+    // nor the nav entries — each tab renders only when the paid surface provides it.
     const BackfillNavTab = paidSurface.BackfillNavTab;
+    const AssetsView = paidSurface.AssetsView;
 
     return (
         <header className="header" role="banner">
@@ -90,12 +88,14 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
                     icon={<Workflow size={16} />}
                     label="Pipelines"
                 />
-                <ViewTab
-                    active={mainView === 'assets'}
-                    onClick={() => switchView('assets')}
-                    icon={<Package size={16} />}
-                    label="Assets"
-                />
+                {AssetsView && (
+                    <ViewTab
+                        active={mainView === 'assets'}
+                        onClick={() => switchView('assets')}
+                        icon={<Package size={16} />}
+                        label="Assets"
+                    />
+                )}
                 <ViewTab
                     active={mainView === 'tasks'}
                     onClick={() => switchView('tasks')}
@@ -108,17 +108,10 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
                     icon={<Activity size={16} />}
                     label="All Runs"
                 />
-                {BackfillNavTab ? (
+                {BackfillNavTab && (
                     <BackfillNavTab
                         active={mainView === 'backfills'}
                         onClick={() => switchView('backfills')}
-                    />
-                ) : (
-                    <ViewTab
-                        active={mainView === 'backfills'}
-                        onClick={() => switchView('backfills')}
-                        icon={<History size={16} />}
-                        label="Backfills"
                     />
                 )}
             </nav>

@@ -56,7 +56,7 @@ with DAG(
 ```
 
 **Key differences:**
-- alerts are configured in the UI (Settings → Alerts), not the DAG; the old `alerts=` parameter is deprecated
+- alerts are configured in the UI (Settings → Alerts), not the DAG; the old `alerts=` parameter has been removed
 - `schedule_interval` → `schedule`
 - `start_date` not required (use EventBridge schedule)
 

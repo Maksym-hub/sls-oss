@@ -185,8 +185,8 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
     useKeyboardShortcuts({
         [SHORTCUTS.REFRESH]: handleRefresh,
         'd': () => setViewMode('dag'),
-        'g': () => setViewMode('gantt'),
-        'c': () => setViewMode('calendar'),
+        'g': () => { if (GanttChart) setViewMode('gantt'); },
+        'c': () => { if (CalendarView) setViewMode('calendar'); },
     });
 
     // ========== UI State ==========

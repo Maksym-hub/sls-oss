@@ -44,14 +44,13 @@ should declare manually with a wider type.
 
 from __future__ import annotations
 
-from typing import Any, List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 
 from ..schema import (
     Column, Schema, PolyrisType,
-    array, bigint, binary, boolean, char, date, decimal, double,
-    fixed_binary, float_, integer, json_, map_, smallint, string, struct,
-    time, timestamp, timestamp_ntz, tinyint, uuid, varchar,
-    ArrayType, BigIntType, BinaryType, BooleanType, CharType, DateType,
+    array, bigint, binary, boolean, date, decimal, double,
+    fixed_binary, float_, integer, map_, smallint, string, struct,
+    time, timestamp, tinyint, ArrayType, BigIntType, BinaryType, BooleanType, CharType, DateType,
     DecimalType, DoubleType, FixedBinaryType, FloatType, IntType, JsonType,
     MapType, SmallIntType, StringType, StructType, TimeType, TimestampType,
     TinyIntType, UuidType, VarcharType,

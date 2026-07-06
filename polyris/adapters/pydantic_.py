@@ -46,16 +46,16 @@ import decimal as _dec
 import enum as _enum
 import typing as _typing
 import uuid as _uuid
-from typing import Any, Dict, List, TYPE_CHECKING, Tuple, Union
+from typing import Any, List, TYPE_CHECKING, Tuple, Union
 
 from ..schema import (
     Column, Schema, PolyrisType,
     array, bigint, binary, boolean, date, decimal, double, map_, string,
-    struct, time, timestamp, timestamp_ntz, uuid,
+    struct, time, timestamp, uuid,
 )
 
 if TYPE_CHECKING:
-    from pydantic import BaseModel
+    pass
 
 
 def _require_pydantic():

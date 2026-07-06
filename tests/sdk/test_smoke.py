@@ -12,15 +12,13 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 
 def test_polyris_imports():
     """Test that polyris module imports correctly."""
-    from polyris import DAG, task
-    from polyris.generators import generate_step_function_json, generate_dag_json
     print("✅ polyris imports OK")
 
 def test_dag_creation():
     """Test basic DAG creation."""
     from polyris import DAG, task
     
-    with DAG('test_dag', schedule='rate(1 day)', alerts=None) as dag:
+    with DAG('test_dag', schedule='rate(1 day)') as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123456789:stateMachine:test')
         def task1():
             pass
@@ -37,7 +35,7 @@ def test_dag_json_generation():
     from polyris import DAG, task
     from polyris.generators import generate_dag_json
     
-    with DAG('test_dag', schedule='rate(1 day)', alerts={"slack": "#test"}) as dag:
+    with DAG('test_dag', schedule='rate(1 day)') as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123456789:stateMachine:test')
         def task1():
             pass
@@ -58,7 +56,7 @@ def test_skip_on_backfill():
     raw = Asset("test/raw")
     processed = Asset("test/processed")
     
-    with DAG('test_backfill', schedule='rate(1 day)', alerts={"slack": "#test"}) as dag:
+    with DAG('test_backfill', schedule='rate(1 day)') as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123:stateMachine:scraper', 
                   outlets=[raw], skip_on_backfill=True)
         def scraper():
@@ -87,56 +85,6 @@ def test_skip_on_backfill():
     
     print("✅ skip_on_backfill OK")
 
-
-def test_dag_alerts_optional():
-    """alerts= is optional now (deprecated, ADR #103) and validated when provided."""
-    import warnings
-    from polyris import DAG
-    
-    # Missing alerts is allowed now (alerts are configured in the Console UI)
-    with DAG('test', schedule='@daily'):
-        pass
-    
-    # Passing alerts= still works but emits a DeprecationWarning
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        with DAG('test', schedule='@daily', alerts={"slack": "#channel"}):
-            pass
-        assert any(issubclass(x.category, DeprecationWarning) for x in w)
-    
-    # alerts=None should work
-    with DAG('test', schedule='@daily', alerts=None):
-        pass
-    
-    # Slack only
-    with DAG('test', alerts={"slack": "#channel"}):
-        pass
-    
-    # PagerDuty only
-    with DAG('test', alerts={"pagerduty": "critical"}):
-        pass
-    
-    # Both
-    with DAG('test', alerts={"slack": "#channel", "pagerduty": "warning"}):
-        pass
-    
-    # Invalid severity should raise
-    try:
-        with DAG('test', alerts={"pagerduty": "invalid"}):
-            pass
-        assert False, "Should have raised ValueError for invalid severity"
-    except ValueError:
-        pass
-    
-    # Invalid channel format should raise
-    try:
-        with DAG('test', alerts={"slack": "no-hash"}):
-            pass
-        assert False, "Should have raised ValueError for invalid channel"
-    except ValueError:
-        pass
-    
-    print("✅ DAG alerts validation OK")
 
 def test_sfn_templates_valid_json():
     """Test that all SFN templates are valid JSON (after resolving template vars)."""
@@ -479,7 +427,7 @@ def test_dag_group_field():
     from polyris.generators import generate_step_function_json
     import json
     
-    with DAG('test-pipeline', schedule='rate(1 day)', alerts=None, group='mygroup') as dag:
+    with DAG('test-pipeline', schedule='rate(1 day)', group='mygroup') as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123456789:stateMachine:test')
         def task1():
             pass
@@ -509,7 +457,7 @@ def test_dag_group_default_empty():
     from polyris.generators import generate_step_function_json
     import json
     
-    with DAG('test-no-group', schedule='rate(1 day)', alerts=None) as dag:
+    with DAG('test-no-group', schedule='rate(1 day)') as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123456789:stateMachine:test')
         def task1():
             pass
@@ -657,7 +605,7 @@ def test_asset_consecutive_serialization():
 
 def test_asset_consecutive_operators():
     """Test AssetConsecutiveRef supports & and | operators."""
-    from polyris.assets import Asset, AssetConsecutiveRef, AssetAll, AssetAny, AssetRef
+    from polyris.assets import Asset, AssetAll, AssetAny
     
     daily = Asset("acme/daily-complete")
     other = Asset("other/asset")
@@ -711,7 +659,6 @@ def run_all_tests():
         test_polyris_imports,
         test_dag_creation,
         test_dag_json_generation,
-        test_dag_alerts_optional,
         test_sfn_templates_valid_json,
         test_sfn_templates_valid_asl,
         test_lambda_syntax,

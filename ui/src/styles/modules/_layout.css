@@ -139,7 +139,7 @@
     font-size: 1rem; flex-shrink: 0;
 }
 .sb-pipeline-icon.running { background: var(--running-light); color: var(--running); }
-.sb-pipeline-icon.success { background: var(--success-light); color: var(--success); }
+.sb-pipeline-icon.success, .sb-pipeline-icon.succeeded { background: var(--success-light); color: var(--success); }
 .sb-pipeline-icon.failed { background: var(--error-light); color: var(--error); }
 .sb-pipeline-icon.waiting { background: var(--waiting-light); color: var(--waiting); }
 .sb-pipeline-icon.idle { background: var(--bg-tertiary); color: var(--text-muted); }
@@ -184,7 +184,7 @@
     min-width: 3px;
     max-width: 12px;
 }
-.sb-run-spark.success { background: var(--success); opacity: 0.7; }
+.sb-run-spark.success, .sb-run-spark.succeeded { background: var(--success); opacity: 0.7; }
 .sb-run-spark.failed { background: var(--error); opacity: 0.85; }
 .sb-run-spark.running { background: var(--running); opacity: 0.7; animation: spark-pulse 1.5s ease-in-out infinite; }
 @keyframes spark-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }

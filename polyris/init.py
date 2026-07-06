@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 from typing import Any, List
-import os
 import sys
 from pathlib import Path
 
@@ -40,11 +39,6 @@ from polyris import DAG, task
 with DAG(
     dag_id="{name}",
     schedule="{schedule}",
-    alerts={{
-        "slack": "#alerts",
-        # "slack_mentions": ["YOUR_SLACK_USER_ID"],  # tag users/groups on failure
-        # "pagerduty": "critical",
-    }},
     description="{name} pipeline",
 ) as dag:
 
@@ -239,11 +233,6 @@ STAGE = os.environ.get("POLYRIS_STAGE", "dev")'''
 with DAG(
     dag_id="{name}",
     schedule={schedule_str},
-    alerts={{
-        "slack": "#alerts",
-        # "slack_mentions": ["YOUR_SLACK_USER_ID"],  # tag users/groups
-        # "pagerduty": "critical",  # severity: critical|error|warning|info
-    }},
     description="{name} pipeline",
 ) as dag:
 

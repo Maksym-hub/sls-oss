@@ -198,21 +198,6 @@ def _get_missing_assets(asset_results: List[Dict]) -> List[Dict]:
     return missing
 
 
-def _flatten_wait_for(wait_for: List[Dict]) -> List[Dict]:
-    """
-    DEPRECATED - use _evaluate_wait_for instead.
-    Kept for backward compatibility.
-    """
-    result = []
-    for item in wait_for:
-        if 'operator' in item:
-            nested = item.get('assets', [])
-            result.extend(_flatten_wait_for(nested))
-        elif 'asset_name' in item:
-            result.append(item)
-    return result
-
-
 def _check_asset_consecutive(asset_name: str, consecutive_days: int, reference_date: str) -> Dict[str, Any]:
     """
     Check if asset has events for N consecutive dates ending at reference_date.

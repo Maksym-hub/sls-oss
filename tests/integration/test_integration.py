@@ -3,7 +3,6 @@ Integration tests for Lambda handlers.
 Tests the core logic with mocked AWS services.
 """
 import sys
-import json
 import os
 
 from datetime import datetime

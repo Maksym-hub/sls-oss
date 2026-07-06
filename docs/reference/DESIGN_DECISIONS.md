@@ -6,8 +6,7 @@
 
 **Decision:** Failure-alert delivery (Slack, PagerDuty) is configured per pipeline
 in the Settings → Alerts UI and stored in the pipeline registry (`alert_config`),
-not declared in the DAG. The old required `alerts=` DAG parameter is **deprecated**
-and ignored.
+not declared in the DAG. The old `alerts=` DAG parameter has been **removed**.
 
 **Rationale:**
 - Secrets (Slack webhook, PagerDuty routing key) must not live in pipeline source —
@@ -18,8 +17,8 @@ and ignored.
   with no UI involvement at failure time
 
 **Implementation:**
-The DSL still accepts `alerts=` for one release with a `DeprecationWarning`, then
-ignores it (`self.alerts = None`). Non-secret config (channel, mentions, severity,
+The DSL no longer defines an `alerts=` parameter; passing it raises a `TypeError`.
+Non-secret config (channel, mentions, severity,
 enabled channels) lives in `alert_config`; secrets go to SSM with only the
 parameter name kept in the config. See ADR #103 and `docs/features/alerts.md`.
 

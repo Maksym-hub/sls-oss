@@ -18,7 +18,6 @@ Usage:
 
 import json
 import os
-import sys
 from pathlib import Path
 
 import pytest
@@ -68,7 +67,7 @@ def _build_step_direct_wait():
     """Task + Wait direct step — simplest mixed DAG."""
     from polyris import DAG, task, Wait
 
-    with DAG("step_direct_wait", schedule=None, alerts=None) as dag:
+    with DAG("step_direct_wait", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
         def extract():
             pass
@@ -83,7 +82,7 @@ def _build_step_direct_pass():
     """Pass step with output transformation."""
     from polyris import DAG, task, Pass
 
-    with DAG("step_direct_pass", schedule=None, alerts=None) as dag:
+    with DAG("step_direct_pass", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
         def process():
             pass
@@ -104,7 +103,7 @@ def _build_step_direct_sns_sqs():
     """SNS + SQS direct steps — service integration coverage."""
     from polyris import DAG, task, SNSTask, SQSTask
 
-    with DAG("step_direct_sns_sqs", schedule=None, alerts=None) as dag:
+    with DAG("step_direct_sns_sqs", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
         def process():
             pass
@@ -131,7 +130,7 @@ def _build_step_direct_s3():
     """S3 get + put operations — tests both operation types."""
     from polyris import DAG, task, S3Task
 
-    with DAG("step_direct_s3", schedule=None, alerts=None) as dag:
+    with DAG("step_direct_s3", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:transform")
         def transform():
             pass
@@ -160,7 +159,7 @@ def _build_step_direct_eventbridge():
     """EventBridge + Bedrock direct steps."""
     from polyris import DAG, task, EventBridgeTask, BedrockTask
 
-    with DAG("step_direct_eventbridge", schedule=None, alerts=None) as dag:
+    with DAG("step_direct_eventbridge", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
         def process():
             pass
@@ -187,7 +186,7 @@ def _build_step_direct_http():
     """HTTP task step — API call integration."""
     from polyris import DAG, task, HttpTask
 
-    with DAG("step_direct_http", schedule=None, alerts=None) as dag:
+    with DAG("step_direct_http", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
         def process():
             pass
@@ -208,7 +207,7 @@ def _build_step_direct_dynamodb():
     """DynamoDB operations — put_item and query."""
     from polyris import DAG, task, DynamoDBTask
 
-    with DAG("step_direct_dynamodb", schedule=None, alerts=None) as dag:
+    with DAG("step_direct_dynamodb", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
         def process():
             pass
@@ -240,7 +239,7 @@ def _build_step_wrapper_lambda():
     """LambdaTask through wrapper — Step API (not @task decorator)."""
     from polyris import DAG, task, LambdaTask
 
-    with DAG("step_wrapper_lambda", schedule=None, alerts=None) as dag:
+    with DAG("step_wrapper_lambda", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
         def extract():
             pass
@@ -260,7 +259,7 @@ def _build_step_wrapper_glue():
     """GlueTask through wrapper with dependencies on Task."""
     from polyris import DAG, task, GlueTask
 
-    with DAG("step_wrapper_glue", schedule=None, alerts=None) as dag:
+    with DAG("step_wrapper_glue", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:prepare")
         def prepare():
             pass
@@ -283,7 +282,7 @@ def _build_step_wrapper_ecs_athena():
     """ECS + Athena through wrapper — both with deps on Task."""
     from polyris import DAG, task, ECSTask, AthenaTask
 
-    with DAG("step_wrapper_ecs_athena", schedule=None, alerts=None) as dag:
+    with DAG("step_wrapper_ecs_athena", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
         def extract():
             pass
@@ -328,7 +327,7 @@ def _build_step_mixed_full():
     """
     from polyris import DAG, task, Wait, SNSTask, LambdaTask
 
-    with DAG("step_mixed_full", schedule=None, alerts=None) as dag:
+    with DAG("step_mixed_full", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
         def extract():
             pass
@@ -721,7 +720,7 @@ def test_direct_step_with_deps_raises():
     from polyris import DAG, task, Wait
     from polyris.generators import generate_step_function_json
 
-    with DAG("invalid_direct_deps", schedule=None, alerts=None) as dag:
+    with DAG("invalid_direct_deps", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
         def extract():
             pass
@@ -736,10 +735,10 @@ def test_direct_step_with_deps_raises():
 
 def test_wrapper_step_depending_on_direct_step_raises():
     """Wrapper step (LambdaTask) cannot depend on direct step (Wait)."""
-    from polyris import DAG, task, Wait, LambdaTask
+    from polyris import DAG, Wait, LambdaTask
     from polyris.generators import generate_step_function_json
 
-    with DAG("invalid_wrapper_on_direct", schedule=None, alerts=None) as dag:
+    with DAG("invalid_wrapper_on_direct", schedule=None) as dag:
         wait = Wait(step_id="my_wait", seconds=10)
 
         validate = LambdaTask(
@@ -758,7 +757,7 @@ def test_task_depending_on_direct_step_raises():
     from polyris import DAG, task, SNSTask
     from polyris.generators import generate_step_function_json
 
-    with DAG("invalid_task_on_direct", schedule=None, alerts=None) as dag:
+    with DAG("invalid_task_on_direct", schedule=None) as dag:
         notify = SNSTask(
             step_id="notify",
             topic_arn="arn:aws:sns:us-east-1:123:alerts",

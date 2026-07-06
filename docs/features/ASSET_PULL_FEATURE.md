@@ -1,5 +1,15 @@
 # Asset Pull Feature (wait_for)
 
+> **⚠️ Experimental (v0.93.0).** Assets are an experimental feature — the API
+> (`Asset`, `outlets`, `inlets`, `wait_for`, asset-triggered `schedule`) may change
+> in a future release, and the open-source build has no visual asset console yet
+> (inspect lineage with `polyris-output --graph`). Not recommended for production
+> pipelines.
+> Silence the runtime warning with
+> `warnings.filterwarnings("ignore", category=polyris.ExperimentalWarning)`.
+> <!-- EXPERIMENTAL-ASSETS: remove this banner when assets graduate to stable. -->
+
+
 ## Overview
 
 This feature adds pull-based cross-pipeline asset dependencies via the `wait_for` parameter.

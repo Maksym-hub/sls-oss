@@ -1,8 +1,4 @@
 """Tests for SFN template drift checker (v0.79.6, ADR #78)."""
-import sys
-import pytest
-from pathlib import Path
-from unittest.mock import patch
 
 from polyris.codegen.check_sfn_templates import (
     check_templates,

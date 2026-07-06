@@ -16,7 +16,6 @@ Usage:
         sys.exit(1)
 """
 
-import os
 import sys
 import importlib.util
 from pathlib import Path
@@ -141,8 +140,7 @@ def extract_dag_info(file_path: str) -> List[DAGInfo]:
                     spec.loader.exec_module(module)
                 except Exception as e:
                     err_str = str(e)
-                    if True:
-                        print(f"  Warning: {Path(file_path).name} import error: {err_str}")
+                    print(f"  Warning: {Path(file_path).name} import error: {err_str}")
                 
                 # Cleanup paths
                 for p in added_paths:
@@ -557,7 +555,7 @@ def validate_asl_from_dag(dag, verbose: bool = False) -> tuple:
             print(f"  ❌ Errors ({len(errors)}):")
             for e in errors:
                 print(f"     • {e}")
-        if warnings:
+        if warnings:  # pragma: no cover -- generated ASL for a DSL DAG has no warnings (the Catch-reachability fix removed the only ones); this prints validate_asl warnings that only hand-written ASL triggers
             print(f"  ⚠️  Warnings ({len(warnings)}):")
             for w in warnings:
                 print(f"     • {w}")

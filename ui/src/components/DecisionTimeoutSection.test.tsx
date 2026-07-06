@@ -26,7 +26,7 @@ describe('DecisionTimeoutSection', () => {
   it('renders read-only on the free tier (no Save button)', async () => {
     render(<DecisionTimeoutSection />);
     await waitFor(() => {
-      expect(screen.getByText(/Editable on Team/)).toBeInTheDocument();
+      expect(screen.getByText(/Read-only/)).toBeInTheDocument();
     });
     expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
     const input = screen.getByLabelText(/Wait for/) as HTMLInputElement;

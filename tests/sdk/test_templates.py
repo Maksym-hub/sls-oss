@@ -52,7 +52,6 @@ def test_orchestration_timeout_via_default_args():
     with DAG(
         'test-dag',
         schedule=None,
-        alerts=None,
         default_args={
             'orchestration_timeout': timedelta(hours=12),
         }
@@ -73,7 +72,6 @@ def test_orchestration_timeout_override_default_args():
     with DAG(
         'test-dag',
         schedule=None,
-        alerts=None,
         default_args={
             'orchestration_timeout': timedelta(hours=12),
         }
@@ -95,7 +93,7 @@ def test_orchestration_timeout_in_generated_sfn():
     from polyris import DAG, task
     from polyris.generators import generate_step_function_json
 
-    with DAG('test-gen', schedule=None, alerts=None) as dag:
+    with DAG('test-gen', schedule=None) as dag:
         @task.sfn(
             arn='arn:aws:states:us-east-1:123:stateMachine:test',
             orchestration_timeout=timedelta(days=3)
@@ -126,7 +124,7 @@ def test_orchestration_timeout_default_in_generated_sfn():
     from polyris import DAG, task
     from polyris.generators import generate_step_function_json
 
-    with DAG('test-gen-default', schedule=None, alerts=None) as dag:
+    with DAG('test-gen-default', schedule=None) as dag:
         @task.sfn(arn='arn:aws:states:us-east-1:123:stateMachine:test')
         def t1():
             pass
@@ -250,7 +248,6 @@ def test_api_gateway_routes_match_lambda():
     Prevents deploying a Lambda endpoint without its API Gateway route
     (or vice versa). Excludes health/OPTIONS/catch-all routes.
     """
-    import re
     from main import ROUTES
 
     sam_template = os.path.join(REPO_ROOT, 'sam', 'template.yaml')

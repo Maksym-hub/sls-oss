@@ -1,10 +1,9 @@
-"""DAG-object tests — scheduling, alerts validation, graph methods.
+"""DAG-object tests — scheduling, graph methods.
 
 Drives ``polyris.dag.DAG`` directly (CLAUDE.md #13):
 
-  - ``__post_init__`` validation: the alerts-shape checks (still live even
-    though ``alerts=`` is deprecated/ignored at runtime), the
-    ``schedule_interval`` alias, and ``trigger_assets`` → asset schedule.
+  - ``__post_init__`` behaviour: the ``schedule_interval`` alias and
+    ``trigger_assets`` → asset schedule.
   - Graph methods: ``topological_sort`` (ordering + cycle detection),
     ``roots``, ``leaves``, ``get_task`` / ``task_dict``.
   - The Airflow-compat ``test()`` / ``cli()`` helpers.
@@ -38,48 +37,9 @@ def _chain():
 
 
 # ============================================================ #
-# scheduling + alerts validation (__post_init__)
+# scheduling (__post_init__)
 # ============================================================ #
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-class TestSchedulingAndAlerts:
-    def test_alerts_must_be_dict(self):
-        with pytest.raises(ValueError, match="must be a dict"):
-            DAG("d", schedule=None, alerts="not-a-dict")
-
-    def test_alerts_reject_unknown_keys(self):
-        with pytest.raises(ValueError, match="Invalid alerts keys"):
-            DAG("d", schedule=None, alerts={"bogus": 1})
-
-    def test_alerts_pagerduty_severity_validated(self):
-        with pytest.raises(ValueError, match="Invalid pagerduty severity"):
-            DAG("d", schedule=None, alerts={"pagerduty": "meltdown"})
-
-    def test_alerts_slack_channel_prefix_validated(self):
-        with pytest.raises(ValueError, match="must start with"):
-            DAG("d", schedule=None, alerts={"slack": "nohash"})
-
-    def test_alerts_slack_mentions_must_be_list(self):
-        with pytest.raises(ValueError, match="must be a list"):
-            DAG("d", schedule=None, alerts={"slack_mentions": "U123"})
-
-    def test_alerts_slack_mentions_items_must_be_strings(self):
-        with pytest.raises(ValueError, match="must be strings"):
-            DAG("d", schedule=None, alerts={"slack_mentions": [123]})
-
-    def test_alerts_slack_mentions_entry_format_validated(self):
-        with pytest.raises(ValueError, match="Invalid slack_mentions entry"):
-            DAG("d", schedule=None, alerts={"slack_mentions": ["nonsense"]})
-
-    def test_valid_alerts_accepted_and_slack_channel_populated(self):
-        with pytest.warns(DeprecationWarning):
-            dag = DAG("d", schedule=None, alerts={
-                "slack": "#alerts",
-                "slack_mentions": ["U123", "here"],
-                "pagerduty": "critical",
-            })
-        # Legacy back-compat: slack_channel is filled from alerts.slack.
-        assert dag.slack_channel == "#alerts"
-
+class TestScheduling:
     def test_schedule_interval_alias(self):
         dag = DAG("d", schedule_interval="rate(1 hour)")
         assert dag.schedule == "rate(1 hour)"

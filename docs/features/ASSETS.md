@@ -1,5 +1,15 @@
 # Asset-Based Orchestration
 
+> **⚠️ Experimental (v0.93.0).** Assets are an experimental feature — the API
+> (`Asset`, `outlets`, `inlets`, `wait_for`, asset-triggered `schedule`) may change
+> in a future release, and the open-source build has no visual asset console yet
+> (inspect lineage with `polyris-output --graph`). Not recommended for production
+> pipelines.
+> Silence the runtime warning with
+> `warnings.filterwarnings("ignore", category=polyris.ExperimentalWarning)`.
+> <!-- EXPERIMENTAL-ASSETS: remove this banner when assets graduate to stable. -->
+
+
 ## Overview
 
 polyris supports Airflow 3.0-style asset-based orchestration, enabling cross-pipeline dependencies without hardcoded references.
@@ -9,7 +19,10 @@ polyris supports Airflow 3.0-style asset-based orchestration, enabling cross-pip
 - **Producer**: Task that creates an asset (`outlets`)
 - **Consumer**: DAG that triggers when asset is ready (`schedule`)
 
-> **Open-core note (ADR #105):** the asset *engine* described here — declaring assets, producers, and consumers in pipelines — is **free**. The asset *console* (the `/assets` UI plus its read API: matrix, lineage, and the queue operations below) is **Team-tier and coming to open-core** in an upcoming release. In the OSS build the `/assets` page shows a "coming soon" notice and the `/api/assets*` endpoints are not served.
+> **Open-core note (ADR #105):** the asset *engine* described here — declaring
+> assets, producers, and consumers in pipelines — is part of the open-source
+> build. The asset *console* (the `/assets` UI and its read API) is not included
+> in this build.
 
 ---
 

@@ -430,3 +430,21 @@ class TestEdgeCases:
     def test_waiting_paused_counts_as_pending(self):
         counts = _calculate_counts(['waiting_paused'])
         assert counts['pending'] == 1
+
+
+def test_succeeded_alias_satisfies_success_rules():
+    """Regression: 'succeeded' is the canonical Airflow-compat alias for success
+    and is what normalize_execution_status() produces from AWS SFN's 'SUCCEEDED'.
+    _calculate_counts once counted only the literal 'success', so any dependency
+    reporting 'succeeded' left all_success (the DEFAULT rule) unsatisfied forever —
+    a silent pipeline deadlock. All success-oriented rules must treat the two
+    aliases identically."""
+    assert _check_trigger_rule("all_success", ["succeeded", "succeeded"])[0] is True
+    assert _check_trigger_rule("all_success", ["success", "succeeded"])[0] is True
+    assert _check_trigger_rule("all_success", ["succeeded", "skipped"])[0] is True
+    assert _check_trigger_rule("all_success", ["succeeded", "failed"])[0] is False
+    assert _check_trigger_rule("one_success", ["failed", "succeeded"])[0] is True
+    assert _check_trigger_rule("none_failed_min_one_success", ["succeeded", "skipped"])[0] is True
+    assert _check_trigger_rule("all_done_min_one_success", ["succeeded", "failed"])[0] is True
+    # 'succeeded' must NOT count as skipped
+    assert _check_trigger_rule("all_skipped", ["succeeded", "skipped"])[0] is False

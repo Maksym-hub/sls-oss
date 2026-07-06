@@ -50,7 +50,7 @@ Backward compatibility
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field as dc_field, fields as dc_fields
+from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 

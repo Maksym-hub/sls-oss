@@ -62,12 +62,13 @@ vi.mock('@/components/ui/button', () => ({
 import { HelpModal, withAuthHeader, AUTH_CURL_HEADER } from './HelpModal';
 
 describe('HelpModal', () => {
-    it('renders four tab buttons in the header', () => {
+    it('renders the tab buttons (Backfill is paid, hidden in OSS)', () => {
         render(<HelpModal isOpen onClose={vi.fn()} />);
         expect(screen.getByRole('button', { name: /shortcuts/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /icons/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /backfill/i })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: /api/i })).toBeInTheDocument();
+        // Backfill is a paid surface — its help tab is absent in the OSS build.
+        expect(screen.queryByRole('button', { name: /backfill/i })).not.toBeInTheDocument();
     });
 
     it('lands on Shortcuts tab by default', () => {
@@ -88,11 +89,12 @@ describe('HelpModal', () => {
             expect(active?.textContent).toMatch(/icons/i);
         });
 
-        it('pressing "b" switches to Backfill tab', () => {
+        it('pressing "b" does nothing in OSS (Backfill tab is a paid surface)', () => {
             const { container } = render(<HelpModal isOpen onClose={vi.fn()} />);
             fireEvent.keyDown(document, { key: 'b' });
+            // Backfill help is absent in OSS, so the active tab stays on Shortcuts.
             const active = container.querySelector('.active');
-            expect(active?.textContent).toMatch(/backfill/i);
+            expect(active?.textContent).toMatch(/shortcuts/i);
         });
 
         it('pressing "a" switches to API tab', () => {

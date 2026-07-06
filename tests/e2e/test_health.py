@@ -4,7 +4,6 @@ E2E Tests — Health & Metrics endpoints.
 These are the safest E2E tests: read-only, no side effects.
 Good for smoke-testing a deployment.
 """
-import pytest
 
 
 # =============================================================================

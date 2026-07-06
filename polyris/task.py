@@ -18,10 +18,7 @@ from .xcom import XComArg
 
 if TYPE_CHECKING:
     from .steps import Step
-    from .task_group import TaskGroup
     from .dag import DAG
-    from .helpers import Label
-
 
 # ============================================
 # Task Instance - Result of calling a task
@@ -181,7 +178,6 @@ class TaskInstance:
         """Explicitly set upstream task(s). Airflow-compatible."""
         self << task_or_list
 
-
 # ============================================
 # Task Definition
 # ============================================
@@ -222,28 +218,17 @@ class Task:
     execution_timeout: timedelta = field(default_factory=lambda: timedelta(hours=24))
     orchestration_timeout: Optional[timedelta] = None  # How long to wait for deps. Defaults to execution_timeout
     
-    pool: str = "default"
-    pool_slots: int = 1
-    priority_weight: int = 1
-    weight_rule: str = "downstream"
-    queue: str = "default"
     
     trigger_rule: TriggerRuleLiteral = "all_success"
     
-    depends_on_past: bool = False
-    wait_for_downstream: bool = False
     
     doc: str = ""
     doc_md: str = ""
-    doc_json: str = ""
-    doc_yaml: str = ""
-    doc_rst: str = ""
     
     # Backfill behavior
     skip_on_backfill: bool = False  # Skip this task during backfill runs
     
     # SFN-specific
-    slack_channel: str = ""
     wait_before: Union[int, timedelta] = 0  # Wait before starting (seconds or timedelta)
     
     # === Lambda-specific fields ===
@@ -386,11 +371,9 @@ class Task:
             return self
         return NotImplemented
 
-
 # ============================================
 # Task Decorator - Airflow-compatible with service variants
 # ============================================
-
 
 class CommonTaskKwargs(TypedDict, total=False):
     """Parameters shared by every @task.<type> variant decorator (ADR #109).
@@ -411,12 +394,15 @@ class CommonTaskKwargs(TypedDict, total=False):
     execution_timeout: Optional[timedelta]
     orchestration_timeout: Optional[timedelta]
     trigger_rule: TriggerRuleLiteral
-    slack_channel: str
     skip_on_backfill: bool
-
+    # Asset-based orchestration — available on every task type via **common
+    # (ADR #109). These reach _create_task, the Task fields, and the generator,
+    # all of which handle assets generically regardless of task_type.
+    outlets: Optional[List[Any]]
+    inlets: Optional[List[Any]]
+    wait_for: Optional[List[Any]]
 
 _COMMON_TASK_PARAMS = frozenset(CommonTaskKwargs.__annotations__)
-
 
 def _validate_common_kwargs(decorator_name: str, common: Mapping[str, object]) -> None:
     """Strict-kwargs guard (ADR #106 D5): typos in common params raise
@@ -428,7 +414,6 @@ def _validate_common_kwargs(decorator_name: str, common: Mapping[str, object]) -
             f"task.{decorator_name}() got an unexpected keyword argument "
             f"{sorted(unknown)[0]!r}"
         )
-
 
 class TaskDecorator:
     """
@@ -449,7 +434,6 @@ class TaskDecorator:
         - trigger_rule
         - wait_before (rate limiting)
         - role (cross-account execution)
-        - slack_channel
     """
     
     def __call__(
@@ -494,7 +478,6 @@ class TaskDecorator:
         arn: Optional[str] = None,
         role: str = "same",
         wait_before: int = 0,
-        multiple_outputs: bool = False,
         retries: Optional[int] = None,
         retry_delay: Optional[timedelta] = None,
         retry_exponential_backoff: bool = False,
@@ -502,17 +485,9 @@ class TaskDecorator:
         max_retry_delay: Optional[timedelta] = None,
         execution_timeout: Optional[timedelta] = None,
         orchestration_timeout: Optional[timedelta] = None,
-        pool: str = "default",
-        pool_slots: int = 1,
-        priority_weight: int = 1,
-        weight_rule: str = "downstream",
-        queue: str = "default",
         trigger_rule: TriggerRuleLiteral = "all_success",
-        depends_on_past: bool = False,
-        wait_for_downstream: bool = False,
         doc: Optional[str] = None,
         doc_md: Optional[str] = None,
-        slack_channel: str = "",
         # Service-specific fields
         function_name: str = "",
         payload: Optional[Dict[str, Any]] = None,
@@ -571,17 +546,9 @@ class TaskDecorator:
                 max_retry_delay=max_retry_delay or default_args.get('max_retry_delay'),
                 execution_timeout=execution_timeout or default_args.get('execution_timeout', timedelta(hours=24)),
                 orchestration_timeout=orchestration_timeout or default_args.get('orchestration_timeout'),
-                pool=pool,
-                pool_slots=pool_slots,
-                priority_weight=priority_weight,
-                weight_rule=weight_rule,
-                queue=queue,
                 trigger_rule=trigger_rule,
-                depends_on_past=depends_on_past or default_args.get('depends_on_past', False),
-                wait_for_downstream=wait_for_downstream or default_args.get('wait_for_downstream', False),
                 doc=docstring,
                 doc_md=doc_md or "",
-                slack_channel=slack_channel or default_args.get('slack_channel', ""),
                 wait_before=wait_before,
                 # Lambda-specific
                 function_name=function_name,
@@ -635,9 +602,6 @@ class TaskDecorator:
         _func: Optional[Callable] = None,
         *,
         arn: str,  # Required!
-        outlets: Optional[List[Any]] = None,  # Assets this task produces
-        inlets: Optional[List[Any]] = None,   # Assets this task consumes
-        wait_for: Optional[List[Any]] = None,  # Assets to wait for (pull-based cross-pipeline)
         **common: Unpack[CommonTaskKwargs],
     ) -> Union[Task, Callable]:
         """
@@ -671,9 +635,6 @@ class TaskDecorator:
             _func=_func,
             task_type="sfn",
             arn=arn,
-            outlets=outlets,
-            inlets=inlets,
-            wait_for=wait_for,
             **common,
         )
     
@@ -941,7 +902,6 @@ class TaskDecorator:
             batch_parameters=batch_parameters,
             **common,
         )
-
 
 # Create singleton instance
 task = TaskDecorator()

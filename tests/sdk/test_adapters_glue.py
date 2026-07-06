@@ -11,7 +11,6 @@ import pytest
 
 from polyris import schema as s
 from polyris.adapters.glue import glue_table_to_columns
-from polyris.schema import Column
 
 
 def _glue_response(columns=None, partition_keys=None):

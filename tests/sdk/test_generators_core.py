@@ -151,7 +151,7 @@ class TestValidateAsl:
     def test_parallel_without_branches_errors(self):
         ok, errors, _ = validate_asl(_asl({"A": {"Type": "Parallel", "End": True}}))
         assert ok is False
-        assert any("Parallel state missing 'Branches'" in e for e in errors)
+        assert any("no branches" in e for e in errors)
 
     def test_parallel_branch_errors_bubble_up(self):
         ok, errors, _ = validate_asl(_asl({

@@ -14,7 +14,6 @@ import pytest
 from polyris.assets import (
     Asset,
     AssetRef,
-    AssetConsecutiveRef,
     AssetAll,
     AssetAny,
     AssetAlias,
@@ -246,3 +245,24 @@ class TestAssetAllOrFlattensAssetAny:
         as_dict = combined.to_dict()
         assert as_dict["operator"] == "OR"
         assert len(as_dict["assets"]) == 3
+
+
+def test_wait_for_metadata_includes_groups():
+    """Regression: the metadata/lineage serializer must include AssetAll/AssetAny
+    groups, matching the runtime serializer. It used to silently drop them, so a
+    task waiting on `AssetAll([a, b])` showed no dependency at all in lineage."""
+    from polyris.assets import Asset, AssetAll, AssetAny
+    from polyris.generators import _serialize_wait_for, _serialize_wait_for_metadata
+
+    a = Asset(name="grp_a")
+    b = Asset(name="grp_b")
+
+    for combiner, op in ((AssetAll, "AND"), (AssetAny, "OR")):
+        wf = [combiner([a, b])]
+        meta = _serialize_wait_for_metadata(wf)
+        runtime = _serialize_wait_for(wf)
+        # metadata is no longer empty and carries the operator + both assets
+        assert meta and meta[0]["operator"] == op
+        assert {x["name"] for x in meta[0]["assets"]} == {"grp_a", "grp_b"}
+        # and it agrees with the runtime serializer on the operator
+        assert runtime[0]["operator"] == op

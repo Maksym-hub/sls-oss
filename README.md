@@ -16,9 +16,8 @@ polyris is not managed Airflow. There's nothing to operate.
 - 🔎 **Nothing hidden** — every pipeline compiles to a Step Functions state
   machine, so each run is a visible, debuggable execution history rather than
   opaque scheduler state.
-- 🧬 **Asset-aware** — pipelines define first-class data assets with lineage and partitions (asset console UI coming to open-core soon), and
-  lineage-aware backfill in the **Team edition** (upstream smart-fill +
-  downstream cascade), not just task graphs.
+- 🧬 **Asset-aware** — pipelines define first-class data assets with lineage and
+  partitions, not just task graphs.
 - 💸 **Pay-per-run** — a typical deployment runs ~$31/month; the floor is near
   zero because there is no always-on infrastructure.
 
@@ -27,18 +26,14 @@ polyris is not managed Airflow. There's nothing to operate.
 - 🐍 **Familiar Python DSL** — `@task`, `>>` operators, `DAG()` context (Airflow-style ergonomics)
 - 🚀 **One-command deploy** — `polyris-deploy` (CloudFormation)
 - 🧪 **Local testing** — Validate, dry-run, mock execution
-- 🔔 **Alerts** *(Team tier)* — Slack and PagerDuty on failure, configured per pipeline in the Console UI; browser notifications are free (the notify Lambda fans out to every enabled channel — no silent failures)
+- 🔔 **Failure notifications** — browser notifications on failure (the notify Lambda fans out to every enabled channel — no silent failures)
 - 🎯 **11 trigger rules** — `all_success`, `one_failed`, `all_done`, etc. ([details](docs/features/DSL.md#trigger-rules))
 - 🔗 **Automatic data passing** — outputs flow to downstream **lambda & SFN** tasks via a DynamoDB output store (up to 200KB); service tasks (glue/ecs/…) exchange data via S3
-- 📊 **Web Console** — pipelines and DAG view are free; **Gantt and calendar view-modes are Team tier**. The **asset console (matrix + lineage) is coming to open-core in an upcoming release** — the `/assets` page currently shows a *coming soon* notice
-- 🧬 **Asset graph & lineage** — pipelines declare cross-pipeline asset dependencies and lineage (engine is free; the asset console UI is coming to open-core soon)
-- ⏮️ **Lineage-aware backfill** *(Team tier)* — date-range backfill with task/asset selection, upstream smart-fill, downstream cascade, and partition granularity; the `/backfills` page shows a *coming soon* notice in the open-source build and is on the graduation roadmap
+- 📊 **Web Console** — pipelines and DAG views for every run
+- 🧬 **Asset graph & lineage** — pipelines declare cross-pipeline asset dependencies and lineage
 - 🔗 **Pull-based deps** — `wait_for` with freshness and consecutive checks
 - ⏭️ **Skip/Restart tasks** — partial pipeline runs via UI or API (free — live-run intervention)
 - 🔄 **Auto-refresh UI** — polling-based updates (3s active, 30s idle)
-
-> **Editions:** for the full Free / Team / Enterprise capability map, see
-> [`docs/reference/EDITIONS.md`](docs/reference/EDITIONS.md).
 
 ---
 
@@ -119,7 +114,6 @@ Or create manually — `my-pipeline/dag.py`:
 ```python
 from polyris import DAG, task, Asset
 
-
 processed = Asset(name="my-pipeline/processed")
 
 with DAG(
@@ -179,7 +173,6 @@ with DAG("my-pipeline", schedule="@daily") as dag:
 Deploy: `polyris-deploy --stage dev`
 </details>
 
-
 ### 4. Deploy
 
 ```bash
@@ -217,26 +210,19 @@ print(result.summary())  # ✅ 3 succeeded, ❌ 0 failed
 
 ---
 
-## Alerts
+## Notifications
 
-Two layers: **browser notifications** (in-app, automatic, free) and **Slack /
-PagerDuty** (configured in the UI under **Settings → Alerts**, Team tier).
+Failure delivers an **in-app browser notification** automatically — no
+configuration required.
 
-> The old `alerts={...}` DAG argument is **deprecated and ignored** (ADR #103) —
-> remove it. Alert delivery moved out of the DSL into the UI. See
-> [docs/features/alerts.md](docs/features/alerts.md).
+> `DAG` has **no `alerts=` argument** — alert config is not part of the DSL
+> (ADR #103). Passing `alerts={...}` raises a `TypeError`.
 
 ```python
-# No alert config in the DAG anymore — just define the pipeline.
+# No alert config in the DAG — just define the pipeline.
 with DAG("pipeline", schedule="@daily") as dag:
     ...
 ```
-
-Slack channel, mentions, PagerDuty severity, and the webhook / routing key (stored
-as encrypted SSM secrets) are all set per-pipeline in Settings → Alerts. On a
-failure you get an interactive Slack message (Skip / Mark Success / Fail /
-Restart) and/or a PagerDuty incident, plus an in-app notification.
-
 
 ## Task Types
 
@@ -313,6 +299,11 @@ DAG(schedule=None)
 
 ## Asset-Based Orchestration
 
+> **⚠️ Experimental (v0.93.0).** Assets are experimental — the API may change and
+> there's no visual asset console in the OSS build yet (`polyris-output --graph` shows lineage). Not
+> recommended for production yet. See [docs/features/ASSETS.md](docs/features/ASSETS.md).
+> <!-- EXPERIMENTAL-ASSETS: remove when assets graduate to stable. -->
+
 Cross-pipeline dependencies without hardcoded references:
 
 ```python
@@ -357,9 +348,6 @@ Access the console at your CloudFront URL. Features:
 | View | Description |
 |------|-------------|
 | **🔀 DAG** | Interactive graph visualization (React Flow) |
-| **📊 Gantt** *(Team)* | Timeline of task execution |
-| **📅 Calendar** *(Team)* | Historical executions by date |
-| **📦 Assets** | Asset lineage graph |
 | **📋 Tasks** | All task instances across pipelines |
 | **🏃 Runs** | All pipeline runs with filtering |
 
@@ -368,49 +356,6 @@ Access the console at your CloudFront URL. Features:
 - **Fail** — Mark task as failed, continue pipeline
 - **Stop** — Force stop running task
 - **Restart** — Retry failed task
-
-### Backfill *(Team edition)*
-
-> Backfill is a **Team-tier** capability (ADR #99/#104). The open-source build
-> ships the engine, assets, and lineage; the date-range backfill orchestrator,
-> its Console views, and the `polyris-backfill` CLI ship with the Team edition.
-
-Backfill is a first-class operation. One endpoint, one orchestrator
-SFN, one persisted record (per ADR #51).
-
-**From the UI:**
-- Click **Backfill** on Pipeline page → opens with pipeline pre-selected
-- Click **Backfill** on Asset Detail → opens with asset target + `cascade: auto`
-- Click a **missing/failed cell** in Asset Matrix → opens with that exact partition
-- Click **Backfill This Task** in Task Detail Modal → opens with task subset
-- Browse `/backfills/` for history with status filters
-- Drill into `/backfills/{id}/` for partition heatmap + cancel/retry
-
-**From the CLI:**
-```bash
-export POLYRIS_API_URL=https://<console-api>
-
-polyris-backfill pipeline daily-etl --start 2024-01-15 --end 2024-01-20
-polyris-backfill asset catalog/orders --start 2024-01-15 --end 2024-01-15 --cascade auto
-polyris-backfill list --status active
-polyris-backfill show bf-a1b2c3d4
-polyris-backfill cancel bf-a1b2c3d4
-polyris-backfill retry-failed bf-a1b2c3d4
-```
-
-**Features:**
-- **Granularity-aware** — pipeline's cron schedule determines partition cadence
-  (hourly/daily/weekly/monthly per ADR #52)
-- **Cost preview** — `--preview` returns partition count + estimated SFN cost
-  before commit
-- **Cooperative cancel** — DDB-based; in-flight children complete, remaining
-  partitions short-circuit
-- **Retry-failed** — fork new backfill containing only failed partitions,
-  linked via `parent_backfill_id`
-- **Cascade** (asset target): `auto` (respect trigger rules) / `all` (force every
-  consumer) / `none` (only rebuild this asset)
-- **Hard limit**: 5000 partitions per backfill, soft warning at 500
-
 ---
 
 ## CLI Commands
@@ -442,15 +387,6 @@ polyris-deploy --stage prod --profile my-profile
 
 # Register pipeline in DynamoDB (manual)
 polyris-register --name my-pipeline
-```
-
-Backfill operations *(Team edition — `polyris-backfill` ships with the Team package)* — configure `POLYRIS_API_URL`, then:
-
-```bash
-polyris-backfill pipeline daily-etl --start 2024-01-15 --end 2024-01-20
-polyris-backfill asset catalog/db/orders --start 2024-01-15 --end 2024-01-15 --cascade auto
-polyris-backfill list --status active
-polyris-backfill show bf-a1b2c3d4
 ```
 
 Full reference: [docs/reference/CLI.md](docs/reference/CLI.md)

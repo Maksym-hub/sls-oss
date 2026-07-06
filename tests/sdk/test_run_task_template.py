@@ -576,6 +576,57 @@ def test_decorators_reject_unknown_kwargs():
                 pass
 
 
+def test_every_task_decorator_accepts_common_kwargs():
+    """Structural guard (ADR #109): every @task.<type> decorator MUST funnel
+    shared parameters through **common, so a newly added task type can't silently
+    drop a common capability (retries, timeouts, assets, ...). If someone adds a
+    decorator without **common: Unpack[CommonTaskKwargs], this fails."""
+    import inspect
+    from polyris import task
+    decorators = [
+        n for n in dir(task)
+        if not n.startswith("_") and callable(getattr(task, n))
+    ]
+    assert decorators, "no task decorators discovered"
+    for name in decorators:
+        sig = inspect.signature(getattr(task, name))
+        has_var_kw = any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+        )
+        assert has_var_kw, (
+            f"task.{name}() must accept **common (Unpack[CommonTaskKwargs]) so it "
+            f"reuses shared task params — ADR #109."
+        )
+
+
+def test_all_task_types_wire_assets():
+    """Behavioral counterpart: assets (outlets/inlets/wait_for) are common params,
+    so EVERY task type must land them on the Task — not just sfn."""
+    from polyris import DAG, task, Asset
+    produced = Asset("prod", uri="s3://lake/prod/")
+    consumed = Asset("cons", uri="s3://lake/cons/")
+    specs = {
+        "sfn": dict(arn="arn:aws:states:us-east-1:1:stateMachine:s"),
+        "lambda_": dict(function_name="fn"),
+        "glue": dict(job_name="j"),
+        "ecs": dict(cluster="c", task_definition="t:1", subnets=["subnet-x"]),
+        "athena": dict(query_string="SELECT 1", database="db"),
+        "emr": dict(
+            emr_cluster_id="j-1",
+            emr_step={"Name": "s", "HadoopJarStep": {"Jar": "command-runner.jar", "Args": ["x"]}},
+        ),
+        "batch": dict(job_definition="d:1", job_queue="q"),
+    }
+    with DAG(dag_id="assets-all-types", schedule="@daily"):
+        for name, kw in specs.items():
+            @getattr(task, name)(outlets=[produced], inlets=[consumed], wait_for=[consumed], **kw)
+            def _t():
+                pass
+            assert _t.outlets == [produced], f"task.{name} dropped outlets"
+            assert _t.inlets == [consumed], f"task.{name} dropped inlets"
+            assert _t.wait_for == [consumed], f"task.{name} dropped wait_for"
+
+
 # --- athena: full param parity + workgroup-managed output nuance ---
 
 def test_athena_params_reach_query_execution(template):

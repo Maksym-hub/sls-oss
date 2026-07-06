@@ -131,15 +131,36 @@ class TestSchemaConsistency:
 
 
 class TestAslFromDag:
-    def test_verbose_prints_warnings(self, capsys):
-        from polyris import DAG
+    def test_verbose_prints_summary(self, capsys):
+        from polyris import DAG, task
         from polyris.validation import validate_asl_from_dag
 
-        # An empty DAG generates an unreachable failure state → a warning.
-        with DAG("empty", schedule=None) as dag:
-            pass
-        is_valid, _errors, warnings = validate_asl_from_dag(dag, verbose=True)
+        # A well-formed DAG validates clean — no errors, no warnings. Verbose mode
+        # prints the summary and the valid marker. (The errors/warnings print
+        # branches only fire for hand-written ASL — see their pragmas.)
+        with DAG("one_task", schedule="@daily") as dag:
+            @task.sfn(arn="arn:aws:states:us-east-1:1:stateMachine:s")
+            def only():
+                pass
+            only()
+        is_valid, errors, warnings = validate_asl_from_dag(dag, verbose=True)
         out = capsys.readouterr().out
-        assert is_valid and warnings
-        assert "Warnings" in out
+        assert is_valid and not errors and not warnings
         assert "Tasks:" in out  # verbose summary line
+        assert "✅ Valid" in out
+
+
+def test_validate_asl_rejects_empty_parallel():
+    """AWS rejects a Parallel state with no branches; the validator must too.
+    (An empty DAG generates exactly this — Run_All_Tasks with Branches: [].)"""
+    from polyris.generators import validate_asl
+
+    asl = {
+        "StartAt": "P",
+        "States": {
+            "P": {"Type": "Parallel", "Branches": [], "End": True},
+        },
+    }
+    is_valid, errors, _warnings = validate_asl(asl)
+    assert not is_valid
+    assert any("no branches" in e for e in errors)

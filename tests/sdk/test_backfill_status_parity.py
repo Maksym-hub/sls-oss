@@ -4,9 +4,7 @@ Locks the canonical terminal-status rule and verifies the SFN Finalize
 JSONata stays in parity with it.
 """
 import json
-import re
 
-import pytest
 
 from polyris.backfill_status import finalize_status, all_map_done
 from polyris.constants import BackfillStatus, BACKFILL_TERMINAL_STATUSES

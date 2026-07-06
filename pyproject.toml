@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "polyris"
-version = "0.92.0"
+version = "0.93.0"
 description = "Airflow-compatible Python DSL for AWS Step Functions"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -77,7 +77,6 @@ select = ["E", "F", "W"]
 ignore = [
     "E501",  # line too long (handled by formatter)
     "E402",  # module level import not at top of file
-    "F401",  # imported but unused (often intentional in __init__.py)
     "W291",  # trailing whitespace
     "W293",  # blank line contains whitespace
 ]

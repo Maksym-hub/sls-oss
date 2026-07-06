@@ -3,6 +3,10 @@
 > **Status:** ACCEPTED — implemented. Caller-visible behavior is unchanged for
 > every documented usage; typo handling is preserved (ADR #106 D5) with a
 > clearer error message.
+>
+> **Amended (v0.93.0):** the common set changed — `slack_channel` removed,
+> assets (`outlets`/`inlets`/`wait_for`) added. See [Amendments](#amendments);
+> the historical list in *Context* below is preserved as written.
 
 ## Context
 
@@ -54,3 +58,36 @@ defaults on `_create_task`.
   are unaffected because the parameters were already keyword-only.
 - The D5 typo tests (`tests/sdk/test_task_core.py`) pass unchanged and now
   exercise the shared validator, keeping its raise path covered.
+
+## Amendments
+
+### v0.93.0 — common set updated
+
+The common set has changed since acceptance. The pattern is unchanged; the
+membership is not.
+
+- **`slack_channel` removed.** DSL-level alert routing was torn down in ADR #103
+  (alerts are configured in the Console UI, not the DSL). `slack_channel` is no
+  longer a task parameter and was dropped from `CommonTaskKwargs`.
+- **Assets added — `outlets`, `inlets`, `wait_for`.** These had been declared
+  only on `@task.sfn`'s explicit signature, so every other task type raised
+  `TypeError` on an asset kwarg. That was an oversight that violated *this ADR's
+  own rule* — "adding a common parameter = add it to `CommonTaskKwargs`, never
+  per-decorator." Assets are correctness-generic below the decorator layer
+  (`_create_task`, the `Task` fields, and `generators.py` all handle
+  `outlets`/`inlets`/`wait_for` without branching on `task_type`), so they are
+  common parameters by nature. Moving them into `CommonTaskKwargs` makes assets
+  available uniformly on all seven task types via `**common`.
+
+**Current common set:** `task_id`, `role`, `wait_before`, `retries`,
+`retry_delay`, `retry_exponential_backoff`, `retry_jitter`, `max_retry_delay`,
+`execution_timeout`, `orchestration_timeout`, `trigger_rule`, `skip_on_backfill`,
+`outlets`, `inlets`, `wait_for`.
+
+**Guard against recurrence.** Two tests in `tests/sdk/test_run_task_template.py`
+enforce the pattern structurally, so a future task type cannot silently drop it:
+`test_every_task_decorator_accepts_common_kwargs` fails if any `@task.*` decorator
+omits `**common`, and `test_all_task_types_wire_assets` proves every type lands
+`outlets`/`inlets`/`wait_for` on the resulting `Task`. Assets themselves remain
+experimental at the API-surface level — see
+[`EXPERIMENTAL_ASSETS.md`](EXPERIMENTAL_ASSETS.md).

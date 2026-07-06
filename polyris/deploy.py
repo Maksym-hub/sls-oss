@@ -23,7 +23,6 @@ Workflow:
 """
 
 import json
-import os
 import sys
 import subprocess
 import importlib.util
@@ -37,7 +36,6 @@ import boto3
 from .generators import (
     generate_step_function_json,
     generate_dag_hash,
-    generate_eventbridge_schedule,
 )
 from .dag import DAG
 from .config import config as polyris_config

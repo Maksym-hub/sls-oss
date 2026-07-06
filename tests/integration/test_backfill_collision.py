@@ -21,7 +21,6 @@ that unit tests with stub mocks cannot provide.
 
 import os
 import sys
-import uuid
 
 import boto3
 import pytest

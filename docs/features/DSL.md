@@ -34,7 +34,6 @@ with DAG(
 |-----------|------|----------|-------------|
 | `dag_id` | str | Yes | Unique pipeline identifier |
 | `schedule` | str/Asset/list | No | Schedule: cron, preset, or assets |
-| `alerts` | dict/None | No | **Deprecated** (ADR #103) — ignored; configure alerts in Settings → Alerts |
 | `description` | str | No | Human-readable description |
 | `tags` | list | No | Tags for organization |
 | `variables` | dict | No | Pipeline variables |
@@ -66,18 +65,16 @@ with DAG(
 
 ### Alerts Configuration
 
-> **Deprecated (ADR #103).** The `alerts=` argument is no longer used. It is
-> accepted for one release with a `DeprecationWarning` and then ignored — remove
-> it from your DAGs. Alert delivery moved out of the DSL:
+> **Removed (ADR #103).** The `alerts=` argument has been removed — passing
+> `alerts={...}` now raises a `TypeError`. Remove it from your DAGs. Alert
+> delivery moved out of the DSL:
 >
 > - **Browser notifications** (in-app) are automatic and free — no setup.
-> - **Slack / PagerDuty** are configured per-pipeline in the UI under
->   **Settings → Alerts** (Team tier), not in code. There you set the channel,
->   mentions, severity, channel mode, and the webhook / routing key (stored as
->   SSM secrets — only the parameter name is kept in the registry).
+> - Alert config is not part of the DSL (ADR #103) — there is no `alerts=`
+>   argument.
 >
-> Old DAGs that still pass `alerts={...}` keep importing; the argument is dropped
-> at parse time with a warning. See the Settings → Alerts how-to for the new flow.
+> `DAG` has no `alerts=` argument (ADR #103) — passing `alerts={...}` now raises
+> a `TypeError`. Configure alerts in Settings → Alerts instead.
 
 ## Schedule Options
 

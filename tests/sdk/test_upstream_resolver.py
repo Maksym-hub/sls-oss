@@ -16,7 +16,6 @@ from polyris.upstream_resolver import (
     AssetGraph,
     AssetNode,
     CycleError,
-    PlanItem,
     ResolvedPlan,
     resolve_plan,
 )

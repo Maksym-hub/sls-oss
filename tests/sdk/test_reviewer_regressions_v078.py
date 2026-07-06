@@ -14,7 +14,6 @@ import ast
 import re
 from pathlib import Path
 
-import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 GENERATORS_PY = REPO_ROOT / "polyris" / "generators.py"

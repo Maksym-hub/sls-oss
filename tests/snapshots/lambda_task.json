@@ -109,7 +109,6 @@
                   "task_type": "lambda",
                   "dependencies": [],
                   "cross_account_role": "same",
-                  "slack_channel": "",
                   "token": "{% $states.context.Task.Token %}",
                   "pipeline_name": "lambda_task",
                   "pipeline_execution": "{% $states.context.Execution.Name %}",

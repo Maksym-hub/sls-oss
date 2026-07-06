@@ -177,169 +177,6 @@ POST /api/pipeline-register
 
 Body: `{"pipeline_name": "...", "sfn_arn": "...", "dag": {...}}`
 
-### Backfill (Unified, v0.78+)
-
-> **Team edition.** Backfill is a Team-tier capability (ADR #99/#104). These
-> `/api/backfill*` endpoints are served by the Team build; the open-source
-> Console API does not register them.
-
-Per **ADR #51**, six legacy code paths (pipeline-backfill, asset-backfill,
-force-trigger, manual run, task-level run, matrix cell click) are
-collapsed into a single endpoint:
-
-```http
-POST /api/backfill
-```
-
-Body:
-```json
-{
-  "target": {"type": "asset", "name": "daily-etl/processed"},
-  "partitions": {"start": "2026-01-01", "end": "2026-01-07"},
-  "tasks": ["task_a"],
-  "downstream": "auto",
-  "upstream": "smart",
-  "options": {
-    "force": false,
-    "skip_completed": true,
-    "incremental": false,
-    "max_parallel": 5,
-    "variables": {"custom_key": "value"}
-  }
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `target.type` | string | Yes | One of `pipeline`, `asset` |
-| `target.name` | string | Yes | Pipeline or asset name |
-| `partitions.start` / `partitions.end` | string | Range mode | Inclusive date range; format depends on granularity |
-| `partitions.keys` | array | Keys mode | Explicit list (mutually exclusive with start/end) |
-| `tasks` | array | No | Subset of tasks to run from the resolved pipeline |
-| `downstream` | string | Asset only | Downstream cascade: `auto` (default) / `all` / `none`. (`cascade` is accepted as a deprecated alias and echoed back with a `deprecated_field` warning — ADR #91.) |
-| `upstream` | string | Asset only | Upstream lineage build (ADR #92): `off` (default — producer only) / `smart` (build missing same-pipeline ancestors) / `force` (rebuild full lineage). |
-| `options.force` | bool | No | Bypass safety checks |
-| `options.skip_completed` | bool | No | Skip partitions that already completed (default `true`) |
-| `options.incremental` | bool | No | Stop on first failure |
-| `options.max_parallel` | int | No | Map concurrency 1–10 (default 5) |
-| `options.variables` | object | No | Extra variables for child tasks |
-| `options.allow_concurrent` | bool | No | Allow overlapping with running executions |
-
-Query string: `?preview=true` returns the resolved plan — partition counts,
-reused/skipped counts, upstream-lineage scope, and warnings — without starting
-the bulk-backfill SFN. (There is no cost estimate; it was removed in v0.78.2,
-ADR #62.)
-
-Granularity is inferred from the resolved pipeline's cron schedule (ADR
-#52); ambiguous crons default to `daily` and surface a warning.
-
-Response (success, 202):
-```json
-{
-  "backfill_id": "bf-a1b2c3d4",
-  "target_pipeline": "daily-etl",
-  "granularity_inferred": "daily",
-  "partition_count_requested": 7,
-  "partition_count_skipped_completed": 0,
-  "partition_count_to_run": 7,
-  "task_subset": ["task_a"],
-  "downstream": null,
-  "upstream": "smart",
-  "upstream_lineage": {"tasks_to_run": 3, "partitions": 7},
-  "warnings": [],
-  "ui_url": "/backfills/bf-a1b2c3d4"
-}
-```
-
-> **Note on `skip_completed`:** In v0.78, the API response always shows
-> `partition_count_skipped_completed: 0` initially. The bulk-backfill
-> SFN's per-iteration `Check_If_Done` Choice state queries DDB for
-> each partition immediately before launching its child execution —
-> that is the **real gate** and runs against live state at execution
-> time. Setting `options.skip_completed=true` still works: already-
-> complete partitions are skipped at the SFN level. Only the initial
-> count in the API response stays conservative (the UI polls and
-> updates the displayed completed-count as SFN flips state).
-
-Error codes: `invalid_target`, `invalid_target_type`, `target_not_found`,
-`no_producer`, `multi_producer_asset`, `producer_pipeline_missing`,
-`unreachable_target_type`, `invalid_partitions`, `invalid_partition_format`,
-`invalid_partition_keys`, `partition_keys_not_failed`, `range_too_large`
-(>1000 partitions), `invalid_tasks`, `invalid_options`,
-`invalid_downstream`, `invalid_downstream_for_pipeline_target` (the legacy
-`invalid_cascade*` codes were renamed in v0.83 — ADR #91), `invalid_upstream`,
-`invalid_upstream_for_pipeline_target`, `upstream_cycle` (asset graph has a
-dependency cycle), `child_name_too_long`, `nothing_to_run` (after
-skip_completed), `concurrent_backfill_active` (409 — active backfill running
-for the same pipeline; pass `options.allow_concurrent=true` to override),
-`throttled` (503 — retry), `misconfigured` (500), `sfn_start_failed`,
-`internal_error`. The canonical, gated list lives in
-`polyris/constants.py` as `BACKFILL_ERROR_CODES` (ADR #94).
-
-#### Scale boundaries (v0.78)
-
-| Limit | Value | Why |
-|---|---|---|
-| `partition_count` per backfill | **1000** | Bulk-backfill Inline Map history-event budget: ~20 events × 1000 = 20k events, under AWS 25k hard ceiling with headroom |
-| `max_parallel` (Map MaxConcurrency) | **1..10** | AWS `StartExecution` burst limit 200/s; 10 concurrent × ~45ms iteration ≈ 220/s peak — under burst with shared-account headroom |
-| `preview` partition scan | **<=100 partitions** | API Gateway 29s timeout; above this, `skip_completed` pre-flight is bypassed and SFN runs full set |
-| Backfill record TTL in DDB | **30 days** | Matches execution retention |
-
-**Out of scope for v0.78.** Backfills >1000 partitions must be chunked
-client-side or via CLI (split start/end into 1000-day windows). The
-underlying SFN uses **Inline Map** (one parent execution, parent owns
-all iteration history). Migrating to Step Functions **Distributed Map**
-would lift the partition ceiling to ~10k by giving each iteration its
-own child execution — deferred until measured need (no user has
-asked for >1000 partitions in one shot).
-
-### List Backfills
-
-```http
-GET /api/backfills?status={active|pending|running|completed|failed|partial|canceled}&limit=50
-```
-
-Returns recent backfill summaries. Without `status` filter, returns all
-recent regardless of status. With `status=active`, returns only `pending`
-and `running`.
-
-### Get Backfill Detail
-
-```http
-GET /api/backfills/by-id?id={backfill_id}
-```
-
-Returns the full backfill record with `partition_keys`, `children`
-(child executions linked via `backfill_id` GSI), parsed `options`, and
-`target_seed`. Returns 404 if not found.
-
-### Cancel Backfill (Cooperative)
-
-```http
-POST /api/backfills/cancel?id={backfill_id}
-```
-
-Marks status as `canceled` in DynamoDB. The bulk-backfill SFN's Map
-iterator checks status at each iteration and short-circuits remaining
-partitions. In-flight child executions are **not** interrupted (per ADR
-#54).
-
-Returns 409 (`already_terminal` or `status_race`) if backfill is already
-in a terminal state or status changed during the call.
-
-### Retry Failed Partitions
-
-```http
-POST /api/backfills/retry-failed?id={backfill_id}
-```
-
-Creates a **new** Backfill containing only the failed partitions of the
-parent, linked via `parent_backfill_id`. Only valid when parent status is
-`failed` or `partial`. Returns the new `backfill_id` in the same shape
-as `POST /api/backfill`.
-
----
-
 ## Tasks
 
 ### List All Tasks
@@ -433,8 +270,8 @@ Filter semantics (ADR #95):
 - Default window is the last 14 days for executions; backfills come from
   `list_recent` and may include one older than 14 days.
 
-Expand a row on demand via `GET /api/execution-children?id=` (execution) or
-`GET /api/backfills/by-id?id=` (backfill); children are not embedded.
+Expand a row on demand via `GET /api/execution-children?id=` (execution);
+children are not embedded.
 
 ### Execution Actions
 
@@ -481,9 +318,6 @@ POST /api/assets/clear-queue        # Body: {"dag_id", "date"}
 POST /api/assets/delete-orphaned    # Body: {"dry_run": false}
 ```
 
-Note: Asset backfills go through the unified `POST /api/backfill` with
-`target.type='asset'` (see Backfill section above). The legacy
-`POST /api/assets/backfill` endpoint was removed in v0.78 (ADR #51).
 
 ### Consecutive Progress (v68+)
 

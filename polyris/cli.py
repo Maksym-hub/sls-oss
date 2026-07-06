@@ -4,10 +4,6 @@ This is the bare ``polyris`` entry point. Its sole job is to print the list of
 available commands; it performs no operations itself. Each real command is its
 own console script (``polyris-init``, ``polyris-deploy``, …) wired in
 ``pyproject.toml``.
-
-Backfill is a Team-tier capability and ships as ``polyris-backfill`` from the
-proprietary ``polyris-ee`` package (ADR #51, revised by ADR #104 for the
-open-core split). It is intentionally absent from the open-source build.
 """
 
 from __future__ import annotations
@@ -28,9 +24,6 @@ Available commands:
   polyris-register     Register pipeline in DynamoDB
 
 Each command has its own --help. Run e.g. `polyris-deploy --help`.
-
-Team tier:
-  polyris-backfill     Date-range backfill (ships with the Team edition)
 
 Documentation:
   https://github.com/Maksym-hub/polyris

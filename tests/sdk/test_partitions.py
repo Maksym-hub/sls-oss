@@ -6,7 +6,7 @@ Pure stdlib, no AWS calls — fast.
 
 import pytest
 
-from polyris.partitions import PartitionRange, GRANULARITIES
+from polyris.partitions import PartitionRange
 
 
 # ===========================================================================

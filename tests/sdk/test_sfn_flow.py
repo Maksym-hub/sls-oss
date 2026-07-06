@@ -15,8 +15,6 @@ WITHOUT needing AWS or JSONata evaluation.
 """
 
 import json
-import os
-import sys
 from pathlib import Path
 from typing import Dict, Any, Set, List, Tuple
 

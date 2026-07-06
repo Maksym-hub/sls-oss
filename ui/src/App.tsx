@@ -1,6 +1,6 @@
 'use client';
 
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, Loader2 } from './utils/icons';
@@ -12,7 +12,6 @@ import {
     PipelinesSidebar,
     PipelineDetail
 } from './components';
-import { ComingSoon } from '@/components/ComingSoon';
 import { paidSurface } from '@/ee-active.generated';
 import { useKeyboardShortcuts, SHORTCUTS } from './hooks';
 import { usePipelinesQuery } from './hooks/queries';
@@ -91,13 +90,22 @@ function App() {
         'd': () => mainView === 'pipelines' && setViewMode('dag'),
         'c': () => mainView === 'pipelines' && setViewMode('calendar'),
         '1': () => router.push('/pipelines/'),
-        '2': () => router.push('/assets/'),
+        '2': () => { if (AssetsView) router.push('/assets/'); },
         '3': () => router.push('/tasks/'),
         '4': () => router.push('/runs/'),
-        '5': () => router.push('/backfills/'),
+        '5': () => { if (BackfillsView) router.push('/backfills/'); },
     });
 
     // ========== Render ==========
+    // In the OSS build the Assets/Backfills surfaces don't exist. If one of those
+    // routes is reached directly (URL, bookmark), send the user to Pipelines rather
+    // than rendering a blank view.
+    useEffect(() => {
+        if ((mainView === 'assets' && !AssetsView) || (mainView === 'backfills' && !BackfillsView)) {
+            router.replace('/pipelines/');
+        }
+    }, [mainView, AssetsView, BackfillsView, router]);
+
     return (
         <div className="app">
             <a href="#main-content" className="skip-link">Skip to main content</a>
@@ -140,13 +148,11 @@ function App() {
                             }}
                         />
                     </Suspense>
-                ) : mainView === 'backfills' ? (
+                ) : mainView === 'backfills' && BackfillsView ? (
                     <Suspense fallback={<ViewLoader />}>
-                        {BackfillsView
-                            ? <BackfillsView />
-                            : <ComingSoon feature="Backfills" onHome={() => router.push('/pipelines/')} />}
+                        <BackfillsView />
                     </Suspense>
-                ) : mainView === 'assets' ? (
+                ) : mainView === 'assets' && AssetsView ? (
                     <ErrorBoundary fallback={
                         <div className="pd-error-fallback">
                             Failed to load Assets view. 
@@ -154,9 +160,7 @@ function App() {
                         </div>
                     }>
                         <Suspense fallback={<ViewLoader />}>
-                            {AssetsView
-                                ? <AssetsView />
-                                : <ComingSoon feature="Asset console" onHome={() => router.push('/pipelines/')} />}
+                            <AssetsView />
                         </Suspense>
                     </ErrorBoundary>
                 ) : null}

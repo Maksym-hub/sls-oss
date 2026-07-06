@@ -51,6 +51,10 @@ TOKENS_TABLE = os.environ.get('TOKENS_TABLE', 'pipeline-tokens')
 
 # Status categories - use centralized definitions
 TERMINAL_SUCCESS = TASK_SUCCESS_STATUSES
+# The "ran and succeeded" aliases only — TERMINAL_SUCCESS also bundles 'skipped',
+# which is counted separately. Derived from the canonical set so the 'succeeded'
+# alias (produced by normalize_execution_status from SFN 'SUCCEEDED') is included.
+SUCCESS_ONLY = TERMINAL_SUCCESS - {'skipped'}
 TERMINAL_FAILURE = TASK_FAILURE_STATUSES
 TERMINAL_STATUSES = TASK_TERMINAL_STATUSES
 
@@ -244,7 +248,11 @@ def _check_trigger_rule(trigger_rule: str, dep_statuses: List[str]) -> Tuple[boo
 
 def _calculate_counts(dep_statuses: List[str]) -> Dict[str, int]:
     """Calculate status counts for observability."""
-    success = sum(1 for s in dep_statuses if s == 'success')
+    # 'succeeded' is the canonical Airflow-compat alias for 'success' and is what
+    # normalize_execution_status() produces from AWS SFN's 'SUCCEEDED'. Counting
+    # only the literal 'success' silently dropped it, so all_success (the default
+    # rule) would deadlock when a dependency reported 'succeeded'.
+    success = sum(1 for s in dep_statuses if s in SUCCESS_ONLY)
     failed = sum(1 for s in dep_statuses if s in TERMINAL_FAILURE)
     skipped = sum(1 for s in dep_statuses if s == 'skipped')
     pending = sum(1 for s in dep_statuses if s not in TERMINAL_STATUSES)

@@ -8,7 +8,6 @@ Handles two formats:
 Critical for all task actions: skip, fail, mark_success, stop, restart.
 """
 
-import json
 import os
 
 os.environ.setdefault('DYNAMODB_TABLE', 'test-tokens')

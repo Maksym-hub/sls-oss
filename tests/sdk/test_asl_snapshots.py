@@ -60,7 +60,7 @@ def _build_single_task():
     """Minimal: one SFN task, no deps, no extras."""
     from polyris import DAG, task
 
-    with DAG("single_task", schedule=None, alerts=None) as dag:
+    with DAG("single_task", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
         def process():
             pass
@@ -72,7 +72,7 @@ def _build_chain():
     """Three tasks in sequence: extract >> transform >> load."""
     from polyris import DAG, task
 
-    with DAG("chain", schedule=None, alerts=None) as dag:
+    with DAG("chain", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
         def extract():
             pass
@@ -92,7 +92,7 @@ def _build_parallel():
     """Three independent tasks — no dependencies."""
     from polyris import DAG, task
 
-    with DAG("parallel", schedule=None, alerts=None) as dag:
+    with DAG("parallel", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:a")
         def task_a():
             pass
@@ -112,7 +112,7 @@ def _build_fan_out():
     """One task fans out to three: extract >> [a, b, c]."""
     from polyris import DAG, task
 
-    with DAG("fan_out", schedule=None, alerts=None) as dag:
+    with DAG("fan_out", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
         def extract():
             pass
@@ -136,7 +136,7 @@ def _build_fan_in():
     """Three tasks fan in to one: [a, b, c] >> load."""
     from polyris import DAG, task
 
-    with DAG("fan_in", schedule=None, alerts=None) as dag:
+    with DAG("fan_in", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:a")
         def task_a():
             pass
@@ -160,7 +160,7 @@ def _build_wait_before():
     """Task with wait_before delay."""
     from polyris import DAG, task
 
-    with DAG("wait_before", schedule=None, alerts=None) as dag:
+    with DAG("wait_before", schedule=None) as dag:
         @task.sfn(
             arn="arn:aws:states:us-east-1:123:stateMachine:delayed",
             wait_before=600
@@ -175,7 +175,7 @@ def _build_trigger_rules():
     """Tasks with various trigger rules."""
     from polyris import DAG, task
 
-    with DAG("trigger_rules", schedule=None, alerts=None) as dag:
+    with DAG("trigger_rules", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:source")
         def source():
             pass
@@ -211,7 +211,7 @@ def _build_with_outlets():
 
     inventory = Asset("raw/inventory", uri="s3://bucket/raw/inventory/")
 
-    with DAG("with_outlets", schedule=None, alerts=None) as dag:
+    with DAG("with_outlets", schedule=None) as dag:
         @task.sfn(
             arn="arn:aws:states:us-east-1:123:stateMachine:ingest",
             outlets=[inventory]
@@ -229,7 +229,6 @@ def _build_with_variables():
     with DAG(
         "with_variables",
         schedule=None,
-        alerts=None,
         variables={"env": "prod", "region": "us-east-1", "batch_size": 1000}
     ) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
@@ -239,34 +238,11 @@ def _build_with_variables():
     return dag
 
 
-def _build_with_alerts():
-    """DAG with Slack alerts configured."""
-    from polyris import DAG, task
-
-    with DAG(
-        "with_alerts",
-        schedule="rate(1 day)",
-        alerts={"slack": "#data-alerts"}
-    ) as dag:
-        @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:extract")
-        def extract():
-            pass
-        @task.sfn(
-            arn="arn:aws:states:us-east-1:123:stateMachine:load",
-            slack_channel="#load-alerts"
-        )
-        def load():
-            pass
-        e = extract()
-        load(e)
-    return dag
-
-
 def _build_with_retries():
     """Task with retry configuration."""
     from polyris import DAG, task
 
-    with DAG("with_retries", schedule=None, alerts=None) as dag:
+    with DAG("with_retries", schedule=None) as dag:
         @task.sfn(
             arn="arn:aws:states:us-east-1:123:stateMachine:flaky",
             retries=3,
@@ -282,7 +258,7 @@ def _build_lambda_task():
     """Lambda task type (not SFN)."""
     from polyris import DAG, task
 
-    with DAG("lambda_task", schedule=None, alerts=None) as dag:
+    with DAG("lambda_task", schedule=None) as dag:
         @task.lambda_(
             function_name="my-processor",
             payload={"action": "process"}
@@ -304,7 +280,6 @@ def _build_asset_triggered():
     with DAG(
         "asset_triggered",
         schedule=[inventory, catalog],
-        alerts=None
     ) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:process")
         def process():
@@ -317,7 +292,7 @@ def _build_cross_account():
     """Task with cross-account role."""
     from polyris import DAG, task
 
-    with DAG("cross_account", schedule=None, alerts=None) as dag:
+    with DAG("cross_account", schedule=None) as dag:
         @task.sfn(
             arn="arn:aws:states:us-east-1:999:stateMachine:remote",
             role="acq"
@@ -332,7 +307,7 @@ def _build_orchestration_timeout():
     """Task with custom orchestration_timeout."""
     from polyris import DAG, task
 
-    with DAG("orch_timeout", schedule=None, alerts=None) as dag:
+    with DAG("orch_timeout", schedule=None) as dag:
         @task.sfn(
             arn="arn:aws:states:us-east-1:123:stateMachine:slow",
             execution_timeout=timedelta(hours=2),
@@ -348,7 +323,7 @@ def _build_complex_diamond():
     """Diamond pattern: a >> [b, c] >> d."""
     from polyris import DAG, task
 
-    with DAG("diamond", schedule=None, alerts=None) as dag:
+    with DAG("diamond", schedule=None) as dag:
         @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:a")
         def a():
             pass
@@ -380,7 +355,7 @@ def _build_consecutive_wait_for():
     daily_complete = Asset("acme/daily-complete")
     weekly_complete = Asset("acme/weekly-complete")
 
-    with DAG("consecutive_wait_for", schedule="cron(0 22 ? * SUN *)", alerts=None) as dag:
+    with DAG("consecutive_wait_for", schedule="cron(0 22 ? * SUN *)") as dag:
         @task.sfn(
             arn="arn:aws:states:us-east-1:123:stateMachine:mark-complete",
             wait_for=[daily_complete.consecutive(days=7)],
@@ -402,7 +377,6 @@ ALL_SCENARIOS = {
     "trigger_rules": _build_trigger_rules,
     "with_outlets": _build_with_outlets,
     "with_variables": _build_with_variables,
-    "with_alerts": _build_with_alerts,
     "with_retries": _build_with_retries,
     "lambda_task": _build_lambda_task,
     "asset_triggered": _build_asset_triggered,
@@ -448,9 +422,6 @@ def test_snapshot_with_outlets():
 
 def test_snapshot_with_variables():
     _run_snapshot("with_variables", _build_with_variables)
-
-def test_snapshot_with_alerts():
-    _run_snapshot("with_alerts", _build_with_alerts)
 
 def test_snapshot_with_retries():
     _run_snapshot("with_retries", _build_with_retries)

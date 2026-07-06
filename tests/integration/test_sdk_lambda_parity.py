@@ -17,11 +17,10 @@ must move together. This test fails the build if they don't.
 """
 from __future__ import annotations
 
-import importlib.util
 import os
 import re
 import sys
-from typing import Any, Callable, Dict, List
+from typing import Any, Dict, List
 
 import pytest
 

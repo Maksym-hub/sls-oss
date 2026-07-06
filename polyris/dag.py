@@ -4,39 +4,17 @@ DAG class for SFN-DSL.
 Directed Acyclic Graph - Airflow-compatible.
 """
 
-from typing import List, Optional, Dict, Any, Callable, Union, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, Callable, TYPE_CHECKING
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-import warnings
 
 from .constants import SCHEDULE_PRESETS
 from .context import get_current_dag, push_dag_context, pop_dag_context
 
 if TYPE_CHECKING:
-    from typing import Literal, TypedDict
-
     from .task import Task, TaskInstance
     from .task_group import TaskGroup
     from .steps import Step
-
-    class AlertsDict(TypedDict, total=False):
-        """Alerts configuration for a DAG.
-
-        Keys:
-            slack: Slack channel (e.g. "#alerts") or user (e.g. "@mike").
-            slack_mentions: List of Slack user IDs (U...), group IDs (S...),
-                           or special keywords ("here", "channel").
-                           Prefix with @ optional: "YOUR_SLACK_USER_ID" or "@YOUR_SLACK_USER_ID".
-            pagerduty: PagerDuty severity — "critical", "error", "warning", or "info".
-        """
-        slack: str
-        slack_mentions: List[str]
-        pagerduty: Literal["critical", "error", "warning", "info"]
-
-
-# Type alias for alerts config
-# Runtime: accepts dict or None. For IDE hints see AlertsDict above.
-AlertsConfig = Optional[Dict[str, Any]]
 
 
 @dataclass
@@ -56,15 +34,10 @@ class DAG:
             ...
     
     Alerts (Slack / PagerDuty) are configured in the Console UI
-    (Settings → Alerts), not here. The alerts= argument is deprecated
-    (ADR #103) and ignored; passing it emits a DeprecationWarning
+    (Settings → Alerts), not in the DSL (ADR #103).
     """
     dag_id: str
     description: str = ""
-    
-    # Alerts - DEPRECATED (ADR #103): configured in the Console UI now, not the DSL.
-    # An explicit value is ignored and warns; omitting it is the norm.
-    alerts: Optional["AlertsDict"] = None
     
     # Scheduling (Airflow-compatible)
     # Can be:
@@ -114,9 +87,6 @@ class DAG:
     # Documentation
     doc_md: str = ""
     
-    # SFN-specific (legacy - use alerts instead)
-    slack_channel: str = ""
-    
     # Pipeline variables - computed at start, available to all tasks
     # Similar to Airflow's {{ ds }}, {{ execution_date }}, etc.
     variables: Dict[str, str] = field(default_factory=dict)
@@ -130,73 +100,6 @@ class DAG:
     _asset_schedule: Any = field(default=None, repr=False)  # Normalized asset schedule
     
     def __post_init__(self):
-        # ADR #103: alerts are configured in the Console UI (Settings → Alerts),
-        # not the DSL. Omitting alerts= is fine; an explicit value is ignored.
-        if self.alerts is not None:
-            warnings.warn(
-                f"DAG '{self.dag_id}': the alerts= argument is deprecated (ADR #103) "
-                f"and ignored — configure alerts in the Console UI (Settings → Alerts).",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        
-        # Validate alerts config if provided
-        if self.alerts is not None:
-            if not isinstance(self.alerts, dict):
-                raise ValueError(
-                    f"DAG '{self.dag_id}': 'alerts' must be a dict or None, got {type(self.alerts).__name__}"
-                )
-            
-            valid_keys = {'slack', 'pagerduty', 'slack_mentions'}
-            invalid_keys = set(self.alerts.keys()) - valid_keys
-            if invalid_keys:
-                raise ValueError(
-                    f"DAG '{self.dag_id}': Invalid alerts keys: {invalid_keys}. Valid: {valid_keys}"
-                )
-            
-            # Validate PagerDuty severity if provided
-            if 'pagerduty' in self.alerts:
-                valid_severities = {'critical', 'error', 'warning', 'info'}
-                severity = self.alerts['pagerduty']
-                if severity not in valid_severities:
-                    raise ValueError(
-                        f"DAG '{self.dag_id}': Invalid pagerduty severity '{severity}'. "
-                        f"Valid: {valid_severities}"
-                    )
-            
-            # Validate slack_mentions format if provided
-            if 'slack_mentions' in self.alerts:
-                mentions = self.alerts['slack_mentions']
-                if not isinstance(mentions, list):
-                    raise ValueError(
-                        f"DAG '{self.dag_id}': 'slack_mentions' must be a list, got {type(mentions).__name__}"
-                    )
-                special = {'here', 'channel'}
-                for m in mentions:
-                    if not isinstance(m, str):
-                        raise ValueError(
-                            f"DAG '{self.dag_id}': slack_mentions items must be strings, got {type(m).__name__}"
-                        )
-                    # Strip optional @ prefix for validation
-                    clean = m.lstrip('@')
-                    if not (clean.startswith('U') or clean.startswith('S') or clean in special):
-                        raise ValueError(
-                            f"DAG '{self.dag_id}': Invalid slack_mentions entry '{m}'. "
-                            f"Must be a user ID (U...), user group ID (S...), 'here', or 'channel'."
-                        )
-            
-            # Validate Slack channel format
-            if 'slack' in self.alerts:
-                channel = self.alerts['slack']
-                if not channel.startswith('#') and not channel.startswith('@'):
-                    raise ValueError(
-                        f"DAG '{self.dag_id}': Slack channel must start with '#' or '@', got '{channel}'"
-                    )
-        
-        # Legacy: populate slack_channel from alerts for backwards compatibility
-        if self.alerts and 'slack' in self.alerts and not self.slack_channel:
-            self.slack_channel = self.alerts['slack']
-        
         # Handle schedule_interval alias
         if self.schedule_interval and not self.schedule:
             self.schedule = self.schedule_interval
