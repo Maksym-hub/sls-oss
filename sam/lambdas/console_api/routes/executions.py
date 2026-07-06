@@ -23,7 +23,7 @@ from dal.subscriptions_repo import dep_subscriptions_repo
 from constants import TaskStatus, TASK_TERMINAL_STATUSES
 from response import cors_response
 from logger import log
-from utils import safe_param_int, is_internal_record, should_skip_token_row
+from utils import safe_param_int, should_skip_token_row
 
 
 def _build_backfill_run_rows(

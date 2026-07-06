@@ -37,7 +37,7 @@ Output:
 import os
 from typing import List, Dict, Tuple, Any
 
-from constants import (TaskStatus, TASK_TERMINAL_STATUSES, TASK_SUCCESS_STATUSES, TASK_FAILURE_STATUSES)
+from constants import (TASK_TERMINAL_STATUSES, TASK_SUCCESS_STATUSES, TASK_FAILURE_STATUSES)
 # v0.79.3 (ADR #75) — DAL repository pattern for all DynamoDB access.
 # All raw boto3 calls now live in dal/__init__.py; tests mock this repo
 # instead of patching boto3 directly.

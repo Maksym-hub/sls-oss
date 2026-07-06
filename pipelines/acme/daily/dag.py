@@ -15,7 +15,6 @@ This pipeline demonstrates:
 - Cross-pipeline asset dependencies (consumed by acme-feeds)
 """
 from polyris import DAG, task, Asset, Column, types as t
-from polyris.config import config
 
 # =============================================================================
 # Test ARNs — replace with your actual Step Function ARNs

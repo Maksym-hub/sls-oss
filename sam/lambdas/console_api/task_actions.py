@@ -13,7 +13,7 @@ import uuid
 from typing import Dict, Set
 
 from config import sfn, NOTIFY_DEPENDENTS_HELPER_ARN
-from constants import TaskStatus, TASK_TERMINAL_STATUSES
+from constants import TASK_TERMINAL_STATUSES
 from logger import log
 
 

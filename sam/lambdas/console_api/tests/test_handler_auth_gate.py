@@ -12,7 +12,6 @@ This is the "test the enforcement, not just the verifier" gap called out in #13.
 Route handlers are stubbed via ROUTES so no AWS/DDB is touched.
 """
 
-import pytest
 
 import main
 from response import cors_response

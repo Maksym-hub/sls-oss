@@ -5,7 +5,6 @@ Pattern follows test_backfills_repo.py — mock the .table property to short-
 circuit the dynamodb.Table(...) lookup. No moto, no AWS calls.
 """
 
-import pytest
 
 
 def _repo(mocker, table_mock):

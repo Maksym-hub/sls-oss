@@ -3,7 +3,6 @@
 Covers the registry->AssetGraph builder, the exists adapter, the Phase 2/3
 boundary helper, and plan serialization. Pure — no DDB.
 """
-import pytest
 
 from upstream_integration import (
     build_asset_graph,

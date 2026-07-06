@@ -9,7 +9,6 @@ Table schema:
     PK: pipeline_name (str)
 """
 
-from boto3.dynamodb.conditions import Key, Attr
 from config import dynamodb, PIPELINES_TABLE
 from utils import scan_all
 

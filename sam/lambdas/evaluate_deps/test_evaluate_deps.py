@@ -8,7 +8,6 @@ Coverage:
 - Error scenarios
 """
 
-import pytest
 # pytest-mock: mocker fixture used for patching
 import sys
 import os
@@ -20,7 +19,6 @@ from evaluate_deps.index import (
     handler,
     _check_trigger_rule,
     _calculate_counts,
-    _is_pipeline_paused,
     TERMINAL_SUCCESS,
     TERMINAL_FAILURE,
     TERMINAL_STATUSES,

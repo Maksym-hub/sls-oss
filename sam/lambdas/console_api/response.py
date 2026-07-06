@@ -8,7 +8,7 @@ Response formatting utilities for API Gateway:
 """
 
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 
 def cors_response(status_code: int, body: Any) -> Dict:

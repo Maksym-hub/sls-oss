@@ -8,7 +8,6 @@ All business logic has been moved to route modules in routes/.
 See HANDLERS_REFACTORING_PLAN.md for details.
 """
 
-import urllib.parse
 from typing import Dict
 
 from response import cors_response, error_response

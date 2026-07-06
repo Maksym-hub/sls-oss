@@ -3,7 +3,6 @@ Unit tests for console_api.utils module.
 Tests utility functions that are used across all route modules.
 """
 
-import pytest
 from decimal import Decimal
 
 

@@ -6,9 +6,6 @@ into the customer's private S3 bucket on stack create/update.
 
 Triggered by CloudFormation as a Custom Resource.
 """
-import json
-import os
-import urllib.request
 import boto3
 import cfnresponse
 

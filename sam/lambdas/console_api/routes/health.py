@@ -12,7 +12,7 @@ from config import sfn
 from dal import executions_repo, pipelines_repo, circuit_breakers_repo
 from response import cors_response
 from logger import log
-from utils import is_internal_record, should_skip_token_row
+from utils import should_skip_token_row
 
 
 # Health status constants

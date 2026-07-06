@@ -26,7 +26,6 @@ from polyris.upstream_resolver import (
     AssetNode,
     PlanItem,
     ResolvedPlan,
-    resolve_plan,
 )
 
 

@@ -87,6 +87,9 @@ quote-style = "preserve"
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
+# SAM lambda constants.py files re-export from constants_generated for their
+# modules (`from constants import X`); the re-exports look unused in-file.
+"sam/lambdas/**/constants.py" = ["F401"]
 "tests/*" = ["E501"]
 
 # =============================================================================

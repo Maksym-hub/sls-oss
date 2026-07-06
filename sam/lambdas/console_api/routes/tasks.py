@@ -14,7 +14,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict
 
 from boto3.dynamodb.conditions import Key, Attr
 from botocore.exceptions import ClientError, BotoCoreError
@@ -26,7 +26,7 @@ from constants import Limits, TaskStatus, TASK_WAITING_STATUSES
 from response import cors_response, safe_parse_body
 from logger import log
 from utils import (
-    is_internal_record, should_skip_token_row,
+    should_skip_token_row,
     is_execution_name, safe_int, safe_param_int,
     stop_task_executions, record_manual_decision, ensure_pipeline_execution_short,
     resolve_pagerduty

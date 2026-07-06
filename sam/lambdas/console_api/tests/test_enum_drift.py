@@ -20,7 +20,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', '..'))
 
 import constants as backend  # console_api/constants.py
-import constants_generated as gen  # generated mirror
 from polyris import constants as canonical
 
 

@@ -10,7 +10,7 @@ Table schema:
     GSIs: pipeline-execution-index (pipeline_execution), date-pipeline-index (date, pipeline_name)
 """
 
-from boto3.dynamodb.conditions import Key, Attr
+from boto3.dynamodb.conditions import Key
 from config import dynamodb, TABLE_NAME
 from utils import scan_all, query_all
 

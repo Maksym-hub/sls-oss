@@ -9,7 +9,7 @@ import pytest
 
 from auth import (
     required_level, authorize, Principal, AuthzError,
-    SCOPE_LEVELS, VALID_SCOPES, DEFAULT_NEW_TOKEN_SCOPE, ADMIN_ROUTES,
+    SCOPE_LEVELS, VALID_SCOPES, DEFAULT_NEW_TOKEN_SCOPE,
 )
 
 

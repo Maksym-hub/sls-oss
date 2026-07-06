@@ -20,9 +20,9 @@ from botocore.exceptions import ClientError, BotoCoreError
 from config import sfn
 from dal import executions_repo, pipelines_repo
 from constants import Limits, normalize_execution_status
-from response import cors_response, safe_parse_body
+from response import cors_response
 from logger import log
-from utils import safe_int, retrieve_result, parse_wait_before, is_internal_record, should_skip_token_row
+from utils import safe_int, retrieve_result, parse_wait_before, should_skip_token_row
 
 def list_pipelines(event: Dict) -> Dict:
     """

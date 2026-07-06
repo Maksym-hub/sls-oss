@@ -11,7 +11,6 @@ contract, mock only at the boundary).
 
 import json
 
-import pytest
 from botocore.exceptions import ClientError
 
 

@@ -6,7 +6,6 @@ Focus on delete_by_asset (full pagination) and list_asset_names
 to use the shared scan_all/query_all helpers and avoid silent truncation.
 """
 
-import pytest
 
 
 # ──────────────────────────────────────────────────────────────────────────────
