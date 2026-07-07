@@ -36,7 +36,6 @@ Example:
     # via task output parsing or explicit API calls.
 """
 
-import os
 import warnings
 from typing import List, Literal, Optional, Dict, Any, Union, TYPE_CHECKING, cast
 from dataclasses import dataclass, field
@@ -66,20 +65,6 @@ class ExperimentalWarning(UserWarning):
 # Warn once per process: the message is the same for every Asset, so repeating it
 # per construction is noise (define ten assets, get one warning, not ten).
 _EXPERIMENTAL_WARNED = False
-
-# EXPERIMENTAL-ASSETS: assets ship DISABLED in the v1 open-source release. Every
-# downstream asset path (generator serialization, wrapper events, check_assets,
-# asset tables) is data-driven, so it stays dormant as long as no Asset can be
-# constructed — nothing in the runtime needs to change. To graduate assets in a
-# later release, flip this flag to True (and retire the ExperimentalWarning
-# scaffolding above). See docs/reference/EXPERIMENTAL_ASSETS.md.
-# POLYRIS_ENABLE_ASSETS=1 opts in for local use / tests without shipping them on.
-_ASSETS_ENABLED = False
-
-
-def _assets_enabled() -> bool:
-    """Whether the experimental asset API may be constructed in this build."""
-    return _ASSETS_ENABLED or os.environ.get("POLYRIS_ENABLE_ASSETS") == "1"
 
 
 if TYPE_CHECKING:
@@ -294,12 +279,6 @@ class Asset:
         granularity: Granularity = "daily",
         partition_start: Optional[str] = None,
     ):
-        if not _assets_enabled():
-            raise RuntimeError(
-                "polyris assets are an experimental feature and are disabled in "
-                "this release. Set POLYRIS_ENABLE_ASSETS=1 to opt in. See "
-                "docs/reference/EXPERIMENTAL_ASSETS.md."
-            )
         global _EXPERIMENTAL_WARNED
         if not _EXPERIMENTAL_WARNED:
             _EXPERIMENTAL_WARNED = True

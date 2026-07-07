@@ -64,7 +64,7 @@ These are the load-bearing decisions the rest of the architecture follows from.
    cleverness; EventBridge is used for scheduling and asset-event delivery, not
    as the execution substrate.
 
-3. **Asset-aware, not just task-aware.** Tasks declare the data assets they
+3. **Asset-centric, not just task-aware.** Tasks declare the data assets they
    produce (`outlets`). Assets form a graph with lineage and partitions, and
    that graph — not just the task DAG — drives cross-pipeline triggering, the
    asset matrix (partition status across assets), and lineage-aware backfill.

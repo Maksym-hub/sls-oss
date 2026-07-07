@@ -351,16 +351,3 @@ class TestWatchers:
         actions = [a for stmt in cfg["iam_statements"] for a in stmt["actions"]]
         assert "sqs:ReceiveMessage" in actions
         assert "events:PutEvents" in actions
-
-
-def test_assets_disabled_without_optin(monkeypatch):
-    """Assets ship disabled in the v1 build: constructing one without the opt-in
-    (POLYRIS_ENABLE_ASSETS=1 / the master switch) raises a clear error. The whole
-    test suite runs with the opt-in on (see the root conftest), so this test
-    removes it to exercise the shipped default."""
-    import polyris.assets as _assets
-
-    monkeypatch.delenv("POLYRIS_ENABLE_ASSETS", raising=False)
-    monkeypatch.setattr(_assets, "_ASSETS_ENABLED", False)
-    with pytest.raises(RuntimeError, match="disabled in this release"):
-        _assets.Asset("x")

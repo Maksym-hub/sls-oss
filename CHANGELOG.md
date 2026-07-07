@@ -2,20 +2,6 @@
 
 ## Unreleased
 
-### Changed — assets ship disabled by default (still experimental)
-
-- **`Asset(...)` construction is gated off in the open-source build.** Assets
-  remain experimental — the API isn't frozen and there is no asset console in this
-  build — so `Asset(...)` now raises unless `_ASSETS_ENABLED` in
-  `polyris/assets.py` is `True` or `POLYRIS_ENABLE_ASSETS=1` is set (the test
-  suite opts in via the root `conftest.py`). The entire asset runtime (generator
-  serialization, wrapper events, `check_assets`, asset tables) is data-driven, so
-  it stays dormant with no code changes — only the single entry point is closed.
-  The asset DSL symbols are dropped from `polyris`'s public `__all__` (still
-  importable internally). Re-enabling later is one flag flip — see
-  `docs/reference/EXPERIMENTAL_ASSETS.md`.
-
-
 ### Changed — public docs & CLI describe only what ships in the open-source build
 
 - **Removed paid-feature documentation and all tier wording** from user-facing
@@ -1143,12 +1129,12 @@ See ADR #94.
 
 - Repositioned away from "Airflow-compatible". README now leads with
   *"Orchestration without the orchestrator"* (serverless substrate: nothing to
-  run, nothing hidden, asset-aware, pay-per-run). Airflow is described honestly
+  run, nothing hidden, asset-centric, pay-per-run). Airflow is described honestly
   as *familiar syntax / ergonomics*, not runtime compatibility; the migration
   guide is reframed as a concept-mapping "Coming from Airflow" guide that states
   what does and doesn't carry over.
 - Brought the architecture docs current: added a Design Principles section
-  (SFN-first / canonical output store / asset-aware / generated SSoT), a
+  (SFN-first / canonical output store / asset-centric / generated SSoT), a
   lineage-aware Backfill section (upstream smart-fill, downstream cascade,
   partition granularity, tiered execution), documented the canonical output
   store on `pipeline_tokens`, and the generated constants/enums pipeline.

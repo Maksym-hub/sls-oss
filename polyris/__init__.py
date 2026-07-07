@@ -143,9 +143,11 @@ __all__ = [
     'TaskInstance',
     'XComArg',
     
-    # Assets: experimental and disabled by default (see polyris/assets.py) —
-    # intentionally omitted from the public API surface. The symbols remain
-    # importable for internal use and tests.
+    # Assets
+    'Asset',
+    'AssetAll',
+    'AssetAny',
+    'AssetAlias',
     'Metadata',
     'Watcher',
     'generate_watchers_config',

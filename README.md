@@ -2,7 +2,7 @@
 
 **Orchestration without the orchestrator**
 
-Serverless, asset-aware data pipelines on AWS Step Functions. No scheduler, no
+Serverless, asset-centric data pipelines on AWS Step Functions. No scheduler, no
 workers, no metadata database to run — your pipelines compile to Step Functions,
 and AWS runs them. Pay per run; idle cost is near zero.
 
@@ -16,7 +16,7 @@ polyris is not managed Airflow. There's nothing to operate.
 - 🔎 **Nothing hidden** — every pipeline compiles to a Step Functions state
   machine, so each run is a visible, debuggable execution history rather than
   opaque scheduler state.
-- 🧬 **Asset-aware** — pipelines define first-class data assets with lineage and
+- 🧬 **Asset-centric** — pipelines define first-class data assets with lineage and
   partitions, not just task graphs.
 - 💸 **Pay-per-run** — a typical deployment runs ~$31/month; the floor is near
   zero because there is no always-on infrastructure.
