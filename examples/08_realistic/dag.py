@@ -18,9 +18,6 @@ from datetime import timedelta
 
 from polyris import DAG, task
 
-ACCOUNT = "000000000000"
-REGION = "us-east-1"
-
 with DAG(
     dag_id="daily-analytics",
     schedule="cron(0 5 * * ? *)",          # 05:00 UTC every day
@@ -36,45 +33,73 @@ with DAG(
     },
 ) as dag:
 
-    @task.lambda_(function_name="ingest-daily-events")
+    @task.lambda_(function_name="polyris-test-lambda")
     def ingest():
-        """Land yesterday's raw events."""
+        """Land yesterday's raw events; return a manifest for downstream tasks.
+
+        Head of the pipeline — reads only the injected run context::
+
+            def handler(event, _c):
+                date = event["variables"]["current_date"]
+                return {"path": f"s3://raw/{date}/", "rows": 48000}
+        """
         pass
 
-    @task.glue(job_name="clean-events", worker_type="G.1X", number_of_workers=4)
+    @task.glue(job_name="polyris-test-glue", worker_type="G.1X", number_of_workers=4)
     def clean():
-        """Dedupe and normalize."""
+        """Dedupe and normalize.
+
+        A Glue container pulls the ingest manifest explicitly::
+
+            from polyris import xcom
+            raw = xcom.pull("ingest")           # {"path": ..., "rows": ...}
+        """
         pass
 
     @task.athena(
-        query_string="INSERT INTO gold.daily SELECT * FROM silver.events",
+        query_string="SELECT 1",   # self-contained smoke query
         database="analytics",
-        output_location=f"s3://{ACCOUNT}-athena-results/daily/",
+        workgroup="polyris-test-wg",
+        output_location="s3://polyris-test-944861944755-us-east-1/athena-results/",
     )
     def aggregate():
         """Roll up into the gold daily table."""
         pass
 
-    @task.batch(job_definition="report-render:5", job_queue="reporting")
+    @task.batch(job_definition="arn:aws:batch:us-east-1:944861944755:job-definition/polyris-test-jobdef:1", job_queue="arn:aws:batch:us-east-1:944861944755:job-queue/polyris-test-queue")
     def build_report():
-        """Render the executive report."""
+        """Render the executive report.
+
+        Its upstream is an Athena step, which writes the gold table rather than
+        returning rows — so the container queries that table (its run date comes from
+        the injected ``POLYRIS_RUN_DATE``). ``pull()`` here would return only Athena's
+        execution metadata, not the aggregated data.
+        """
         pass
 
-    @task.lambda_(function_name="check-data-freshness")
+    @task.lambda_(function_name="polyris-test-lambda")
     def validate_freshness():
-        """Guardrail: confirm the gold table is fresh before publishing."""
+        """Guardrail: confirm the gold table is fresh before publishing.
+
+        A downstream Lambda gets its upstream automatically (no pull, no IAM). The
+        Athena upstream's output is its execution metadata — useful to confirm the
+        query ran — while the freshness check itself queries the gold table::
+
+            def handler(event, _c):
+                query = event["upstream"]["aggregate"]["output"]   # exec metadata
+                # then query gold.daily for its max load timestamp
+        """
         pass
 
     @task.sfn(
-        arn=f"arn:aws:states:{REGION}:{ACCOUNT}:stateMachine:publish-report",
-        role="orchestration",               # cross-account publish
+        arn="arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn",
     )
     def publish():
         """Publish the report via a nested, cross-account workflow."""
         pass
 
     @task.sfn(
-        arn=f"arn:aws:states:{REGION}:{ACCOUNT}:stateMachine:notify",
+        arn="arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn",
         trigger_rule="one_failed",          # only if something upstream failed
     )
     def notify_on_failure():

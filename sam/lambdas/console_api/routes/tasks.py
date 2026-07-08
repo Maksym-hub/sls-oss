@@ -19,7 +19,7 @@ from typing import Dict
 from boto3.dynamodb.conditions import Key, Attr
 from botocore.exceptions import ClientError, BotoCoreError
 
-from config import sfn
+from config import sfn, dynamodb, TABLE_NAME
 from dal import executions_repo, pipelines_repo
 from dal.task_events_repo import task_events_repo
 from constants import Limits, TaskStatus, TASK_WAITING_STATUSES
@@ -29,7 +29,7 @@ from utils import (
     should_skip_token_row,
     is_execution_name, safe_int, safe_param_int,
     stop_task_executions, record_manual_decision, ensure_pipeline_execution_short,
-    resolve_pagerduty
+    resolve_pagerduty, retrieve_result
 )
 from task_actions import (
     notify_dependents_via_sfn,
@@ -347,6 +347,52 @@ def get_task_config(task_name: str, event: Dict) -> Dict:
             'retry_attempts': safe_int(item.get('retry_attempts'), 0),
             'status': item.get('status', 'unknown')
         }
+    })
+
+
+def get_task_output(task_name: str, event: Dict) -> Dict:
+    """Return a task's stored output — the value it returned to the pipeline.
+
+    Reads the run-stable output record (``output#pipeline#task#date``). Large
+    outputs offloaded to S3 (``_s3_ref``) are resolved transparently. Returns
+    ``output: null`` if the task stored nothing, and ``truncated: true`` if the
+    output exceeded the inline limit and was not offloaded.
+    """
+    params = event.get('queryStringParameters') or {}
+    date = params.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    pipeline_execution = params.get('pipeline_execution', '')
+
+    item, execution_name = resolve_task_item(task_name, date, pipeline_execution)
+    resolved = item or {}
+    pipeline_name = resolved.get('pipeline_name', '')
+    # The output store keys on the plain task_name + run date; the route param may
+    # be a full execution_name, so build the key from the resolved item's fields.
+    plain_task = resolved.get('task_name', task_name)
+    run_date = resolved.get('date', date)
+
+    output = None
+    truncated = False
+    if pipeline_name:
+        key = f"output#{pipeline_name}#{plain_task}#{run_date}"
+        try:
+            resp = dynamodb.Table(TABLE_NAME).get_item(Key={'execution_name': key})
+            store_item = resp.get('Item') or {}
+            raw = store_item.get('result')
+            if raw:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and parsed.get('_truncated'):
+                    truncated = True
+                else:
+                    output = retrieve_result(parsed)
+        except (ClientError, BotoCoreError, ValueError) as e:
+            log.error("get_task_output", "Error reading task output",
+                      error=str(e), task_name=task_name)
+
+    return cors_response(200, {
+        'task_name': task_name,
+        'execution_name': execution_name,
+        'output': output,
+        'truncated': truncated,
     })
 
 
@@ -925,6 +971,7 @@ def register(router) -> None:
     """Register the free task read routes. See ADR #97."""
     router.add('GET', '/api/tasks', get_all_tasks)
     router.add('GET', '/api/task-config', get_task_config, 'name')
+    router.add('GET', '/api/task-output', get_task_output, 'name')
     router.add('GET', '/api/task-events', get_task_events, 'name')
     # Task intervention — free (ADR #110): fix a stuck/failed task on a live run.
     router.add('POST', '/api/task-retry', retry_task, 'name')

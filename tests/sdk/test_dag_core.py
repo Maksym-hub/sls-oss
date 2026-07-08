@@ -86,6 +86,32 @@ class TestGraphMethods:
         with pytest.raises(ValueError, match="Cycle detected"):
             dag.topological_sort()
 
+    def test_topological_sort_rejects_unregistered_dependency(self):
+        with DAG("dag_unreg", schedule=None) as dag:
+            @task.sfn(arn=ARN)
+            def a():
+                pass
+
+            ai = a()
+
+        @task.sfn(arn=ARN)
+        def orphan():
+            pass
+
+        ai.task.dependencies.append(orphan)  # a Task never added to the DAG
+        with pytest.raises(ValueError, match="not added to this DAG"):
+            dag.topological_sort()
+
+    def test_plain_args_are_not_dependencies(self):
+        with DAG("dag_plain", schedule=None):
+            @task.sfn(arn=ARN)
+            def a(x, y):
+                pass
+
+            ai = a("literal", 42)  # plain values, not XComArg / TaskInstance
+
+        assert ai.task.dependencies == []
+
     def test_roots_have_no_task_deps(self):
         dag, a, b, c = _chain()
         assert [t.task_id for t in dag.roots()] == ["a"]

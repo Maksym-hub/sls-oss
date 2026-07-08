@@ -48,3 +48,32 @@ Step Functions, deployed serverlessly at low cost. Features that keep that core
 simple and composable are favored over ones that add operational weight. If a
 capability can live as a thin layer on top of the DSL rather than complicating
 the engine, that is the preferred shape.
+
+## Data passing — remaining wiring (after `xcom.pull()` runtime, part 1)
+
+`polyris.xcom.pull()` is **wired end-to-end and usable** — items 1–2 below are done
+(context injection into every task type + the read IAM policy). The remaining items
+are optional/deferred:
+
+1. ~~**Inject context into each task type's native channel**~~ — **DONE + verified.**
+   run_task now injects pipeline name + run date (`date`, the store's key field) +
+   table into every task: `pipeline_name`/`date`/`_polyris_table` in the **Lambda
+   payload** and **SFN input**; `POLYRIS_*` **env** appended to **ECS** and **Batch**
+   ContainerOverrides (PascalCase, per AWS docs); `--POLYRIS_*` **job arguments** for
+   **Glue**. Verified by JSONata evaluation (semantic tests in `tests/sfn_jsonata`)
+   and the full suite. `pull()` reads all sources (explicit > context > env), keyed
+   on `date` to match the store.
+2. ~~**Grant IAM** DynamoDB read (and S3 read for offloaded outputs) to task roles~~
+   — **DONE.** Polyris references user-owned compute by name/ARN and cannot attach to
+   those roles, so it publishes a managed policy `PolyrisTaskReadPolicy` (least
+   privilege: `dynamodb:GetItem` + `s3:GetObject`) that users attach to any task role
+   calling `pull()`. See docs/features/DATA_PASSING.md.
+3. **Offload large outputs to S3 on write** — **DEFERRED** (do only if a real >350 KB inline need appears). Rationale: the inline limit is now 350 KB, which covers realistic outputs; genuinely large data is passed as an `s3://` pointer anyway; and a size-check Choice state would add a per-task transition on the STANDARD run_task machine — a real (if tiny) cost on *every* task for a rare feature. `pull()` already resolves `{_ref}` S3 pointers, so only the write side (Choice + `s3:putObject` + rerouting the 7 success transitions) remains if we ever do it.
+   exceeds the threshold, write it to `RESULTS_BUCKET` and store an
+   `{_ref: "s3://..."}` pointer instead of the current `{_truncated}` marker.
+   `pull()` already resolves such pointers.
+4. **Keep the auto-`upstream` injection** (decision reversed — **WON'T retire**).
+   `Read_Upstream_Outputs` map and the `upstream` merges into Lambda/SFN input from
+   the run_task template, and update the ~3 data-upstream tests + data-passing docs.
+   (The `upstream_failed` *status* used by trigger rules is unrelated and stays.)
+

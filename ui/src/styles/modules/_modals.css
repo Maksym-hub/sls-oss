@@ -74,6 +74,37 @@
     overflow-y: auto;
     padding: 1.5rem;
 }
+/* Output tab: JSON viewer + shared empty/loading state */
+.td-output-tab {
+    display: flex;
+    flex-direction: column;
+}
+.td-output-json {
+    margin: 0;
+    padding: 1rem;
+    background: var(--surface-2, #f6f8fa);
+    border: 1px solid var(--border, #d0d7de);
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+    max-height: 60vh;
+}
+.td-tab-empty {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1.5rem;
+    color: var(--text-muted, #656d76);
+    font-size: 0.875rem;
+}
+.td-tab-empty code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8125rem;
+}
 .td-task-details-grid {
     display: flex;
     flex-direction: column;

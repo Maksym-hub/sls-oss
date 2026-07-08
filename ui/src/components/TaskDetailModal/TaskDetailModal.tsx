@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { formatDate, buildAwsConsoleUrl, getUpstreamCount, getDownstreamCount } from '../../utils';
 import { logger } from '../../utils/logger';
 import { useKeyboardShortcuts } from '../../hooks';
+import { useTaskOutput } from '../../hooks/useTaskOutput';
 import { 
     StatusIcon, 
     CheckCircle2, 
@@ -68,7 +69,11 @@ export function TaskDetailModal({
         'd': () => setActiveTab('details'),
         't': () => setActiveTab('timeline'),
         'a': () => setActiveTab('actions'),
+        'o': () => setActiveTab('output'),
     }, { enabled: !!task });
+
+    // Fetch the task's stored output only while the Output tab is open (lazy).
+    const taskOutput = useTaskOutput(task, activeTab === 'output');
     
     // Calculate upstream/downstream counts using shared utilities
     // NOTE: Must be called before early return to satisfy Rules of Hooks
@@ -131,6 +136,16 @@ export function TaskDetailModal({
                 >
                     <Clock size={14} /> History
                 </div>
+                <div 
+                    className={`nav-tab nav-tab--lg ${activeTab === 'output' ? 'active' : ''}`} 
+                    onClick={() => setActiveTab('output')}
+                    role="tab"
+                    aria-selected={activeTab === 'output'}
+                    tabIndex={activeTab === 'output' ? 0 : -1}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab('output'); } }}
+                >
+                    <Database size={14} /> Output
+                </div>
                 {onAction && (
                 <div 
                     className={`nav-tab nav-tab--lg ${activeTab === 'actions' ? 'active' : ''}`} 
@@ -163,6 +178,13 @@ export function TaskDetailModal({
                         task={task}
                         taskEvents={taskEvents}
                         taskEventsLoading={taskEventsLoading}
+                    />
+                ) : activeTab === 'output' ? (
+                    <OutputTab
+                        output={taskOutput.output}
+                        truncated={taskOutput.truncated}
+                        loading={taskOutput.loading}
+                        loaded={taskOutput.loaded}
                     />
                 ) : onAction ? (
                     <ActionsTab
@@ -565,6 +587,40 @@ interface ActionsTabProps {
     onAction?: (action: string, taskName?: string) => void;
     onRunAction?: (action: string, task: Task) => void;
     onClose: () => void;
+}
+
+interface OutputTabProps {
+    output: unknown;
+    truncated: boolean;
+    loading: boolean;
+    loaded: boolean;
+}
+
+function OutputTab({ output, truncated, loading, loaded }: OutputTabProps) {
+    if (loading) {
+        return <div className="td-tab-empty"><Hourglass size={16} /> Loading output…</div>;
+    }
+    if (truncated) {
+        return (
+            <div className="td-tab-empty" role="status">
+                <AlertTriangle size={16} /> This output was too large to store inline and
+                is unavailable. Return an <code>s3://</code> pointer for large data.
+            </div>
+        );
+    }
+    if (loaded && (output === null || output === undefined)) {
+        return <div className="td-tab-empty"><Database size={16} /> This task stored no output.</div>;
+    }
+    if (!loaded) {
+        return <div className="td-tab-empty"><Database size={16} /> Open to load output.</div>;
+    }
+    return (
+        <div className="td-output-tab">
+            <pre className="td-output-json" aria-label="Task output">
+                {JSON.stringify(output, null, 2)}
+            </pre>
+        </div>
+    );
 }
 
 function ActionsTab({ task, upstreamCount, downstreamCount, onAction, onRunAction, onClose }: ActionsTabProps) {

@@ -678,6 +678,8 @@ function ApiReferenceTab() {
                     <ApiEndpointDetail method="GET" path="/api/task-config?name=X" desc="Get task configuration"
                         example={`curl "${BASE}/api/task-config?name=stage_listings"`}
                     />
+                    <ApiEndpointDetail method="GET" path="/api/task-output?name=X&date=Y" desc="Get a task's stored output (the value it returned)"
+                        example={`curl "${BASE}/api/task-output?name=stage_listings&date=2026-02-17"`} />
                     <ApiEndpointDetail method="PUT" path="/api/task-config?name=X" desc="Update task configuration"
                         example={`curl -X PUT "${BASE}/api/task-config?name=stage_listings" \\\n  -H "Content-Type: application/json" \\\n  -d '{"retries": 3, "retry_delay": 60}'`}
                     />

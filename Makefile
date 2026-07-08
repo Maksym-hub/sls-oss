@@ -150,6 +150,15 @@ generate-enums:
 check-generate-enums:
 	@python3 -m polyris.codegen.sync_enums --check
 
+# Generate the run_task $dateVars block from the variable registry (SSoT)
+generate-variables:
+	@echo "🔄 Generating run_task \$$dateVars from polyris/variables.py..."
+	@python3 -m polyris.codegen.sync_variables
+
+# Check the generated $dateVars block is in sync (also enforced by test-backend)
+check-generate-variables:
+	@python3 -m polyris.codegen.sync_variables --check
+
 # Check SFN template status literals against canonical (v0.79.6, ADR #78).
 # Catches typos in JSONata expressions and drift between templates and
 # polyris.constants.TaskStatus. Run in CI to prevent silent breakage.

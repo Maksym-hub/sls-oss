@@ -379,6 +379,43 @@ async function testTransforms() {
     { task_name: "test", date: "2026-01-19" },
     { task_name: "test", date: "2026-01-19", is_restart: true }
   );
+
+  console.log("\n📋 pull() context injection");
+  // Lambda payload carries pipeline_name + date + table so pull("A", event) can build the key.
+  await test(
+    "Lambda payload injects pipeline_name + date + _polyris_table (+ keeps user payload)",
+    "$merge([$exists($states.input.task_config.payload) ? $states.input.task_config.payload : {}, {'current_date': $states.input.current_date, 'PARTITION_ARG': $states.input.PARTITION_ARG, 'pipeline_name': $states.input.pipeline_name, 'date': $states.input.date, '_polyris_table': 'tok-tbl'}, $exists($states.input.variables) ? $states.input.variables : {}, $exists($states.input.upstream) and $count($keys($states.input.upstream)) > 0 ? {'upstream': $states.input.upstream} : {}])",
+    { pipeline_name: "sales", date: "2026-07-07", current_date: "2026-07-07", PARTITION_ARG: "2026-07-07", task_config: { payload: { custom: 1 } } },
+    null,
+    { check: (r) => r.pipeline_name === "sales" && r.date === "2026-07-07" && r._polyris_table === "tok-tbl" && r.custom === 1 }
+  );
+
+  // Glue job arguments carry the same context as --POLYRIS_* flags (date = store key field).
+  await test(
+    "Glue Arguments inject --POLYRIS_* context (+ keep user args)",
+    "$merge([$exists($states.input.task_config.arguments) ? $states.input.task_config.arguments : {}, {'--POLYRIS_PIPELINE_NAME': $states.input.pipeline_name, '--POLYRIS_RUN_DATE': $states.input.date, '--POLYRIS_TOKENS_TABLE': 'tok-tbl'}])",
+    { pipeline_name: "sales", date: "2026-07-07", task_config: { arguments: { "--src": "s3://x" } } },
+    null,
+    { check: (r) => r["--POLYRIS_PIPELINE_NAME"] === "sales" && r["--POLYRIS_RUN_DATE"] === "2026-07-07" && r["--POLYRIS_TOKENS_TABLE"] === "tok-tbl" && r["--src"] === "s3://x" }
+  );
+
+  // ECS: POLYRIS_* env appended into each ContainerOverride's Environment (PascalCase).
+  await test(
+    "ECS Overrides inject POLYRIS_* env, preserving user env + array shape",
+    "($ov := $exists($states.input.task_config.overrides) ? $states.input.task_config.overrides : {}; $penv := [{'Name': 'POLYRIS_PIPELINE_NAME', 'Value': $states.input.pipeline_name}, {'Name': 'POLYRIS_RUN_DATE', 'Value': $states.input.date}, {'Name': 'POLYRIS_TOKENS_TABLE', 'Value': 'tok-tbl'}]; $exists($ov.ContainerOverrides) ? $merge([$ov, {'ContainerOverrides': [$map($ov.ContainerOverrides, function($co) { $merge([$co, {'Environment': $append($exists($co.Environment) ? $co.Environment : [], $penv)}]) })]}]) : $ov)",
+    { pipeline_name: "sales", date: "2026-07-07", task_config: { overrides: { ContainerOverrides: [{ Name: "app", Environment: [{ Name: "USER_VAR", Value: "x" }] }] } } },
+    null,
+    { check: (r) => { const e = r.ContainerOverrides[0].Environment; return e.length === 4 && e[0].Name === "USER_VAR" && e[1].Name === "POLYRIS_PIPELINE_NAME" && e[1].Value === "sales" && e[2].Value === "2026-07-07" && e[3].Name === "POLYRIS_TOKENS_TABLE"; } }
+  );
+
+  // Batch: POLYRIS_* env via ContainerOverrides.Environment (single container).
+  await test(
+    "Batch ContainerOverrides carry POLYRIS_* env",
+    "{'Environment': [{'Name': 'POLYRIS_PIPELINE_NAME', 'Value': $states.input.pipeline_name}, {'Name': 'POLYRIS_RUN_DATE', 'Value': $states.input.date}, {'Name': 'POLYRIS_TOKENS_TABLE', 'Value': 'tok-tbl'}]}",
+    { pipeline_name: "sales", date: "2026-07-07" },
+    null,
+    { check: (r) => r.Environment.length === 3 && r.Environment[0].Value === "sales" && r.Environment[1].Value === "2026-07-07" }
+  );
 }
 
 // ============================================================

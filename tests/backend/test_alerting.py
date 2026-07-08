@@ -744,19 +744,22 @@ class TestVariableSchemaDrift:
     def setup(self):
         self.rt = load('run_task')
 
-    def test_jsonata_has_all_schema_vars(self):
-        """Prepare_Task_Input must contain every jsonata-source variable from schema."""
-        from task_variables import get_jsonata_vars
-        pti = self.rt['States']['Prepare_Task_Input']['Output']
-        missing = [v for v in sorted(get_jsonata_vars()) if f"\'{v}\'" not in pti]
-        assert not missing, f"Prepare_Task_Input missing jsonata vars: {missing}"
+    def test_template_generated_from_registry(self):
+        """run_task $dateVars must match what the codegen produces from the registry.
 
-    def test_no_orphan_vars_in_jsonata(self):
-        """Every variable in Prepare_Task_Input should be in schema."""
-        import re as re_mod
+        This is the generated-artifact check that replaces the old hand-sync drift
+        tests: ``polyris/variables.py`` is the single source, the template is
+        generated from it, so they cannot diverge. If this fails, run
+        ``make generate-variables``.
+        """
+        from polyris.codegen.sync_variables import is_in_sync
+        assert is_in_sync(), (
+            "run_task Prepare_Task_Input $dateVars is out of sync with "
+            "polyris/variables.py — run `make generate-variables`."
+        )
+
+    def test_schema_matches_registry(self):
+        """The console_api TASK_VARIABLES schema is derived from the same registry."""
         from task_variables import TASK_VARIABLES
-        pti = self.rt['States']['Prepare_Task_Input']['Output']
-        jsonata_keys = set(re_mod.findall(r"\'(\w+)\':", pti))
-        schema_keys = set(TASK_VARIABLES.keys()) | {"upstream", "variables"}
-        orphans = jsonata_keys - schema_keys
-        assert not orphans, f"Prepare_Task_Input has vars not in schema: {orphans}"
+        from polyris.variables import VARIABLES
+        assert set(TASK_VARIABLES) == set(VARIABLES)

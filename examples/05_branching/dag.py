@@ -15,7 +15,8 @@ Run it locally (no AWS):  polyris-validate -v
 """
 from polyris import DAG, task, chain, cross_downstream
 
-ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:worker"
+# NOTE: ARNs below are hardcoded to the testing-infra CloudFormation stack.
+ARN = "arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn"
 
 with DAG(
     dag_id="branching-demo",
@@ -67,3 +68,9 @@ with DAG(
     [a, b, c] >> alert
     # merge → cleanup: linear tail.
     chain(m, done)
+
+    # Data flows along every edge, not just call-style ones: `>>` and
+    # `cross_downstream` make the upstream's output available too. So each branch
+    # reads `$states.input.upstream.start.output`, and `merge` (a fan-in) reads all
+    # three branches under `upstream` — the same way as example 03. `cleanup`
+    # depends only on ordering; it can ignore `upstream` entirely.

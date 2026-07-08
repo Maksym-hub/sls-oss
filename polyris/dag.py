@@ -205,6 +205,11 @@ class DAG:
         result = []
         
         def visit(task: 'Task', path: List[str]):
+            if task.task_id not in state:
+                raise ValueError(
+                    f"Task '{task.task_id}' is referenced as a dependency but was "
+                    f"not added to this DAG"
+                )
             if state[task.task_id] == 2:  # Already processed
                 return
             if state[task.task_id] == 1:  # Cycle detected!

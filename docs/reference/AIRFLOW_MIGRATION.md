@@ -389,7 +389,7 @@ Every child task automatically receives date-derived variables (like Airflow's `
 | `day_of_week` | wednesday | — |
 | `minus_7_days` | 2026-02-11 | `{{ macros.ds_add(ds, -7) }}` |
 
-Full list and how to add new variables: `sam/lambdas/console_api/task_variables.py`
+Full list and how to add new variables: `polyris/variables.py` (edit it, then run `make generate-variables`).
 
 ---
 

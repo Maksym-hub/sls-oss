@@ -130,6 +130,7 @@ omit = [
     "polyris/output.py",
     "polyris/roles.py",
     "polyris/codegen/sync_enums.py",
+    "polyris/codegen/sync_variables.py",
     # codegen drift-checkers run as a blocking CI step (see ci.yml); they read
     # the repo tree and diff generated vs committed output. Unit-testing them
     # would mean mocking the filesystem (#11/#13), so they stay e2e/CI-covered

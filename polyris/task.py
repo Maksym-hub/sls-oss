@@ -43,46 +43,34 @@ class TaskInstance:
         if task._dag:
             task._dag._add_task_instance(self)
     
+    def _link_upstream(self, upstream: 'TaskInstance') -> None:
+        """Record a dependency edge to ``upstream`` (instance + Task level), deduped."""
+        if upstream not in self._upstream:
+            self._upstream.append(upstream)
+        if self not in upstream._downstream:
+            upstream._downstream.append(self)
+        if upstream.task not in self.task.dependencies:
+            self.task.dependencies.append(upstream.task)
+
     def _extract_dependencies(self):
-        """Extract task dependencies from XComArg arguments."""
-        all_args = list(self.args) + list(self.kwargs.values())
-        for arg in all_args:
-            if isinstance(arg, XComArg):
-                # This task depends on the task that produced this XComArg
-                upstream = arg.task_instance
-                if upstream not in self._upstream:
-                    self._upstream.append(upstream)
-                if self not in upstream._downstream:
-                    upstream._downstream.append(self)
-                # Also set on Task level
-                if upstream.task not in self.task.dependencies:
-                    self.task.dependencies.append(upstream.task)
-            elif isinstance(arg, TaskInstance):
-                # Direct TaskInstance passed
-                if arg not in self._upstream:
-                    self._upstream.append(arg)
-                if self not in arg._downstream:
-                    arg._downstream.append(self)
-                if arg.task not in self.task.dependencies:
-                    self.task.dependencies.append(arg.task)
-            elif isinstance(arg, list):
-                # List of TaskInstances passed (e.g., export_feeds([t1, t2, t3]))
-                for item in arg:
-                    if isinstance(item, TaskInstance):
-                        if item not in self._upstream:
-                            self._upstream.append(item)
-                        if self not in item._downstream:
-                            item._downstream.append(self)
-                        if item.task not in self.task.dependencies:
-                            self.task.dependencies.append(item.task)
-                    elif isinstance(item, XComArg):
-                        upstream = item.task_instance
-                        if upstream not in self._upstream:
-                            self._upstream.append(upstream)
-                        if self not in upstream._downstream:
-                            upstream._downstream.append(self)
-                        if upstream.task not in self.task.dependencies:
-                            self.task.dependencies.append(upstream.task)
+        """Extract task dependencies from XComArg / TaskInstance arguments.
+
+        Accepts an XComArg, a TaskInstance, or a list of either (other values are
+        ignored). All three resolve to the upstream TaskInstance the edge points to.
+        """
+        def as_upstream(value) -> Optional['TaskInstance']:
+            if isinstance(value, XComArg):
+                return value.task_instance
+            if isinstance(value, TaskInstance):
+                return value
+            return None
+
+        for arg in list(self.args) + list(self.kwargs.values()):
+            items = arg if isinstance(arg, list) else [arg]
+            for item in items:
+                upstream = as_upstream(item)
+                if upstream is not None:
+                    self._link_upstream(upstream)
     
     @property
     def output(self) -> XComArg:

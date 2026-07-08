@@ -16,7 +16,8 @@ from polyris import DAG, task
 
 # Every @task.sfn invokes an existing AWS Step Functions state machine.
 # Swap in one of your own ARNs before deploying.
-HELLO_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:hello"
+# NOTE: ARN hardcoded to the testing-infra CloudFormation stack.
+HELLO_ARN = "arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn"
 
 with DAG(
     dag_id="hello-world",

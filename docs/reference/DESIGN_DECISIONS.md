@@ -428,6 +428,8 @@ This is polyris's key architectural advantage — the longer tasks run, the more
 
 **Rationale:** Before this, 15+ variables were duplicated between `backfill.py` (Python) and `Prepare_Task_Input` (JSONata). If logic changed in one place, the other would diverge silently. Now each variable is computed in exactly one place.
 
+**Update:** the canonical source is now `polyris/variables.py` (name + JSONata expression); `Prepare_Task_Input`'s `$dateVars` block is **generated** from it by `polyris.codegen.sync_variables`, and `task_variables.py` re-exports it. The "one place" is now the registry, and drift is impossible (the template is generated, checked by `test_template_generated_from_registry`).
+
 ---
 
 ### 22. Data Flow: SFN Executes → DynamoDB Stores → UI Reads
@@ -4405,7 +4407,7 @@ For tasks that need the original partition_key (e.g., to construct
 weekly file paths like `s3://bucket/year=2024/week=03/data.parquet`),
 the input also carries the original `partition_key` field unchanged.
 Task code accesses it via `{{ partition_key }}` template variable
-(new, added to `task_variables.py` schema).
+(new, added to the `polyris/variables.py` registry).
 
 ##### Translation for cascade=all on multi-granularity consumers
 

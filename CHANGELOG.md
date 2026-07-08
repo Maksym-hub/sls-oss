@@ -2,6 +2,106 @@
 
 ## Unreleased
 
+### Added — deployable test resources for the examples
+
+- `examples/testing-infra/test-resources.yaml` (+ README): a standalone
+  CloudFormation stack that provisions one reusable resource per task type
+  (Lambda, Step Functions, Glue, Athena, ECS/Fargate, Batch/Fargate) plus a small
+  public VPC and S3 bucket. Deploy once, paste the Outputs into the example
+  pipelines, and run them end to end. All pay-per-use; EMR is left out as it carries
+  a standing cost.
+- Corrected the examples' data-passing docs: `pull()` / `event["upstream"]` return
+  rich data only for Lambda/SFN upstreams; service tasks (Glue/Athena/ECS/Batch/EMR)
+  store job metadata and pass real data via S3/tables.
+
+
+### Changed — example pipelines now demonstrate xcom, and are CI-validated
+
+- The reference examples (02_linear, 03_fan_in, 04_multi_service, 05_branching,
+  08_realistic) now show how each task type consumes upstream output: Lambda/SFN via
+  the injected `event["upstream"]`, and Glue/ECS/Batch via `xcom.pull()`. Fixed two
+  misleading patterns in 04_multi_service: ECS `container_overrides` now uses the
+  PascalCase keys Step Functions requires, and the Batch example no longer implies a
+  `{% ... %}` expression is evaluated in `batch_parameters` (parameters pass literally).
+- Added `tests/sdk/test_examples.py`: every shipped example must generate valid ASL.
+
+
+### Changed — clearer DAG error
+
+- `topological_sort()` now raises a clear "referenced as a dependency but was not
+  added to this DAG" error for an unregistered dependency, instead of a bare
+  `KeyError`. (Internal: `_extract_dependencies` was also de-duplicated into a single
+  `_link_upstream` helper — no behavior change.)
+
+
+### Added — read a task's output via the console API
+
+- **`GET /api/task-output?name=<task>&date=<date>`** returns the value a task
+  returned to the pipeline, read from the run-stable output store
+  (`output#pipeline#task#date`). Large outputs offloaded to S3 (`_s3_ref`) are
+  resolved transparently; `truncated: true` is returned if an output exceeded the
+  inline limit without offload. A console Output tab in the task modal (shortcut `o`) displays it.
+
+### Fixed — consistent S3 claim-check key
+
+- `xcom.pull()` now resolves the offload pointer key `_s3_ref` (matching the existing
+  console_api `retrieve_result`), instead of the earlier `_ref`, so both readers agree
+  on the convention if/when write-side S3 offload lands.
+
+
+### Changed — larger task outputs (inline limit 200 KB -> 350 KB)
+
+- The per-output inline size limit was raised from 200 KB to 350 KB (safely under the
+  DynamoDB 400 KB item limit), so `pull()` now returns outputs up to ~350 KB. Applied
+  consistently at all output-capture points (every task type) and the two store points.
+  Outputs beyond ~350 KB are still marked truncated (transparent S3 offload for
+  arbitrarily large outputs remains a separate, larger change); in practice large
+  results are passed as an `s3://` pointer rather than inline.
+
+
+### Added — `xcom.pull()` runtime helper (data passing, part 1)
+
+- **`polyris.xcom.pull("task")`** fetches the whole output a dependency produced,
+  reading the canonical DynamoDB output store (`output#pipeline#task#date`).
+  Outputs offloaded to S3 are resolved transparently via an `{_ref: "s3://..."}`
+  pointer; a truncated/absent output raises `PullError` (never a silent empty).
+  Context (pipeline / date / table) is resolved the same way everywhere, hiding
+  an AWS constraint: in a **Lambda** you pass the event (`xcom.pull("t", event)`,
+  since Lambda env is fixed at deploy); in **ECS/Glue** the runtime provides it via
+  environment and you just call `xcom.pull("t")`. `pull()` reads it from the
+  explicit arg, then the passed context, then the `POLYRIS_*` env vars.
+- **Context wiring landed (part of the end-to-end path).** The run_task template now
+  injects the pull context — pipeline name, run `date` (the output-store key field),
+  and table — into every task type: the Lambda payload and SFN input carry
+  `pipeline_name`/`date`/`_polyris_table`; ECS and Batch get `POLYRIS_*` env appended
+  to their ContainerOverrides; Glue gets `--POLYRIS_*` job arguments. Each injection is
+  verified by JSONata evaluation.
+- **IAM published.** A managed policy `PolyrisTaskReadPolicy` (least-privilege
+  `dynamodb:GetItem` on the output store + `s3:GetObject` on the results bucket) is
+  exported for users to attach to any task role that calls `pull()` — Polyris cannot
+  grant it directly since it references user-owned compute. With context wiring + this
+  policy attached, `pull()` works end-to-end for outputs under ~350 KB across all task
+  types. Usage + the IAM step are documented in docs/features/DATA_PASSING.md.
+- **`pull()` is usable now.** With the context wiring and the IAM policy above,
+  it works end-to-end across all task types. Transparent S3 offload for outputs
+  beyond the inline limit is deferred (see ROADMAP); larger data is passed as an
+  `s3://` pointer instead — `pull()` already resolves such pointers.
+
+
+### Changed — task variables have a single source of truth (codegen)
+
+- The task-variable registry now lives in **`polyris/variables.py`** (name + JSONata
+  expression + kind + description) as the one canonical source. The run_task
+  `Prepare_Task_Input` `$dateVars` block is **generated** from it by
+  `polyris.codegen.sync_variables` (mirroring the enum codegen), instead of being
+  hand-maintained and kept in sync by a drift test. `sam/lambdas/console_api/
+  task_variables.py` re-exports from the registry (its public API is unchanged).
+  Adding a variable is now a single edit + `make generate-variables`; a test
+  (`test_template_generated_from_registry`) fails if the template drifts. The
+  generated `$dateVars` is byte-identical to the previous hand-written one — no
+  runtime behavior change.
+
+
 ### Changed — public docs & CLI describe only what ships in the open-source build
 
 - **Removed paid-feature documentation and all tier wording** from user-facing

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { useTaskOutput } from '../../hooks/useTaskOutput';
+
+vi.mock('../../hooks/useTaskOutput', () => ({
+    useTaskOutput: vi.fn(() => ({ output: null, truncated: false, loading: false, loaded: false })),
+}));
 import { TaskDetailModal } from './TaskDetailModal';
 import {
     createTaskDetailModalProps,
@@ -84,6 +89,46 @@ describe('TaskDetailModal', () => {
         it('shows pipeline execution short ID', () => {
             render(<TaskDetailModal {...defaultProps} />);
             expect(screen.getByText('abc123')).toBeInTheDocument();
+        });
+    });
+
+    // ─── Output Tab ──────────────────────────────────────────────────────
+
+    describe('output tab', () => {
+        it('displays the task output as JSON', () => {
+            vi.mocked(useTaskOutput).mockReturnValue({ output: { rows: 42 }, truncated: false, loading: false, loaded: true });
+            render(<TaskDetailModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Output'));
+            expect(screen.getByLabelText('Task output').textContent).toContain('42');
+        });
+
+        it('shows an empty state when the task stored no output', () => {
+            vi.mocked(useTaskOutput).mockReturnValue({ output: null, truncated: false, loading: false, loaded: true });
+            render(<TaskDetailModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Output'));
+            expect(screen.getByText(/stored no output/i)).toBeInTheDocument();
+        });
+
+        it('warns when the output was truncated', () => {
+            vi.mocked(useTaskOutput).mockReturnValue({ output: null, truncated: true, loading: false, loaded: true });
+            render(<TaskDetailModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Output'));
+            expect(screen.getByText(/too large to store inline/i)).toBeInTheDocument();
+        });
+
+        it('renders falsy output (false / 0) as JSON, not as empty', () => {
+            vi.mocked(useTaskOutput).mockReturnValue({ output: false, truncated: false, loading: false, loaded: true });
+            render(<TaskDetailModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Output'));
+            expect(screen.getByLabelText('Task output').textContent).toContain('false');
+            expect(screen.queryByText(/stored no output/i)).not.toBeInTheDocument();
+        });
+
+        it('shows a loading state while fetching', () => {
+            vi.mocked(useTaskOutput).mockReturnValue({ output: null, truncated: false, loading: true, loaded: false });
+            render(<TaskDetailModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Output'));
+            expect(screen.getByText(/loading output/i)).toBeInTheDocument();
         });
     });
 
