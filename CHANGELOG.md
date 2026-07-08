@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed — @task.athena works out of the box (task role gains S3)
+
+- The default task role now grants S3 (`GetBucketLocation`, `ListBucket`, `GetObject`,
+  `PutObject`) so Athena queries can read source data and write results under the
+  role's identity — previously `@task.athena` failed with "Unable to verify/create
+  output bucket" until S3 was granted manually. Granted broadly (like the existing
+  glue/ecs/athena/batch actions); tighten the Resource to specific buckets if desired.
+
+
 ### Changed — OSS/Team boundary: hide paid surfaces in the free build
 
 - The **Backfill button** (pipeline detail) and the **API reference tab** (Help modal)

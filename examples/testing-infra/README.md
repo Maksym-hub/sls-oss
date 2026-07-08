@@ -54,7 +54,17 @@ and exit. That's enough for every task in a pipeline to run green.
    `analytics` database but not those tables. For a smoke test, swap the query for
    something self-contained, e.g. `SELECT 1`.
 
-2. **Data passing from service tasks.** `xcom.pull("t")` and `event["upstream"]["t"]`
+2. **Athena needs an S3 grant.** Athena writes query results under the polyris task
+   role's identity, which doesn't have S3 access by default. Redeploy this stack with
+   your task role name to grant it:
+
+   ```bash
+   aws cloudformation deploy --template-file test-resources.yaml \
+     --stack-name polyris-test --capabilities CAPABILITY_IAM \
+     --parameter-overrides TaskRoleName=polyris-dev-oss-dev-polyris-default-task-role
+   ```
+
+3. **Data passing from service tasks.** `xcom.pull("t")` and `event["upstream"]["t"]`
    return whatever task `t` *stored*:
    - For a **Lambda / Step Functions** upstream, that's its **return value** — real
      data. This is where `pull()` shines.

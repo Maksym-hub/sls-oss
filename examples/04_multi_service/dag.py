@@ -29,8 +29,6 @@ with DAG(
     tags=["example", "reference", "multi-service"],
     doc_md="Reference pipeline exercising every polyris task type.",
     default_args={
-        "retries": 2,
-        "retry_delay": timedelta(minutes=5),
         "execution_timeout": timedelta(hours=1),
         "orchestration_timeout": timedelta(hours=6),
     },
@@ -52,9 +50,7 @@ with DAG(
     @task.glue(
         job_name="polyris-test-glue",
         glue_arguments={"--source": "events"},
-        worker_type="G.1X",
-        number_of_workers=5,
-    )
+            )
     def to_bronze():
         """Glue job: raw → bronze.
 
@@ -86,10 +82,10 @@ with DAG(
         launch_type="FARGATE",
         subnets=["subnet-08b2bc98a658e67b4", "subnet-09802d133167abae7"],
         security_groups=["sg-071773f53f202982f"],
-        assign_public_ip="DISABLED",
+        assign_public_ip="ENABLED",
         # Step Functions expects PascalCase override keys (ContainerOverrides / Name).
         container_overrides={
-            "ContainerOverrides": [{"Name": "main", "Cpu": 2048, "Memory": 8192}]
+            "ContainerOverrides": [{"Name": "main"}]
         },
     )
     def build_features():

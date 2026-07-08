@@ -13,6 +13,19 @@ Parameters:
     Default: polyris-test
     Description: Prefix applied to every resource name.
 
+  TaskRoleName:
+    Type: String
+    Default: ''
+    Description: >-
+      (Optional) Name of the polyris task role, e.g.
+      polyris-dev-oss-dev-polyris-default-task-role. If set, this stack grants that
+      role S3 access to the results bucket so @task.athena can write query results
+      (Athena writes under the caller's identity). Find it in the AccessDenied error
+      or in your platform stack outputs.
+
+Conditions:
+  GrantTaskRole: !Not [!Equals [!Ref TaskRoleName, '']]
+
 Resources:
 
   # ------------------------------------------------------------------ networking
@@ -371,6 +384,29 @@ Resources:
           - {Type: MEMORY, Value: '512'}
         NetworkConfiguration:
           AssignPublicIp: ENABLED
+
+  # ---------- Grant the polyris task role S3 access for Athena results (optional) --
+  # Athena writes query results under the identity that calls StartQueryExecution —
+  # the polyris task role. Without this, @task.athena fails with "Unable to
+  # verify/create output bucket". Only created when TaskRoleName is supplied.
+  TaskRoleAthenaS3Policy:
+    Type: AWS::IAM::Policy
+    Condition: GrantTaskRole
+    Properties:
+      PolicyName: polyris-test-athena-results
+      Roles: [!Ref TaskRoleName]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:ListBucket
+              - s3:GetObject
+              - s3:PutObject
+            Resource:
+              - !GetAtt Bucket.Arn
+              - !Sub '${Bucket.Arn}/*'
 
   # --------------------------------------------------------------- EMR (optional)
   # EMR is intentionally omitted: unlike everything else here it has a standing

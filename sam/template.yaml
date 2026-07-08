@@ -580,6 +580,17 @@ Resources:
               - athena:StartQueryExecution
               - athena:GetQueryExecution
             Resource: "*"
+          # Athena runs queries under this role's identity: it reads source data and
+          # writes results to the query's output location — both user-chosen buckets.
+          # Granted broadly to match the service actions above so @task.athena works
+          # out of the box; scope the Resource to your specific buckets to tighten it.
+          - Effect: Allow
+            Action:
+              - s3:GetBucketLocation
+              - s3:ListBucket
+              - s3:GetObject
+              - s3:PutObject
+            Resource: "*"
           - Effect: Allow
             Action:
               - elasticmapreduce:RunJobFlow
@@ -1652,6 +1663,7 @@ Resources:
               LogGroupArn: !GetAtt RunTaskHelperLogGroup.Arn
       DefinitionSubstitutions:
         tokens_table: !Ref PipelineTokensTable
+        pipeline_registry_table: !Ref PipelineRegistryTable
         task_events_table: !Ref TaskEventsTable
         notify_dependents_helper_arn: !Ref NotifyDependentsSfn
         asset_events_table: !Ref AssetEventsTable

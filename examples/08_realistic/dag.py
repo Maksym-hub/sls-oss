@@ -25,8 +25,6 @@ with DAG(
     tags=["example", "analytics", "daily"],
     doc_md="End-to-end reference pipeline combining several services.",
     default_args={
-        "retries": 3,
-        "retry_delay": timedelta(minutes=2),
         "retry_exponential_backoff": True,
         "execution_timeout": timedelta(hours=1),
         "orchestration_timeout": timedelta(hours=4),
@@ -45,7 +43,7 @@ with DAG(
         """
         pass
 
-    @task.glue(job_name="polyris-test-glue", worker_type="G.1X", number_of_workers=4)
+    @task.glue(job_name="polyris-test-glue")
     def clean():
         """Dedupe and normalize.
 
