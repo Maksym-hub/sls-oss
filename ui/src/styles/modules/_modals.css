@@ -78,6 +78,25 @@
 .td-output-tab {
     display: flex;
     flex-direction: column;
+    gap: 1rem;
+}
+.td-io-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+.td-io-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #656d76);
+}
+.td-tab-empty--inline {
+    padding: 0.625rem 0.75rem;
+    background: var(--surface-2, #f6f8fa);
+    border: 1px solid var(--border, #d0d7de);
+    border-radius: 6px;
 }
 .td-output-json {
     margin: 0;

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../utils';
 
 interface TaskOutputState {
+    input: unknown;
     output: unknown;
     truncated: boolean;
     loading: boolean;
@@ -9,16 +10,16 @@ interface TaskOutputState {
 }
 
 /**
- * useTaskOutput — fetch a task's stored output (the value it returned) when the
- * Output tab is active. Mirrors useTaskEvents: fetch on open, guard against
- * setting state after unmount.
+ * useTaskOutput — fetch a task's stored input and output when the Input/Output tab
+ * is active. Mirrors useTaskEvents: fetch on open, guard against setting state after
+ * unmount.
  */
 export function useTaskOutput(
     task: { task_name?: string; execution_name?: string; date?: string; pipeline_execution?: string } | null | undefined,
     active: boolean,
 ): TaskOutputState {
     const [state, setState] = useState<TaskOutputState>({
-        output: null, truncated: false, loading: false, loaded: false,
+        input: null, output: null, truncated: false, loading: false, loaded: false,
     });
 
     const name = task?.execution_name || task?.task_name;
@@ -41,6 +42,7 @@ export function useTaskOutput(
                 const resp = await api.get(`/task-output?${params.toString()}`);
                 if (isMounted) {
                     setState({
+                        input: resp ? resp.input : null,
                         output: resp ? resp.output : null,
                         truncated: !!(resp && resp.truncated),
                         loading: false,
@@ -50,7 +52,7 @@ export function useTaskOutput(
             } catch (e) {
                 console.error('Failed to fetch task output:', e);
                 if (isMounted) {
-                    setState({ output: null, truncated: false, loading: false, loaded: true });
+                    setState({ input: null, output: null, truncated: false, loading: false, loaded: true });
                 }
             }
         };

@@ -144,7 +144,7 @@ export function TaskDetailModal({
                     tabIndex={activeTab === 'output' ? 0 : -1}
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab('output'); } }}
                 >
-                    <Database size={14} /> Output
+                    <Database size={14} /> Input / Output
                 </div>
                 {onAction && (
                 <div 
@@ -181,6 +181,7 @@ export function TaskDetailModal({
                     />
                 ) : activeTab === 'output' ? (
                     <OutputTab
+                        input={taskOutput.input}
                         output={taskOutput.output}
                         truncated={taskOutput.truncated}
                         loading={taskOutput.loading}
@@ -590,35 +591,55 @@ interface ActionsTabProps {
 }
 
 interface OutputTabProps {
+    input: unknown;
     output: unknown;
     truncated: boolean;
     loading: boolean;
     loaded: boolean;
 }
 
-function OutputTab({ output, truncated, loading, loaded }: OutputTabProps) {
+function OutputTab({ input, output, truncated, loading, loaded }: OutputTabProps) {
     if (loading) {
-        return <div className="td-tab-empty"><Hourglass size={16} /> Loading output…</div>;
-    }
-    if (truncated) {
-        return (
-            <div className="td-tab-empty" role="status">
-                <AlertTriangle size={16} /> This output was too large to store inline and
-                is unavailable. Return an <code>s3://</code> pointer for large data.
-            </div>
-        );
-    }
-    if (loaded && (output === null || output === undefined)) {
-        return <div className="td-tab-empty"><Database size={16} /> This task stored no output.</div>;
+        return <div className="td-tab-empty"><Hourglass size={16} /> Loading…</div>;
     }
     if (!loaded) {
-        return <div className="td-tab-empty"><Database size={16} /> Open to load output.</div>;
+        return <div className="td-tab-empty"><Database size={16} /> Open to load input and output.</div>;
     }
+
+    const hasInput = input !== null && input !== undefined;
+    const hasOutput = output !== null && output !== undefined;
+
     return (
         <div className="td-output-tab">
-            <pre className="td-output-json" aria-label="Task output">
-                {JSON.stringify(output, null, 2)}
-            </pre>
+            <div className="td-io-section">
+                <div className="td-io-label">Input</div>
+                {hasInput ? (
+                    <pre className="td-output-json" aria-label="Task input">
+                        {JSON.stringify(input, null, 2)}
+                    </pre>
+                ) : (
+                    <div className="td-tab-empty td-tab-empty--inline">
+                        <Database size={14} /> No input recorded (upstream data + run variables).
+                    </div>
+                )}
+            </div>
+            <div className="td-io-section">
+                <div className="td-io-label">Output</div>
+                {truncated ? (
+                    <div className="td-tab-empty td-tab-empty--inline" role="status">
+                        <AlertTriangle size={14} /> Output too large to store inline. Return an
+                        <code>s3://</code> pointer for large data.
+                    </div>
+                ) : hasOutput ? (
+                    <pre className="td-output-json" aria-label="Task output">
+                        {JSON.stringify(output, null, 2)}
+                    </pre>
+                ) : (
+                    <div className="td-tab-empty td-tab-empty--inline">
+                        <Database size={14} /> This task stored no output.
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

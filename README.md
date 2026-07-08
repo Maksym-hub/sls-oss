@@ -16,8 +16,8 @@ polyris is not managed Airflow. There's nothing to operate.
 - 🔎 **Nothing hidden** — every pipeline compiles to a Step Functions state
   machine, so each run is a visible, debuggable execution history rather than
   opaque scheduler state.
-- 🧬 **Asset-centric** — pipelines define first-class data assets with lineage and
-  partitions, not just task graphs.
+- 🧬 **Asset-centric** — pipelines declare first-class data assets and their
+  dependencies, not just task graphs.
 - 💸 **Pay-per-run** — a typical deployment runs ~$31/month; the floor is near
   zero because there is no always-on infrastructure.
 
@@ -28,9 +28,9 @@ polyris is not managed Airflow. There's nothing to operate.
 - 🧪 **Local testing** — Validate, dry-run, mock execution
 - 🔔 **Failure notifications** — browser notifications on failure (the notify Lambda fans out to every enabled channel — no silent failures)
 - 🎯 **11 trigger rules** — `all_success`, `one_failed`, `all_done`, etc. ([details](docs/features/DSL.md#trigger-rules))
-- 🔗 **Automatic data passing** — outputs flow to downstream **lambda & SFN** tasks via a DynamoDB output store (up to 200KB); service tasks (glue/ecs/…) exchange data via S3
+- 🔗 **Automatic data passing** — outputs flow to downstream **lambda & SFN** tasks via a DynamoDB output store (up to 350KB); service tasks (glue/ecs/…) exchange data via S3
 - 📊 **Web Console** — pipelines and DAG views for every run
-- 🧬 **Asset graph & lineage** — pipelines declare cross-pipeline asset dependencies and lineage
+- 🧬 **Asset dependencies** — declare cross-pipeline asset inlets/outlets; inspect lineage from the CLI with `polyris-output --graph` (the visual asset & lineage console is a Team feature)
 - 🔗 **Pull-based deps** — `wait_for` with freshness and consecutive checks
 - ⏭️ **Skip/Restart tasks** — partial pipeline runs via UI or API (free — live-run intervention)
 - 🔄 **Auto-refresh UI** — polling-based updates (3s active, 30s idle)

@@ -42,8 +42,20 @@ def test_returns_inline_output(mocker):
     table = _patch(mocker, store={"result": json.dumps({"rows": 1240})})
     body = _body(get_task_output("extract", _event()))
     assert body["output"] == {"rows": 1240}
+    assert body["input"] is None            # no task_input stored
     assert body["truncated"] is False
     assert table.calls[0]["Key"] == {"execution_name": "output#sales#extract#2026-07-07"}
+
+
+def test_returns_input_when_stored(mocker):
+    stored_input = {"upstream": {"a": {"output": {"n": 1}}}, "variables": {"year": "2026"}}
+    _patch(mocker, store={
+        "result": json.dumps({"rows": 5}),
+        "task_input": json.dumps(stored_input),
+    })
+    body = _body(get_task_output("extract", _event()))
+    assert body["output"] == {"rows": 5}
+    assert body["input"] == stored_input
 
 
 def test_key_uses_resolved_plain_task_name_not_route_param(mocker):

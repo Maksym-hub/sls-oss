@@ -351,12 +351,13 @@ def get_task_config(task_name: str, event: Dict) -> Dict:
 
 
 def get_task_output(task_name: str, event: Dict) -> Dict:
-    """Return a task's stored output — the value it returned to the pipeline.
+    """Return a task's stored input and output.
 
-    Reads the run-stable output record (``output#pipeline#task#date``). Large
-    outputs offloaded to S3 (``_s3_ref``) are resolved transparently. Returns
-    ``output: null`` if the task stored nothing, and ``truncated: true`` if the
-    output exceeded the inline limit and was not offloaded.
+    Reads the run-stable record (``output#pipeline#task#date``). ``output`` is the
+    value the task returned; ``input`` is what it received — its upstream outputs and
+    the injected run variables (upstream is omitted when the input exceeds ~25 KB).
+    Large outputs offloaded to S3 (``_s3_ref``) are resolved transparently;
+    ``truncated: true`` means the output exceeded the inline limit.
     """
     params = event.get('queryStringParameters') or {}
     date = params.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
@@ -371,6 +372,7 @@ def get_task_output(task_name: str, event: Dict) -> Dict:
     run_date = resolved.get('date', date)
 
     output = None
+    task_input = None
     truncated = False
     if pipeline_name:
         key = f"output#{pipeline_name}#{plain_task}#{run_date}"
@@ -384,14 +386,18 @@ def get_task_output(task_name: str, event: Dict) -> Dict:
                     truncated = True
                 else:
                     output = retrieve_result(parsed)
+            raw_input = store_item.get('task_input')
+            if raw_input:
+                task_input = json.loads(raw_input)
         except (ClientError, BotoCoreError, ValueError) as e:
-            log.error("get_task_output", "Error reading task output",
+            log.error("get_task_output", "Error reading task input/output",
                       error=str(e), task_name=task_name)
 
     return cors_response(200, {
         'task_name': task_name,
         'execution_name': execution_name,
         'output': output,
+        'input': task_input,
         'truncated': truncated,
     })
 

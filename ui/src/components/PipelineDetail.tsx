@@ -321,6 +321,7 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                             
                             <Button onClick={actions.handleRun}><Rocket size={14} /> Run</Button>
                             
+                            {paidSurface.BackfillNavTab && (
                             <Button
                                 variant="secondary"
                                 onClick={() => {
@@ -334,6 +335,7 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                             >
                                 <ActionIcons.backfill size={14} /> Backfill
                             </Button>
+                            )}
                             </>)}
                         </div>
                     </div>

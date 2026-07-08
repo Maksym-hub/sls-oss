@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Changed — OSS/Team boundary: hide paid surfaces in the free build
+
+- The **Backfill button** (pipeline detail) and the **API reference tab** (Help modal)
+  are now gated behind the paid surface, matching the backend, which already serves
+  backfill/asset/API-token routes only to Team. They're hidden in the OSS build and
+  restored by the Team overlay. The README no longer advertises the visual asset &
+  lineage console as an OSS feature (CLI lineage via `polyris-output --graph` stays
+  free), and the stale ~200 KB output limit was corrected to ~350 KB.
+
+
+### Added — task Input in the console, alongside Output
+
+- The task modal's tab is now **Input / Output**: it shows what a task *received*
+  (its upstream outputs + the injected run variables) next to what it *returned*.
+  The input is captured once in `Save_Canonical_Output` — a single shared state all
+  task types pass through, so it's uniform across every type — and stored under the
+  same run-stable key (upstream is omitted when the input exceeds ~25 KB to stay
+  within the DynamoDB item limit). `GET /api/task-output` now returns `input` too.
+
+
 ### Added — deployable test resources for the examples
 
 - `examples/testing-infra/test-resources.yaml` (+ README): a standalone

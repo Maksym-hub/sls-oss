@@ -25,11 +25,16 @@ describe('useTaskOutput', () => {
         expect(get).not.toHaveBeenCalled();
     });
 
-    it('fetches and returns the output when active', async () => {
-        get.mockResolvedValueOnce({ output: { rows: 5 }, truncated: false });
+    it('fetches and returns input + output when active', async () => {
+        get.mockResolvedValueOnce({
+            input: { variables: { year: '2026' } },
+            output: { rows: 5 },
+            truncated: false,
+        });
         const { result } = renderHook(() => useTaskOutput(task, true));
         await waitFor(() => expect(result.current.loaded).toBe(true));
         expect(result.current.output).toEqual({ rows: 5 });
+        expect(result.current.input).toEqual({ variables: { year: '2026' } });
         expect(result.current.truncated).toBe(false);
         const url = get.mock.calls[0][0] as string;
         expect(url).toContain('/task-output?');

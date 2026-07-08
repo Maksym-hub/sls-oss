@@ -40,6 +40,8 @@ import {
  * Contains icons legend, keyboard shortcuts, backfill docs, and API reference
  */
 export function HelpModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+    // API reference (and its token-based access) is a Team feature — hidden in OSS.
+    const IS_TEAM = Object.keys(paidSurface).length > 0;
     const [activeTab, setActiveTab] = useState('shortcuts');
 
     // Tab switching per ADR #64 (revised v0.78.5). Numeric reserved
@@ -49,7 +51,7 @@ export function HelpModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
         's': () => setActiveTab('shortcuts'),
         'i': () => setActiveTab('icons'),
         'b': () => { if (paidSurface.BackfillsView) setActiveTab('backfill'); },
-        'a': () => setActiveTab('api'),
+        'a': () => { if (IS_TEAM) setActiveTab('api'); },
     }, { enabled: isOpen });
     
     return (
@@ -76,22 +78,24 @@ export function HelpModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
                         <ContextIcons.backfill size={14} /> Backfill
                     </button>
                 )}
-                <button 
-                    className={`nav-tab nav-tab--sm ${activeTab === 'api' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('api')}
-                >
-                    <Plug size={14} /> API
-                </button>
+                {IS_TEAM && (
+                    <button 
+                        className={`nav-tab nav-tab--sm ${activeTab === 'api' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('api')}
+                    >
+                        <Plug size={14} /> API
+                    </button>
+                )}
             </div>
             <ModalBody>
-                {activeTab === 'shortcuts' ? (
-                    <KeyboardShortcutsTab />
-                ) : activeTab === 'icons' ? (
+                {activeTab === 'icons' ? (
                     <IconsLegendTab />
                 ) : activeTab === 'backfill' ? (
                     <BackfillDocsTab />
-                ) : (
+                ) : activeTab === 'api' && IS_TEAM ? (
                     <ApiReferenceTab />
+                ) : (
+                    <KeyboardShortcutsTab />
                 )}
             </ModalBody>
             <ModalFooter>
@@ -678,7 +682,7 @@ function ApiReferenceTab() {
                     <ApiEndpointDetail method="GET" path="/api/task-config?name=X" desc="Get task configuration"
                         example={`curl "${BASE}/api/task-config?name=stage_listings"`}
                     />
-                    <ApiEndpointDetail method="GET" path="/api/task-output?name=X&date=Y" desc="Get a task's stored output (the value it returned)"
+                    <ApiEndpointDetail method="GET" path="/api/task-output?name=X&date=Y" desc="Get a task's stored input and output"
                         example={`curl "${BASE}/api/task-output?name=stage_listings&date=2026-02-17"`} />
                     <ApiEndpointDetail method="PUT" path="/api/task-config?name=X" desc="Update task configuration"
                         example={`curl -X PUT "${BASE}/api/task-config?name=stage_listings" \\\n  -H "Content-Type: application/json" \\\n  -d '{"retries": 3, "retry_delay": 60}'`}

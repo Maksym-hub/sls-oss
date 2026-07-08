@@ -688,6 +688,9 @@
                     "result": {
                         "S": "{% ( $to := $string($states.input.task_output); $length($to) > 350000 ? '{\"_truncated\":true,\"_size\":' & $string($length($to)) & '}' : $to ) %}"
                     },
+                    "task_input": {
+                        "S": "{% ( $ti := $string({'upstream': $exists($states.input.upstream) ? $states.input.upstream : {}, 'variables': $exists($states.input.variables) ? $states.input.variables : {}}); $length($ti) > 25000 ? $string({'variables': $exists($states.input.variables) ? $states.input.variables : {}, '_upstream_omitted': true, '_size': $length($ti)}) : $ti ) %}"
+                    },
                     "updated_at": {
                         "S": "{% $now() %}"
                     },

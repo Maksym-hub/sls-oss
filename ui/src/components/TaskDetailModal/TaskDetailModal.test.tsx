@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { useTaskOutput } from '../../hooks/useTaskOutput';
 
 vi.mock('../../hooks/useTaskOutput', () => ({
-    useTaskOutput: vi.fn(() => ({ output: null, truncated: false, loading: false, loaded: false })),
+    useTaskOutput: vi.fn(() => ({ input: null, output: null, truncated: false, loading: false, loaded: false })),
 }));
 import { TaskDetailModal } from './TaskDetailModal';
 import {
@@ -94,41 +94,56 @@ describe('TaskDetailModal', () => {
 
     // ─── Output Tab ──────────────────────────────────────────────────────
 
-    describe('output tab', () => {
+    describe('input / output tab', () => {
+        const io = (over: Record<string, unknown>) => ({
+            input: null, output: null, truncated: false, loading: false, loaded: true, ...over,
+        });
+
         it('displays the task output as JSON', () => {
-            vi.mocked(useTaskOutput).mockReturnValue({ output: { rows: 42 }, truncated: false, loading: false, loaded: true });
+            vi.mocked(useTaskOutput).mockReturnValue(io({ output: { rows: 42 } }));
             render(<TaskDetailModal {...defaultProps} />);
-            fireEvent.click(screen.getByText('Output'));
+            fireEvent.click(screen.getByText('Input / Output'));
             expect(screen.getByLabelText('Task output').textContent).toContain('42');
         });
 
-        it('shows an empty state when the task stored no output', () => {
-            vi.mocked(useTaskOutput).mockReturnValue({ output: null, truncated: false, loading: false, loaded: true });
+        it('displays the task input (upstream + variables)', () => {
+            vi.mocked(useTaskOutput).mockReturnValue(io({
+                input: { upstream: { a: { output: { n: 1 } } }, variables: { year: '2026' } },
+                output: { ok: true },
+            }));
             render(<TaskDetailModal {...defaultProps} />);
-            fireEvent.click(screen.getByText('Output'));
+            fireEvent.click(screen.getByText('Input / Output'));
+            expect(screen.getByLabelText('Task input').textContent).toContain('upstream');
+            expect(screen.getByLabelText('Task input').textContent).toContain('2026');
+        });
+
+        it('shows an empty state when the task stored no output', () => {
+            vi.mocked(useTaskOutput).mockReturnValue(io({ output: null }));
+            render(<TaskDetailModal {...defaultProps} />);
+            fireEvent.click(screen.getByText('Input / Output'));
             expect(screen.getByText(/stored no output/i)).toBeInTheDocument();
         });
 
         it('warns when the output was truncated', () => {
-            vi.mocked(useTaskOutput).mockReturnValue({ output: null, truncated: true, loading: false, loaded: true });
+            vi.mocked(useTaskOutput).mockReturnValue(io({ truncated: true }));
             render(<TaskDetailModal {...defaultProps} />);
-            fireEvent.click(screen.getByText('Output'));
+            fireEvent.click(screen.getByText('Input / Output'));
             expect(screen.getByText(/too large to store inline/i)).toBeInTheDocument();
         });
 
         it('renders falsy output (false / 0) as JSON, not as empty', () => {
-            vi.mocked(useTaskOutput).mockReturnValue({ output: false, truncated: false, loading: false, loaded: true });
+            vi.mocked(useTaskOutput).mockReturnValue(io({ output: false }));
             render(<TaskDetailModal {...defaultProps} />);
-            fireEvent.click(screen.getByText('Output'));
+            fireEvent.click(screen.getByText('Input / Output'));
             expect(screen.getByLabelText('Task output').textContent).toContain('false');
             expect(screen.queryByText(/stored no output/i)).not.toBeInTheDocument();
         });
 
         it('shows a loading state while fetching', () => {
-            vi.mocked(useTaskOutput).mockReturnValue({ output: null, truncated: false, loading: true, loaded: false });
+            vi.mocked(useTaskOutput).mockReturnValue(io({ loading: true, loaded: false }));
             render(<TaskDetailModal {...defaultProps} />);
-            fireEvent.click(screen.getByText('Output'));
-            expect(screen.getByText(/loading output/i)).toBeInTheDocument();
+            fireEvent.click(screen.getByText('Input / Output'));
+            expect(screen.getByText(/loading/i)).toBeInTheDocument();
         });
     });
 
