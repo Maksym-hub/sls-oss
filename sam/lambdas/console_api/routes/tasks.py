@@ -231,16 +231,19 @@ def get_all_tasks(event: Dict) -> Dict:
             )
         else:
             # Fallback: Scan with filters (for queries without date)
-            # Build filter expression
+            # Build filter expression. #s/#d are always used (projection); #p is
+            # added only when the pipeline filter uses it, otherwise DynamoDB rejects
+            # the scan with "unused ExpressionAttributeNames".
             filter_parts = []
             expr_values = {}
-            expr_names = {'#s': 'status', '#d': 'date', '#p': 'pipeline_name'}
+            expr_names = {'#s': 'status', '#d': 'date'}
             
             if status_filter:
                 filter_parts.append('#s = :status')
                 expr_values[':status'] = status_filter
             
             if pipeline_filter:
+                expr_names['#p'] = 'pipeline_name'
                 filter_parts.append('#p = :pipeline')
                 expr_values[':pipeline'] = pipeline_filter
             
@@ -266,8 +269,11 @@ def get_all_tasks(event: Dict) -> Dict:
         # Format response
         tasks = []
         for item in items:
-            # Skip internal/special records (_pause_, _notify_warn_) and Backfill records.
+            # Skip internal/special records (_pause_, _notify_warn_, output#) and Backfill records.
             if should_skip_token_row(item):
+                continue
+            # A task instance must have a task_name; skip pipeline-level/partial rows.
+            if not item.get('task_name'):
                 continue
             # Calculate duration if possible — use running_at (actual task start) not started_at (wrapper start)
             duration_ms = None

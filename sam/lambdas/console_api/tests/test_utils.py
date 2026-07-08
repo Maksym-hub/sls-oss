@@ -557,3 +557,9 @@ class TestShouldSkipTokenRow:
             'execution_name': '_internal_bf',
             'record_type': 'backfill',
         }) is True
+
+
+def test_is_internal_record_catches_output_store():
+    from utils import is_internal_record
+    assert is_internal_record("output#sales#extract#2026-07-08") is True
+    assert is_internal_record("extract-2026-07-08-abc123") is False

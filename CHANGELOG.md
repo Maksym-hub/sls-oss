@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Fixed — All Tasks view (empty "All pipelines", phantom rows)
+
+- The All Tasks list returned nothing unless a specific pipeline was selected: the
+  no-date scan always declared a `#p` (pipeline_name) ExpressionAttributeName but only
+  used it when a pipeline filter was set, so DynamoDB rejected the unfiltered scan with
+  an "unused ExpressionAttributeNames" error. `#p` is now added only when used.
+- Canonical output-store rows (`output#pipeline#task#date`) are now recognised as
+  internal by `is_internal_record`, so they no longer leak into task/execution listings.
+- The All Tasks list now skips rows without a `task_name`, removing the phantom
+  "unknown" instances that were pipeline-level/partial records.
+
+
+### Fixed — unsubstituted pipeline_registry_table on the failure path
+
+- The run_task state machine referenced `${pipeline_registry_table}` (in the
+  decision-timeout lookup) but never provided that substitution, so it deployed as a
+  literal and any task that failed into the manual-decision path hit a DynamoDB
+  ValidationException. Added the missing `pipeline_registry_table` substitution. A new
+  test (`tests/backend/test_template_substitutions.py`) now asserts every `${...}` in
+  the run_task template is substituted, so this class of bug can't recur.
+- Example 04's ECS task now uses `assign_public_ip="ENABLED"` so the Fargate task in
+  the (public-subnet) test VPC can reach ECR and CloudWatch Logs.
+
+
 ### Fixed — @task.athena works out of the box (task role gains S3)
 
 - The default task role now grants S3 (`GetBucketLocation`, `ListBucket`, `GetObject`,

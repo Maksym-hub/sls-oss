@@ -73,9 +73,13 @@ def is_internal_record(execution_name: str) -> bool:
     - _pause_{pipeline_execution} — pause state
     - _notify_warn_{execution_name} — infrastructure warning (visible in Notifications bell)
 
+    Canonical output store records (``output#pipeline#task#date``, written by the
+    run_task wrapper for upstream reads) are also internal — they carry a task's
+    result, not a task execution, and must not appear in execution/task listings.
+
     All loops iterating pipeline-tokens items MUST call this and skip True results.
     """
-    return execution_name.startswith('_')
+    return execution_name.startswith('_') or execution_name.startswith('output#')
 
 
 def is_backfill_record(item: dict) -> bool:
