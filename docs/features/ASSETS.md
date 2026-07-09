@@ -562,7 +562,7 @@ Via UI:
 Assets waiting for AND conditions:
 
 ```bash
-GET /api/assets/queued?date=2026-01-12
+GET /api/assets/queued
 ```
 
 ### Skip Asset in Queue
@@ -580,7 +580,7 @@ POST /api/assets/skip-in-queue
 
 ### Clear Queue
 
-Clear all queued assets for a DAG/date:
+Clear all queued assets for a DAG (today's queue):
 
 ```bash
 POST /api/assets/clear-queue

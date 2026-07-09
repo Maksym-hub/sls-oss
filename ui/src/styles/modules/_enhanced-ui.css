@@ -532,6 +532,16 @@ textarea:focus-visible {
     color: var(--text-secondary);
 }
 
+/* Tone modifiers: tint the icon for degraded / failed states */
+.empty-state--warning .empty-state__icon {
+    background: var(--warning-light);
+    color: var(--warning);
+}
+.empty-state--error .empty-state__icon {
+    background: var(--error-light);
+    color: var(--error);
+}
+
 .empty-state__icon svg {
     width: 1.5rem;
     height: 1.5rem;

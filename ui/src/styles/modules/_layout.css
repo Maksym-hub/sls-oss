@@ -1,3 +1,59 @@
+/* ============================================================
+   App shell — narrow left navigation rail + workspace body.
+   Primary navigation lives in the rail (icon over a compact label);
+   the topbar (.header) carries contextual breadcrumbs and global controls.
+   ============================================================ */
+.app-shell {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Row below the full-width top bar: the rail + the content column. The rail's
+   vertical divider lives here, so it starts below the top bar's horizontal line. */
+.app-body {
+    display: grid;
+    grid-template-columns: 88px 1fr;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.app-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.75rem 0.375rem;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+}
+
+
+.app-rail-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+/* Vertical rail items: icon over a compact centered label */
+.app-rail-nav .nav-pill {
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    width: 100%;
+    padding: 0.625rem 0.25rem;
+    border-radius: 9px;
+    text-align: center;
+    line-height: 1.15;
+}
+.app-rail-nav .nav-pill .hdr-nav-pill-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
 .header {
     background: var(--bg-secondary);
     padding: 0.875rem 1.5rem;
@@ -473,3 +529,13 @@
 .stat-value.waiting { color: var(--waiting); }
 
 /* Canvas */
+
+/* polyris brand as the first breadcrumb (home). Small accent logo + wordmark. */
+.hdr-breadcrumb-home { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; }
+.hdr-breadcrumb-logo {
+    width: 24px; height: 24px; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--running) 100%);
+    border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: white;
+}

@@ -172,3 +172,26 @@ export const isOk = <T = unknown>(result: ApiResult<T>): result is { ok: true; d
 
 export const getData = <T = unknown>(result: ApiResult<T>, defaultValue: T | null = null): T | null => 
     result.ok ? result.data : defaultValue;
+
+/**
+ * Turn a raw API error string into a short, human-readable message for an error
+ * surface (e.g. an EmptyState). Recognizes the common console failure modes —
+ * unreachable API, an HTML page where JSON was expected (usually a misconfigured
+ * API URL), auth, and 4xx/5xx — and otherwise returns the original text.
+ */
+export function formatApiErrorMessage(error: string | null | undefined): string {
+    if (!error) return 'Something went wrong. Please try again.';
+    const e = error.toLowerCase();
+    if (e.includes('failed to fetch') || e.includes('networkerror') || e.includes('load failed')) {
+        return 'Could not reach the API. Check your connection and that the console API URL is set correctly.';
+    }
+    if (e.includes('<!doctype') || e.includes('<html') || e.includes('unexpected token')) {
+        return 'The API returned an HTML page instead of data — the console API URL is likely misconfigured.';
+    }
+    if (e.includes('404')) return 'That resource was not found (404) — it may not be available in this edition.';
+    if (e.includes('401') || e.includes('403')) return 'You are not authorized to make this request.';
+    if (e.includes('500') || e.includes('502') || e.includes('503') || e.includes('504')) {
+        return 'The API hit a server error. Please try again in a moment.';
+    }
+    return error;
+}

@@ -2,14 +2,18 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './Skeletons';
-import { formatDuration } from '../utils';
+import { formatDuration, formatApiErrorMessage } from '../utils';
 import { 
     Activity, 
     RefreshCw, 
     Search,
     Inbox,
+    AlertTriangle,
     ActionIcons,
 } from '../utils/icons';
+import { EmptyState } from './EmptyState';
+import { WorkspaceMetrics, WorkspaceFilterChips, type WorkspaceMetric, type WorkspaceFilterChip } from './WorkspaceMetrics';
+import { DatePicker } from './DatePicker';
 import { SortableHeader } from './SortableHeader';
 import { useAppStore } from '@/stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -36,8 +40,8 @@ export function AllRunsView({
     onPipelineClick,
 }: AllRunsViewProps) {
     const router = useRouter();
-    const { date, runFilter: filter, setRunFilter: onFilterChange } = useAppStore(useShallow(s => ({
-        date: s.date, runFilter: s.runFilter, setRunFilter: s.setRunFilter,
+    const { date, setDate, runFilter: filter, setRunFilter: onFilterChange } = useAppStore(useShallow(s => ({
+        date: s.date, setDate: s.setDate, runFilter: s.runFilter, setRunFilter: s.setRunFilter,
     })));
 
     // ─── URL Sync ─────────────────────────────────────────────────────────
@@ -77,7 +81,7 @@ export function AllRunsView({
     }, [filter.status, filter.pipeline]);
 
     const { data: pipelines = [] } = usePipelinesQuery();
-    const { data: runs = [], isLoading: loading, refetch: refetchAllRuns } = useAllRunsQuery(date, filter, true);
+    const { data: runs = [], isLoading: loading, isError, error, refetch: refetchAllRuns } = useAllRunsQuery(date, filter, true);
     const [sort, setSort] = useState({ key: '', dir: 'desc' });
 
     // List-view shortcuts (ADR #64): refresh.
@@ -116,12 +120,30 @@ export function AllRunsView({
         onFilterChange({ status: '', pipeline: '' });
     };
 
+    const filterChips: WorkspaceFilterChip[] = [];
+    if (filter.pipeline) filterChips.push({ label: 'Pipeline', value: filter.pipeline, onRemove: () => onFilterChange({ ...filter, pipeline: '' }) });
+    if (filter.status) filterChips.push({ label: 'Status', value: filter.status, onRemove: () => onFilterChange({ ...filter, status: '' }) });
+
     const handlePipelineClick = (run: RunFeedRow) => {
         const pipeline = pipelines.find(p => p.name === run.pipeline_name);
         if (pipeline) {
             onPipelineClick(pipeline, run);
         }
     };
+
+    const runMetrics: WorkspaceMetric[] = useMemo(() => {
+        if (!sortedRuns.length) return [];
+        const norm = (v: unknown) => String(v ?? '').toLowerCase();
+        const running = sortedRuns.filter(r => norm(r.status) === 'running').length;
+        const failed = sortedRuns.filter(r => ['failed', 'upstream_failed'].includes(norm(r.status))).length;
+        const succeeded = sortedRuns.filter(r => ['succeeded', 'success'].includes(norm(r.status))).length;
+        return [
+            { label: 'Total', value: sortedRuns.length },
+            { label: 'Running', value: running, tone: 'running' },
+            { label: 'Succeeded', value: succeeded, tone: 'success' },
+            { label: 'Failed', value: failed, tone: 'failed' },
+        ];
+    }, [sortedRuns]);
 
     return (
         <div className="panel-section">
@@ -163,6 +185,14 @@ export function AllRunsView({
                         </optgroup>
                     </select>
 
+                    {/* Date Filter (inline, mirrors All Tasks) */}
+                    <DatePicker
+                        value={date}
+                        onChange={d => setDate(d)}
+                        placeholder="All dates"
+                        ariaLabel="Filter by date"
+                    />
+
                     {/* Clear Button */}
                     {hasActiveFilters && (
                         <Button size="sm" variant="secondary" onClick={clearFilters}>
@@ -185,6 +215,9 @@ export function AllRunsView({
                     <RefreshCw size={14} /> Refresh
                 </Button>
             </div>
+
+            {!loading && !isError && <WorkspaceMetrics metrics={runMetrics} />}
+            <WorkspaceFilterChips chips={filterChips} />
 
             {/* Runs Table */}
             <div className="card">
@@ -273,19 +306,26 @@ export function AllRunsView({
                     </table>
                 )}
 
+                {/* Error State */}
+                {!loading && isError && (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        tone="error"
+                        title="Couldn't load runs"
+                        description={formatApiErrorMessage(error instanceof Error ? error.message : String(error ?? ''))}
+                        action={<Button variant="secondary" onClick={() => refetchAllRuns()}>Retry</Button>}
+                    />
+                )}
+
                 {/* Empty State */}
-                {!loading && runs.length === 0 && (
-                    <div className="empty-state">
-                        <div className="empty-state-icon">{hasActiveFilters ? <Search size={32} /> : <Inbox size={32} />}</div>
-                        <div className="empty-state-title">
-                            {hasActiveFilters ? 'No matching runs' : 'No runs found'}
-                        </div>
-                        <div className="empty-state-text">
-                            {hasActiveFilters
-                                ? 'Try adjusting your filters'
-                                : 'Pipeline runs will appear here when executions complete'}
-                        </div>
-                    </div>
+                {!loading && !isError && runs.length === 0 && (
+                    <EmptyState
+                        icon={hasActiveFilters ? Search : Inbox}
+                        title={hasActiveFilters ? 'No matching runs' : 'No runs found'}
+                        description={hasActiveFilters
+                            ? 'Try adjusting your filters'
+                            : 'Pipeline runs will appear here when executions complete'}
+                    />
                 )}
             </div>
         </div>

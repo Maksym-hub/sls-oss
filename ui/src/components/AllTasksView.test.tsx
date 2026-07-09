@@ -10,6 +10,9 @@ vi.mock('@/hooks/queries', () => ({
     usePipelinesQuery: () => ({ data: mockPipelines }),
 }));
 vi.mock('@/utils/icons', () => ({
+    Calendar: () => <span data-testid="icon-calendar" />,
+    ChevronLeft: () => <span data-testid="icon-chevronleft" />,
+    ChevronRight: () => <span data-testid="icon-chevronright" />,
     Activity: () => <span data-testid="icon-activity" />,
     Search: () => <span data-testid="icon-search" />,
     Inbox: () => <span data-testid="icon-inbox" />,
@@ -20,6 +23,9 @@ vi.mock('@/utils/icons', () => ({
     X: () => <span data-testid="icon-x" />,
 }));
 vi.mock('../utils/icons', () => ({
+    Calendar: () => <span data-testid="icon-calendar" />,
+    ChevronLeft: () => <span data-testid="icon-chevronleft" />,
+    ChevronRight: () => <span data-testid="icon-chevronright" />,
     Activity: () => <span data-testid="icon-activity" />,
     Search: () => <span data-testid="icon-search" />,
     Inbox: () => <span data-testid="icon-inbox" />,

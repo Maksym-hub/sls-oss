@@ -36,4 +36,14 @@ describe('EmptyState', () => {
         rerender(<EmptyState title="T" role="alert" />);
         expect(screen.getByRole('alert')).toBeInTheDocument();
     });
+
+    it('applies the tone modifier class for warning / error', () => {
+        const { container, rerender } = render(<EmptyState title="Down" tone="warning" />);
+        expect(container.querySelector('.empty-state--warning')).toBeInTheDocument();
+        rerender(<EmptyState title="Failed" tone="error" />);
+        expect(container.querySelector('.empty-state--error')).toBeInTheDocument();
+        rerender(<EmptyState title="Neutral" />);
+        expect(container.querySelector('.empty-state--warning')).not.toBeInTheDocument();
+    });
+
 });

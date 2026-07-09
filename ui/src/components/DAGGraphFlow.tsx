@@ -13,6 +13,7 @@ import ReactFlow, {
 } from 'reactflow';
 import dagre from 'dagre';
 import { normalizeStatus, formatCountdown, formatWaitBadge, formatDuration } from '../utils';
+import { taskTypeBadge } from '../utils/taskTypeBadge';
 import { StatusIcon, CheckCircle2, XCircle, Loader2, Clock, Settings, BarChart3, Hourglass, Check, AlertTriangle } from '../utils/icons';
 import { 
     TASK_STATUS, 
@@ -179,6 +180,18 @@ export const TaskNode = ({ data, selected }: { data: DAGTaskNodeData; selected: 
                 <span className="dag-node-label">
                     {data.label}
                 </span>
+                {(() => {
+                    const typeBadge = taskTypeBadge(data.task?.task_type);
+                    return typeBadge ? (
+                        <span
+                            className="dag-node-type-badge"
+                            style={{ background: typeBadge.color }}
+                            title={`AWS ${typeBadge.label}`}
+                        >
+                            {typeBadge.label}
+                        </span>
+                    ) : null;
+                })()}
                 {/* Subtle badge for non-default trigger rule. Operators reading the DAG
                     expect 'all_success' silently; when a task uses 'all_done', 'one_failed',
                     etc. the green-when-upstream-failed behavior surprises them. The badge

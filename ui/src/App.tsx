@@ -8,6 +8,7 @@ import {
     HelpModal,
     ErrorBoundary,
     CommandPalette,
+    AppNav,
     Header,
     PipelinesSidebar,
     PipelineDetail
@@ -30,6 +31,7 @@ const ViewLoader = () => (
     <div className="view-loader">
         <Loader2 size={32} className="animate-spin" />
         <span>Loading...</span>
+        <div className="view-loader-bar" aria-hidden="true" />
     </div>
 );
 
@@ -107,7 +109,15 @@ function App() {
     }, [mainView, AssetsView, BackfillsView, router]);
 
     return (
-        <div className="app">
+        <div className="app-shell">
+            <Header
+                apiConnected={apiConnected}
+                onNotificationNavigate={(name, execId) => navigateToExecution(name, execId)}
+                onNotificationNavigateBackfill={(backfillId) => router.push(`/backfills/${backfillId}/`)}
+            />
+            <div className="app-body">
+            <AppNav />
+            <div className="app">
             <a href="#main-content" className="skip-link">Skip to main content</a>
             
             {!apiConnected && (
@@ -116,12 +126,6 @@ function App() {
                     <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>Retry Now</Button>
                 </div>
             )}
-            
-            <Header
-                apiConnected={apiConnected}
-                onNotificationNavigate={(name, execId) => navigateToExecution(name, execId)}
-                onNotificationNavigateBackfill={(backfillId) => router.push(`/backfills/${backfillId}/`)}
-            />
             
             <main className="main" id="main-content">
                 {mainView === 'pipelines' ? (
@@ -182,6 +186,8 @@ function App() {
                 onToggleTheme={toggleTheme}
                 theme={theme}
             />
+            </div>
+            </div>
         </div>
     );
 }

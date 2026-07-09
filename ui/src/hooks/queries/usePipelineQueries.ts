@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../../utils';
 import { queryKeys } from '../../lib/queryClient';
 import type { Task, DAG, SelectedExecution, Execution, PipelineWithUI } from '../../types';
@@ -90,6 +90,9 @@ export function usePipelineDetailQuery(pipelineName: string, date: string, execu
         enabled: !!pipelineName,
         refetchInterval: options.refetchInterval || false,
         staleTime: 3 * 1000, // Detail data refreshes more frequently
+        // Keep the previous date's DAG on screen while a new date loads, so
+        // switching dates doesn't flash a skeleton (isLoading stays false).
+        placeholderData: keepPreviousData,
     });
 }
 
@@ -109,6 +112,7 @@ export function usePipelineExecutionsQuery(pipelineName: string, date: string) {
         },
         enabled: !!pipelineName,
         staleTime: 5 * 1000,
+        placeholderData: keepPreviousData,
     });
 }
 

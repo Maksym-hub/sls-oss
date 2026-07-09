@@ -264,6 +264,18 @@ def deploy_pipeline(
 ):
     """Deploy a single DAG via CloudFormation."""
 
+    # Validate the DAG before touching AWS — fail fast on structural errors, the
+    # same check polyris-validate runs. Deploying an invalid DAG only fails later
+    # (or ships a broken pipeline), so gate here.
+    from polyris.validation import validate_asl_from_dag
+    is_valid, validation_errors, _warnings = validate_asl_from_dag(dag, verbose=False)
+    if not is_valid:
+        print(f"\n❌ Validation failed for '{dag.dag_id}' — not deploying:")
+        for err_msg in validation_errors:
+            print(f"   - {err_msg}")
+        print("   Fix the errors above (or run polyris-validate) and retry.")
+        sys.exit(1)
+
     stage = stage or polyris_config.stage
     region = region or polyris_config.region
     namespace = polyris_config.namespace

@@ -1,24 +1,16 @@
 import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Button } from '@/components/ui/button';
 import Notifications from './Notifications';
 import { UserMenu } from './UserMenu';
-import { toDateString, viewFromPathname } from '../utils';
+import { viewFromPathname } from '../utils';
 import { useAppStore } from '../stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
-import { paidSurface } from '@/ee-active.generated';
-import { ViewTab } from './ViewTab';
-import { 
-    Workflow, 
-    Package, 
-    ListTodo, 
-    Activity, 
-    RefreshCw, 
-    Pause, 
-    HelpCircle,
+import {
+    RefreshCw,
+    Zap,
+    Pause,
     Sun,
     Moon,
-    Zap,
     ChevronRight,
     Menu,
     X
@@ -32,107 +24,40 @@ interface HeaderProps {
 }
 
 /**
- * Header - Main application header with navigation and controls.
- * Reads top-level view from pathname (Next file-system routes); other state
- * from Zustand store.
+ * Header — the app-shell topbar: contextual breadcrumbs and global controls.
+ *
+ * Primary navigation lives in the left rail (AppNav); this topbar carries location
+ * (breadcrumbs) and global controls (API status, auto-refresh, notifications, theme,
+ * user menu). Top-level view is read from the pathname; other state from Zustand.
  */
 export function Header({ apiConnected, onNotificationNavigate, onNotificationNavigateBackfill }: HeaderProps) {
-    const router = useRouter();
     const pathname = usePathname();
     const mainView = viewFromPathname(pathname);
 
     const {
-        date, setDate,
         liveMode, toggleLiveMode,
         theme, toggleTheme,
         sidebarOpen, toggleSidebar,
-        setShowHelpModal,
     } = useAppStore(useShallow(s => ({
-        date: s.date, setDate: s.setDate,
         liveMode: s.liveMode, toggleLiveMode: s.toggleLiveMode,
         theme: s.theme, toggleTheme: s.toggleTheme,
         sidebarOpen: s.sidebarOpen, toggleSidebar: s.toggleSidebar,
-        setShowHelpModal: s.setShowHelpModal,
     })));
-
-    const switchView = (view: string) => router.push(`/${view}/`);
-
-    // Assets & Backfills are paid surfaces. The OSS build ships neither the views
-    // nor the nav entries — each tab renders only when the paid surface provides it.
-    const BackfillNavTab = paidSurface.BackfillNavTab;
-    const AssetsView = paidSurface.AssetsView;
 
     return (
         <header className="header" role="banner">
-            {/* Mobile hamburger */}
+            {/* Mobile hamburger — only where a secondary sidebar exists */}
             {(mainView === 'pipelines' || mainView === 'assets') && (
                 <button className="hdr-hamburger-btn" onClick={toggleSidebar} title="Toggle sidebar" aria-label={sidebarOpen ? 'Close sidebar' : 'Open sidebar'} aria-expanded={sidebarOpen}>
                     {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
                 </button>
             )}
 
-            {/* Logo */}
-            <div className="hdr-logo">
-                <div className="hdr-logo-icon"><Zap size={20} /></div>
-                polyris Console
-            </div>
-
             {/* Breadcrumbs */}
             <Breadcrumbs />
 
-            {/* View Switcher */}
-            <nav className="nav-pills ml-lg" aria-label="Main navigation">
-                <ViewTab
-                    active={mainView === 'pipelines'}
-                    onClick={() => switchView('pipelines')}
-                    icon={<Workflow size={16} />}
-                    label="Pipelines"
-                />
-                {AssetsView && (
-                    <ViewTab
-                        active={mainView === 'assets'}
-                        onClick={() => switchView('assets')}
-                        icon={<Package size={16} />}
-                        label="Assets"
-                    />
-                )}
-                <ViewTab
-                    active={mainView === 'tasks'}
-                    onClick={() => switchView('tasks')}
-                    icon={<ListTodo size={16} />}
-                    label="All Tasks"
-                />
-                <ViewTab
-                    active={mainView === 'runs'}
-                    onClick={() => switchView('runs')}
-                    icon={<Activity size={16} />}
-                    label="All Runs"
-                />
-                {BackfillNavTab && (
-                    <BackfillNavTab
-                        active={mainView === 'backfills'}
-                        onClick={() => switchView('backfills')}
-                    />
-                )}
-            </nav>
-
             {/* Header Controls */}
             <div className="hdr-header-controls">
-                {/* Date Picker */}
-                {(mainView === 'pipelines' || mainView === 'runs' || mainView === 'assets') && (
-                    <div className="hdr-date-picker">
-                        <input
-                            type="date"
-                            value={date}
-                            onChange={(e) => setDate(e.target.value)}
-                            aria-label="Select date"
-                        />
-                        <Button onClick={() => setDate(toDateString(new Date()))}>
-                            Today
-                        </Button>
-                    </div>
-                )}
-
                 {/* API Status */}
                 <div
                     className="hdr-status-badge"
@@ -155,22 +80,11 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleLiveMode(); } }}
                     title={liveMode ? 'Click to pause auto-refresh' : 'Click to enable auto-refresh'}
                 >
-                    {liveMode ? <><RefreshCw size={14} className="animate-spin" /> Auto</> : <><Pause size={14} /> Paused</>}
+                    {liveMode ? <><RefreshCw size={14} className="hdr-auto-spin" /> Auto</> : <><Pause size={14} /> Paused</>}
                 </div>
 
                 {/* Notifications */}
                 <Notifications onNavigate={onNotificationNavigate} onNavigateBackfill={onNotificationNavigateBackfill} />
-
-                {/* Help Button */}
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowHelpModal(true)}
-                    aria-label="Help and documentation"
-                    title="Help & Documentation"
-                >
-                    <HelpCircle size={18} />
-                </Button>
 
                 {/* Theme Toggle */}
                 <button
@@ -181,8 +95,8 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
                 >
                     {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
                 </button>
-                
-                {/* User Menu */}
+
+                {/* User Menu (Settings and Help & documentation live inside this dropdown) */}
                 <UserMenu />
             </div>
         </header>
@@ -209,8 +123,9 @@ function Breadcrumbs() {
 
     return (
         <nav className="hdr-breadcrumbs" aria-label="Breadcrumb">
-            <span className="hdr-breadcrumb-item clickable" onClick={onHomeClick} role="link" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') onHomeClick(); }}>
-                Home
+            <span className="hdr-breadcrumb-item hdr-breadcrumb-home clickable" onClick={onHomeClick} role="link" tabIndex={0} aria-label="polyris — home" onKeyDown={e => { if (e.key === 'Enter') onHomeClick(); }}>
+                <span className="hdr-breadcrumb-logo"><Zap size={16} /></span>
+                polyris
             </span>
 
             {mainView === 'pipelines' && selectedPipeline && (

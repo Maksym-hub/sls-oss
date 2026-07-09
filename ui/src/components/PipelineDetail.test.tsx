@@ -225,7 +225,15 @@ describe('PipelineDetail', () => {
     describe('action buttons', () => {
         it('has a Run button', () => {
             render(<PipelineDetail {...defaultProps} />);
-            expect(screen.getByText(/Run/i)).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /run/i })).toBeInTheDocument();
+        });
+
+        it('renders the Execution history trigger even with no executions on the date (regression: drawer must stay reachable to change the date)', () => {
+            const prev = mockExecQuery.data;
+            mockExecQuery.data = [];
+            render(<PipelineDetail {...defaultProps} />);
+            expect(screen.getByRole('button', { name: /Execution history/i })).toBeInTheDocument();
+            mockExecQuery.data = prev;
         });
 
         it('calls handleRun when Run clicked', () => {

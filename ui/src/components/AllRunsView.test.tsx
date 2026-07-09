@@ -15,6 +15,10 @@ vi.mock('@/hooks/queries', () => ({
     usePipelinesQuery: () => ({ data: mockPipelines }),
 }));
 vi.mock('@/utils/icons', () => ({
+    Calendar: () => <span data-testid="icon-calendar" />,
+    ChevronLeft: () => <span data-testid="icon-chevronleft" />,
+    ChevronRight: () => <span data-testid="icon-chevronright" />,
+    X: () => <span data-testid="icon-x" />,
     Activity: () => <span data-testid="icon-activity" />,
     RefreshCw: () => <span data-testid="icon-refresh" />,
     Search: () => <span data-testid="icon-search" />,
@@ -207,4 +211,13 @@ describe('AllRunsView', () => {
             expect(values).toEqual(expect.arrayContaining(['completed', 'partial', 'canceled', 'pending']));
         });
     });
+
+    describe('inline date picker', () => {
+        it('renders an inline date picker showing the current date (mirrors All Tasks)', () => {
+            render(<AllRunsView {...defaultProps} />);
+            // The app-styled DatePicker shows the formatted date on its trigger button.
+            expect(screen.getByText('Jan 15, 2024')).toBeInTheDocument();
+        });
+    });
+
 });

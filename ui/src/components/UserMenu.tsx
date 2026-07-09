@@ -12,6 +12,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { UserMenuProps } from '@/types';
 import { useAuth } from '@/hooks/useAuth';
+import { useAppStore } from '@/stores/useAppStore';
+import { useShallow } from 'zustand/react/shallow';
 import { 
     User, 
     LogOut, 
@@ -19,6 +21,7 @@ import {
     Shield,
     Users,
     Settings,
+    HelpCircle,
     Loader2
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
@@ -43,6 +46,7 @@ const getInitials = (name: string, email: string) => {
  */
 export function UserMenu({ onManageUsers }: UserMenuProps) {
     const { user, signOut, isAuthEnabled } = useAuth();
+    const { setShowHelpModal } = useAppStore(useShallow(s => ({ setShowHelpModal: s.setShowHelpModal })));
     const [isOpen, setIsOpen] = useState(false);
     const [isSigningOut, setIsSigningOut] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -92,17 +96,16 @@ export function UserMenu({ onManageUsers }: UserMenuProps) {
         }
     }, [signOut]);
     
-    // Don't render if auth is disabled
-    if (!isAuthEnabled) {
+    // When auth is enabled but nobody is signed in, the login screen shows instead.
+    if (isAuthEnabled && !user) {
         return null;
     }
-    
-    if (!user) {
-        return null;
-    }
-    
-    const initials = getInitials(user.name || '', user.email || '');
-    const displayName = user.name || user.email?.split('@')[0] || 'User';
+
+    // Authenticated when auth is on and a user is present; otherwise render a minimal
+    // app menu (Settings + Help) so both stay reachable in no-auth deployments.
+    const authed = isAuthEnabled && !!user;
+    const initials = authed ? getInitials(user!.name || '', user!.email || '') : '';
+    const displayName = authed ? (user!.name || user!.email?.split('@')[0] || 'User') : '';
     
     return (
         <div className="um-user-menu" ref={menuRef}>
@@ -111,35 +114,44 @@ export function UserMenu({ onManageUsers }: UserMenuProps) {
                 onClick={() => setIsOpen(!isOpen)}
                 aria-expanded={isOpen}
                 aria-haspopup="true"
+                aria-label={authed ? undefined : 'Menu'}
             >
-                <div className="um-user-avatar">{initials}</div>
-                <span className="um-user-name">{displayName}</span>
+                {authed ? (
+                    <>
+                        <div className="um-user-avatar">{initials}</div>
+                        <span className="um-user-name">{displayName}</span>
+                    </>
+                ) : (
+                    <Settings size={18} />
+                )}
                 <ChevronDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             </button>
             
             {isOpen && (
                 <div className="um-user-menu-dropdown" role="menu">
-                    <div className="um-user-menu-header">
-                        <div className="um-user-avatar um-user-avatar--lg">{initials}</div>
-                        <div className="um-user-menu-identity">
-                            <div className="um-user-menu-name">{displayName}</div>
-                            <div className="um-user-menu-email">{user.email}</div>
-                            <div className="um-user-menu-role">
-                                {user.isAdmin ? (
-                                    <>
-                                        <Shield size={12} />
-                                        Admin
-                                    </>
-                                ) : (
-                                    <>
-                                        <User size={12} />
-                                        User
-                                    </>
-                                )}
+                    {authed && (
+                        <div className="um-user-menu-header">
+                            <div className="um-user-avatar um-user-avatar--lg">{initials}</div>
+                            <div className="um-user-menu-identity">
+                                <div className="um-user-menu-name">{displayName}</div>
+                                <div className="um-user-menu-email">{user!.email}</div>
+                                <div className="um-user-menu-role">
+                                    {user!.isAdmin ? (
+                                        <>
+                                            <Shield size={12} />
+                                            Admin
+                                        </>
+                                    ) : (
+                                        <>
+                                            <User size={12} />
+                                            User
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
+                    )}
+
                     <div className="um-user-menu-content">
                         <button
                             className="um-user-menu-item"
@@ -152,43 +164,59 @@ export function UserMenu({ onManageUsers }: UserMenuProps) {
                             <Settings size={16} />
                             Settings
                         </button>
-                        <div className="um-user-menu-divider" />
-
-                        {user.isAdmin && onManageUsers && (
-                            <>
-                                <button
-                                    className="um-user-menu-item"
-                                    onClick={() => {
-                                        setIsOpen(false);
-                                        onManageUsers();
-                                    }}
-                                    role="menuitem"
-                                >
-                                    <Users size={16} />
-                                    Manage Users
-                                </button>
-                                <div className="um-user-menu-divider" />
-                            </>
-                        )}
-                        
                         <button
-                            className="um-user-menu-item um-destructive"
-                            onClick={handleSignOut}
-                            disabled={isSigningOut}
+                            className="um-user-menu-item"
+                            onClick={() => {
+                                setIsOpen(false);
+                                setShowHelpModal(true);
+                            }}
                             role="menuitem"
                         >
-                            {isSigningOut ? (
-                                <>
-                                    <Loader2 size={16} className="animate-spin" />
-                                    Signing out...
-                                </>
-                            ) : (
-                                <>
-                                    <LogOut size={16} />
-                                    Sign Out
-                                </>
-                            )}
+                            <HelpCircle size={16} />
+                            Help &amp; documentation
                         </button>
+
+                        {authed && (
+                            <>
+                                <div className="um-user-menu-divider" />
+
+                                {user!.isAdmin && onManageUsers && (
+                                    <>
+                                        <button
+                                            className="um-user-menu-item"
+                                            onClick={() => {
+                                                setIsOpen(false);
+                                                onManageUsers();
+                                            }}
+                                            role="menuitem"
+                                        >
+                                            <Users size={16} />
+                                            Manage Users
+                                        </button>
+                                        <div className="um-user-menu-divider" />
+                                    </>
+                                )}
+
+                                <button
+                                    className="um-user-menu-item um-destructive"
+                                    onClick={handleSignOut}
+                                    disabled={isSigningOut}
+                                    role="menuitem"
+                                >
+                                    {isSigningOut ? (
+                                        <>
+                                            <Loader2 size={16} className="animate-spin" />
+                                            Signing out...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <LogOut size={16} />
+                                            Sign Out
+                                        </>
+                                    )}
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

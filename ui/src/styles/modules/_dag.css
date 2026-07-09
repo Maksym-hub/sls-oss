@@ -35,7 +35,11 @@
 }
 .pd-canvas-title { font-size: 1.125rem; font-weight: 600; }
 .pd-canvas-subtitle { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.125rem; }
-.pd-canvas-actions { display: flex; gap: 0.5rem; }
+
+.pd-canvas-actions { display: flex; align-items: center; gap: 0.75rem; }
+.pd-action-group { display: flex; align-items: center; gap: 0.5rem; }
+/* Subtle divider between intent groups (utility | primary | danger) */
+.pd-action-group + .pd-action-group { padding-left: 0.75rem; border-left: 1px solid var(--border); }
 
 .pd-canvas-content {
     flex: 1; 
@@ -441,6 +445,22 @@
     white-space: nowrap;
     flex-shrink: 0;
 }
+
+/* AWS-style service badge on a DAG node — brand colour set inline (taskTypeBadge). */
+.dag-node-type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.5625rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+    color: #fff;
+    flex-shrink: 0;
+    text-transform: uppercase;
+}
+
 
 /* ─── CountdownTimer (I1: inline→CSS) ────────────────────────────────────── */
 .ct-wrapper {

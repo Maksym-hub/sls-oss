@@ -12,6 +12,9 @@ export interface EmptyStateProps {
     action?: React.ReactNode;
     /** ARIA live-region role. 'status' (default) for informational states. */
     role?: 'status' | 'alert';
+    /** Visual tone. 'neutral' (default) for information; 'warning'/'error' tint
+     *  the icon for degraded or failed states. */
+    tone?: 'neutral' | 'warning' | 'error';
 }
 
 /**
@@ -23,9 +26,10 @@ export interface EmptyStateProps {
  * lives in `.empty-state` (styles/modules/_enhanced-ui.css) and themes via the
  * app's CSS variables, so it tracks light/dark automatically.
  */
-export function EmptyState({ icon: Icon, title, description, action, role = 'status' }: EmptyStateProps) {
+export function EmptyState({ icon: Icon, title, description, action, role = 'status', tone = 'neutral' }: EmptyStateProps) {
+    const toneClass = tone !== 'neutral' ? ` empty-state--${tone}` : '';
     return (
-        <div className="empty-state" role={role}>
+        <div className={`empty-state${toneClass}`} role={role}>
             {Icon && (
                 <div className="empty-state__icon" aria-hidden="true">
                     <Icon />

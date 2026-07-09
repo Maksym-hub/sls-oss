@@ -426,21 +426,30 @@ function DetailsTab({ task, tasks, dag, childPipeline, serverOffsetMs, onTaskSel
                             <div className="detail-section">
                                 <div className="detail-label">AWS Console</div>
                                 <div className="flex flex-col gap-xs mt-sm">
-                                    <a 
-                                        href={buildAwsConsoleUrl(task.task_execution_arn || task.wrapper_execution_arn)} 
-                                        target="_blank" 
-                                        rel="noopener noreferrer"
-                                        className="td-link-primary"
-                                    >
-                                        <FileText size={12} /> Task {!task.task_execution_arn && '(via Wrapper)'}
-                                        <ExternalLink size={10} className="opacity-50" />
-                                    </a>
+                                    {/* buildAwsConsoleUrl only builds a Step Functions console
+                                        URL, so the direct "Task" link is correct only when the
+                                        task's execution ARN is itself a Step Functions execution
+                                        (SFN tasks). Other task types (ECS / Glue / Athena / …)
+                                        have no states ARN, so they get only the Wrapper link —
+                                        AWS's own console surfaces the real resource link on the
+                                        wrapper execution page. */}
+                                    {task.task_execution_arn?.includes(':states:') && (
+                                        <a 
+                                            href={buildAwsConsoleUrl(task.task_execution_arn)} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="td-link-primary"
+                                        >
+                                            <FileText size={12} /> Task
+                                            <ExternalLink size={10} className="opacity-50" />
+                                        </a>
+                                    )}
                                     {task.wrapper_execution_arn && (
                                         <a 
                                             href={buildAwsConsoleUrl(task.wrapper_execution_arn)} 
                                             target="_blank" 
                                             rel="noopener noreferrer"
-                                            className="td-link-muted"
+                                            className="td-link-primary"
                                         >
                                             <RotateCcw size={12} /> Wrapper
                                             <ExternalLink size={10} className="opacity-50" />
@@ -728,7 +737,9 @@ function ActionsTab({ task, upstreamCount, downstreamCount, onAction, onRunActio
                 </div>
             </div>
 
-            {/* Backfill Actions (v0.78+, ADR #51) */}
+            {/* Backfill Actions (v0.78+, ADR #51) — Team-only paid surface, same
+                gate as the pipeline Backfill button. Hidden in the free (OSS) build. */}
+            {paidSurface.BackfillNavTab && (
             <div className="action-group">
                 <div className="action-group-title">Backfill</div>
                 <div className="action-buttons">
@@ -751,6 +762,7 @@ function ActionsTab({ task, upstreamCount, downstreamCount, onAction, onRunActio
                     </button>
                 </div>
             </div>
+            )}
         </div>
     );
 }

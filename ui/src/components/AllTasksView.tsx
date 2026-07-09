@@ -1,8 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './Skeletons';
-import { formatDuration } from '../utils';
-import { StatusIcon, ListTodo, Search, X, Inbox } from '../utils/icons';
+import { formatDuration, formatApiErrorMessage } from '../utils';
+import { StatusIcon, ListTodo, Search, X, Inbox, AlertTriangle } from '../utils/icons';
+import { EmptyState } from './EmptyState';
+import { WorkspaceMetrics, WorkspaceFilterChips, type WorkspaceMetric, type WorkspaceFilterChip } from './WorkspaceMetrics';
+import { DatePicker } from './DatePicker';
 import { SortableHeader } from './SortableHeader';
 import { useAppStore } from '@/stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -79,7 +82,7 @@ export function AllTasksView({
 
     const { data: pipelines = [] } = usePipelinesQuery();
     const allTasksQuery = useAllTasksQuery(filter, true);
-    const { data: tasks = [], isLoading: loading } = allTasksQuery;
+    const { data: tasks = [], isLoading: loading, isError, error } = allTasksQuery;
     const [sort, setSort] = useState({ key: '', dir: 'desc' });
     const taskNameInputRef = useRef<HTMLInputElement>(null);
 
@@ -121,12 +124,32 @@ export function AllTasksView({
         onFilterChange({ status: '', date: '', pipeline: '', taskName: '' });
     };
 
+    const filterChips: WorkspaceFilterChip[] = [];
+    if (filter.pipeline) filterChips.push({ label: 'Pipeline', value: filter.pipeline, onRemove: () => onFilterChange({ ...filter, pipeline: '' }) });
+    if (filter.status) filterChips.push({ label: 'Status', value: filter.status, onRemove: () => onFilterChange({ ...filter, status: '' }) });
+    if (filter.taskName) filterChips.push({ label: 'Task', value: filter.taskName, onRemove: () => onFilterChange({ ...filter, taskName: '' }) });
+    if (filter.date) filterChips.push({ label: 'Date', value: filter.date, onRemove: () => onFilterChange({ ...filter, date: '' }) });
+
     const handlePipelineClick = (pipelineName: string, taskDate: string) => {
         const pipeline = pipelines.find(p => p.name === pipelineName);
         if (pipeline) {
             onPipelineClick(pipeline, taskDate);
         }
     };
+
+    const taskMetrics: WorkspaceMetric[] = useMemo(() => {
+        if (!sortedTasks.length) return [];
+        const norm = (v: unknown) => String(v ?? '').toLowerCase();
+        const running = sortedTasks.filter(t => ['running', 'deps_ready', 'waiting_delay'].includes(norm(t.status))).length;
+        const failed = sortedTasks.filter(t => ['failed', 'upstream_failed'].includes(norm(t.status))).length;
+        const succeeded = sortedTasks.filter(t => ['succeeded', 'success', 'skipped'].includes(norm(t.status))).length;
+        return [
+            { label: 'Total', value: sortedTasks.length },
+            { label: 'Running', value: running, tone: 'running' },
+            { label: 'Succeeded', value: succeeded, tone: 'success' },
+            { label: 'Failed', value: failed, tone: 'failed' },
+        ];
+    }, [sortedTasks]);
 
     return (
         <div className="panel-section">
@@ -171,11 +194,11 @@ export function AllTasksView({
                     </select>
 
                     {/* Date Filter */}
-                    <input
-                        type="date"
+                    <DatePicker
                         value={filter.date}
-                        onChange={e => onFilterChange({ ...filter, date: e.target.value })}
-                        className="input-sm"
+                        onChange={d => onFilterChange({ ...filter, date: d })}
+                        placeholder="All dates"
+                        ariaLabel="Filter by date"
                     />
 
                     {/* Clear Button */}
@@ -195,6 +218,9 @@ export function AllTasksView({
                     )}
                 </span>
             </div>
+
+            {!loading && !isError && <WorkspaceMetrics metrics={taskMetrics} />}
+            <WorkspaceFilterChips chips={filterChips} />
 
             {/* Tasks Table */}
             <div className="card">
@@ -244,19 +270,26 @@ export function AllTasksView({
                     </table>
                 )}
 
+                {/* Error State */}
+                {!loading && isError && (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        tone="error"
+                        title="Couldn't load tasks"
+                        description={formatApiErrorMessage(error instanceof Error ? error.message : String(error ?? ''))}
+                        action={<Button variant="secondary" onClick={() => allTasksQuery.refetch()}>Retry</Button>}
+                    />
+                )}
+
                 {/* Empty State */}
-                {!loading && tasks.length === 0 && (
-                    <div className="empty-state">
-                        <div className="empty-state-icon">{hasActiveFilters ? <Search size={32} /> : <Inbox size={32} />}</div>
-                        <div className="empty-state-title">
-                            {hasActiveFilters ? 'No matching tasks' : 'No tasks found'}
-                        </div>
-                        <div className="empty-state-text">
-                            {hasActiveFilters
-                                ? 'Try adjusting your filters'
-                                : 'Task instances will appear here when pipelines run'}
-                        </div>
-                    </div>
+                {!loading && !isError && tasks.length === 0 && (
+                    <EmptyState
+                        icon={hasActiveFilters ? Search : Inbox}
+                        title={hasActiveFilters ? 'No matching tasks' : 'No tasks found'}
+                        description={hasActiveFilters
+                            ? 'Try adjusting your filters'
+                            : 'Task instances will appear here when pipelines run'}
+                    />
                 )}
             </div>
         </div>

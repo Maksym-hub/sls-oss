@@ -47,7 +47,7 @@ export function useAllRunsQuery(date: string, filters: { status?: string; pipeli
         queryKey: queryKeys.allRuns(date, filters),
         queryFn: async () => {
             const params = new URLSearchParams();
-            params.append('date', date);
+            if (date) params.append('date', date);
             if (status) params.append('status', status);
             if (pipeline) params.append('pipeline', pipeline);
             
@@ -57,7 +57,7 @@ export function useAllRunsQuery(date: string, filters: { status?: string; pipeli
             }
             return (data.runs || []) as RunFeedRow[];
         },
-        enabled: enabled && !!date,
+        enabled,
         staleTime: 5 * 1000,
     });
 }

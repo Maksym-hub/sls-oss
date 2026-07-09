@@ -55,72 +55,35 @@ describe('Header', () => {
     });
 
     describe('rendering', () => {
-        it('renders logo', () => {
-            render(<Header {...props} />);
-            expect(screen.getByText(/polyris Console/)).toBeInTheDocument();
-        });
-
-        it('renders the free navigation tabs (Assets/Backfills are paid, hidden in OSS)', () => {
-            render(<Header {...props} />);
-            expect(screen.getByText('Pipelines')).toBeInTheDocument();
-            expect(screen.getByText('All Tasks')).toBeInTheDocument();
-            expect(screen.getByText('All Runs')).toBeInTheDocument();
-            // OSS paidSurface is empty → Assets & Backfills tabs are not rendered.
-            expect(screen.queryByText('Assets')).not.toBeInTheDocument();
-            expect(screen.queryByText('Backfills')).not.toBeInTheDocument();
-        });
-
         it('renders Notifications and UserMenu', () => {
             render(<Header {...props} />);
             expect(screen.getByTestId('notifications')).toBeInTheDocument();
             expect(screen.getByTestId('user-menu')).toBeInTheDocument();
         });
-    });
 
-    describe('view switching', () => {
-        it('navigates via router.push when tab clicked', () => {
-            setPathname('/assets/');
+        it('renders the polyris home breadcrumb', () => {
             render(<Header {...props} />);
-            fireEvent.click(screen.getByText('Pipelines'));
-            expect(pushMock).toHaveBeenCalledWith('/pipelines/');
-        });
-
-        it('marks active tab based on pathname', () => {
-            setPathname('/runs/');
-            render(<Header {...props} />);
-            const navPills = document.querySelector('.nav-pills');
-            const runsTab = Array.from(navPills!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('All Runs'));
-            expect(runsTab?.classList.contains('active')).toBeTruthy();
-        });
-
-        it('handles trailing slash and no slash equally', () => {
-            setPathname('/runs');
-            render(<Header {...props} />);
-            const navPills = document.querySelector('.nav-pills');
-            const runsTab = Array.from(navPills!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('All Runs'));
-            expect(runsTab?.classList.contains('active')).toBeTruthy();
+            expect(screen.getByText('polyris')).toBeInTheDocument();
         });
     });
 
     describe('date picker', () => {
-        it('renders date picker in pipelines view', () => {
+        // The topbar date picker was removed: the pipeline page scopes the date in its
+        // execution-history drawer, and All Runs / All Tasks each have their own inline
+        // date picker. So the header should show no date picker in any view.
+        it('shows no date picker in the header (runs)', () => {
+            setPathname('/runs/');
             render(<Header {...props} />);
-            expect(screen.getByDisplayValue('2024-01-15')).toBeInTheDocument();
+            expect(screen.queryByText('Today')).not.toBeInTheDocument();
+            expect(screen.queryByDisplayValue('2024-01-15')).not.toBeInTheDocument();
         });
 
-        it('updates store when date changes', () => {
+        it('shows no date picker in the header (pipelines)', () => {
             render(<Header {...props} />);
-            fireEvent.change(screen.getByDisplayValue('2024-01-15'), { target: { value: '2024-02-01' } });
-            expect(useAppStore.getState().date).toBe('2024-02-01');
+            expect(screen.queryByText('Today')).not.toBeInTheDocument();
         });
 
-        it('sets today when Today clicked', () => {
-            render(<Header {...props} />);
-            fireEvent.click(screen.getByText('Today'));
-            expect(useAppStore.getState().date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-        });
-
-        it('hides date picker in tasks view', () => {
+        it('shows no date picker in the header (tasks)', () => {
             setPathname('/tasks/');
             render(<Header {...props} />);
             expect(screen.queryByText('Today')).not.toBeInTheDocument();
@@ -173,10 +136,9 @@ describe('Header', () => {
     });
 
     describe('help button', () => {
-        it('sets showHelpModal in store', () => {
+        it('no longer lives in the header — it moved into the UserMenu dropdown', () => {
             render(<Header {...props} />);
-            fireEvent.click(screen.getByTitle('Help & Documentation'));
-            expect(useAppStore.getState().showHelpModal).toBe(true);
+            expect(screen.queryByTitle('Help & Documentation')).not.toBeInTheDocument();
         });
     });
 

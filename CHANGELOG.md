@@ -2,6 +2,176 @@
 
 ## Unreleased
 
+### Fixed
+
+- The DatePicker calendar is now rendered in a portal (anchored to the trigger,
+  positioned via `fixed`), so it no longer gets clipped when the picker sits inside a
+  container with `overflow: hidden` — e.g. the pipeline execution-history dropdown. It
+  also layers correctly above modals.
+
+
+### Changed — one app-styled calendar everywhere
+
+- Added a single app-styled `DatePicker` component and replaced every native
+  `<input type="date">` with it — All Tasks, All Runs, the pipeline execution-history
+  dropdown, and (in the Team edition) the backfill From/To range. Every calendar in the
+  app now shares one look (month navigation, highlighted selection and today, Clear /
+  Today), instead of the browser's default date popup.
+
+
+### Fixed
+
+- All Pipeline Runs with an empty date now shows all recent runs (the backend returns
+  the last 14 days when no date is given), matching All Tasks. Previously the query was
+  disabled when the date was cleared, so the page showed no runs.
+
+
+### Changed — pipeline / runs polish
+
+- Removed the "Latest execution" summary strip from the pipeline cockpit header.
+- All Pipeline Runs now has its own inline date picker in the filter bar, matching
+  All Tasks. The topbar date picker is gone entirely — each view owns its own date
+  control (the pipeline page keeps its execution-history date control).
+- The header auto-refresh badge spinner is now deliberately very slow (8s per rotation)
+  so it reads as a calm indicator instead of a fast, distracting spin. (Polling
+  frequency is unchanged.)
+
+
+### Changed — task detail AWS Console links
+
+- The task detail modal shows two AWS Console links again, but the direct **Task** link
+  now appears only for Step Functions tasks (where the task execution ARN is itself a
+  states execution and the console URL builder can produce a valid link). For every other
+  task type (ECS / Glue / Athena / Batch / Lambda) only the **Wrapper** link is shown —
+  AWS's own console surfaces the real resource link on the wrapper execution page. This
+  avoids the previous broken / dead Task links for non-SFN task types, and needs no
+  backend change.
+
+
+### Changed — pipeline page polish
+
+- The left navigation rail is a little larger and easier to read (wider rail, bigger
+  icons and labels).
+- Switching the execution date no longer flashes a skeleton: the detail and executions
+  queries keep the previous date's data on screen while the new one loads
+  (`placeholderData: keepPreviousData`).
+
+
+### Fixed
+
+- The task detail modal Backfill action ("Backfill This Task") was leaking into the free
+  build. It is now gated behind the same `paidSurface.BackfillNavTab` as the pipeline
+  Backfill button, so it only appears in the Team edition. Task control actions (Restart,
+  Run to/from Here) remain available in OSS.
+
+
+### Changed — Help moved into the user menu
+
+- Help & documentation moved from the topbar into the user-menu dropdown, next to
+  Settings. The topbar is less cluttered, and Help stays reachable via the '?' shortcut
+  and the command palette. To keep Settings and Help available in no-auth deployments
+  (where the user menu previously did not render at all), the menu now shows a minimal
+  Settings + Help dropdown when auth is disabled.
+
+
+### Fixed
+
+- The execution-history drawer trigger now always renders, even when the current
+  date has no executions. Previously it was gated on `executions.length > 0`, which —
+  combined with moving the date picker into the drawer — deadlocked the pipeline page
+  on an empty date (no trigger → no date picker → no way to reach other dates). The
+  no-executions message now points to Execution history.
+- When the selected date has no executions, the empty state now offers a **View latest run - <date>** action (from the pipeline recent-runs stats) that jumps straight to the most recent execution, so there is no guessing which past date has a run.
+
+
+### Changed — UI redesign, batch 3 (complete): execution history dropdown
+
+- The pipeline execution history is a **dropdown** that opens below its trigger button.
+  It now owns the pipeline's date scope — a date input plus a Today button (Today clears
+  the selected execution) inside the dropdown — and lists the executions for that date. Consequently the **topbar date picker no longer shows on the pipeline
+  page** (the drawer scopes executions there); it remains on All Runs. The trigger now
+  reads "Execution history (N)".
+
+
+### Changed — UI redesign, batch 4/5 (start): workspace metrics
+
+- All Runs and All Tasks now show a compact metrics row (Total / Running / Succeeded /
+  Failed, colour-toned) above the table, via a reusable `WorkspaceMetrics` component,
+  so the shape of the list is visible at a glance.
+- All Runs and All Tasks now show **removable filter chips** for each active filter
+  (Pipeline / Status / Task / Date) via a reusable `WorkspaceFilterChips` component —
+- The lazy-view loader now shows an indeterminate progress bar under the spinner, so
+  a view that's still loading reads as in-progress rather than stalled.
+  each chip clears just its own filter, alongside the existing Clear-all control.
+
+
+### Changed — UI redesign, batch 6 (start): AWS-style task-type badges on DAG nodes
+
+- DAG task nodes now show an AWS-style service badge (LAMBDA / GLUE / ATHENA / ECS /
+  BATCH / SFN) beside the task name, coloured by the AWS Architecture-icon category
+  palette (compute orange, analytics purple, application-integration magenta) via the
+  `taskTypeBadge` helper — the compute type is recognizable without opening the task
+  modal. The badge is a local text-plus-colour mark; it does not embed AWS artwork.
+- The All Tasks and All Runs empty states now render through the shared `EmptyState`
+  primitive (icon + title + description) instead of bespoke markup, so they theme and
+  read consistently with the rest of the app.
+
+
+### Changed — assets are a current-state surface; date picker off /assets (ADR #106)
+
+- The asset console no longer reads the global date. `/assets/recent-events` and
+  `/assets/queued` always use today (no `date` param; recent-events shows the latest
+  30 in a scrolling panel), and the asset queue mutations act on today's queue.
+  Per-date asset history stays on the matrix (its own range + backfill). The topbar
+  date picker is removed from `/assets` — it now shows only on `/pipelines` and
+  `/runs`. `asset-trigger`/force-trigger keep a date (the materialization date).
+
+
+### Changed — UI redesign, batch 3 (start): pipeline cockpit
+
+- The selected-pipeline header now reads as a cockpit: the subtitle is worded as `Execution scope: <date>`.
+- The pipeline cockpit gained a **latest-execution summary strip** below the header —
+  status, duration, start time, and run date for the selected (or latest) execution —
+  so the current run's shape is visible above the DAG. When
+  DAG is the only available view (the OSS build), the view-mode tab strip is no longer
+  rendered — there is nothing to switch between. Gantt/Calendar (Team) still show the
+  strip. Actions, handlers, and the paid-surface boundary are unchanged. (The
+  execution-history drawer and date-picker relocation land next.)
+- Pipeline actions are now grouped by intent — utility (Refresh) · primary (Run,
+  Backfill) · danger (Pause/Resume, Stop) — with a divider between groups; all
+  handlers and conditions are unchanged.
+
+
+### Changed — UI redesign, batch 2 (start): EmptyState tones
+- The All Tasks and All Runs lists now show a proper **error state** (an `error`-tone
+  EmptyState with a Retry button) when their fetch fails, instead of silently showing
+  the "nothing here" empty state. A `formatApiErrorMessage` helper turns raw API errors
+  into readable text (unreachable API, HTML-instead-of-JSON from a misconfigured URL,
+  auth, 4xx/5xx).
+
+- `EmptyState` gained a `tone` prop (`neutral` | `warning` | `error`) that tints the
+  icon, so degraded and failed states read differently from routine empty ones. The
+  existing API and BEM classes are unchanged, so current usages keep working.
+
+
+### Changed — UI redesign, batch 1: app-shell navigation rail
+
+- Primary navigation moved out of the topbar into a left rail (new `AppNav`): brand
+  mark plus Pipelines / Assets / All Tasks / All Runs / Backfills, with Assets and
+  Backfills still gated to the paid surface. The topbar (`Header`) now carries only
+  contextual breadcrumbs and global controls (API status, auto-refresh, notifications,
+  help, theme, user menu). Routing, shortcuts, and the paid-surface boundary are
+  unchanged; the rail collapses to an icon rail on narrow screens. (Help stays in the
+  topbar and the pipeline date picker relocates to the cockpit in a later batch.)
+
+
+### Changed — polyris-deploy now validates before deploying
+
+- `polyris-deploy` runs the same validation as `polyris-validate` as an explicit
+  gate before touching AWS: an invalid DAG now fails fast with the errors printed,
+  instead of only failing later in CloudFormation (or shipping a broken pipeline).
+
+
 ### Fixed — All Tasks view (empty "All pipelines", phantom rows)
 
 - The All Tasks list returned nothing unless a specific pipeline was selected: the

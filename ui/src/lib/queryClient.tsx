@@ -40,7 +40,7 @@ export const queryKeys = {
     consecutiveProgress: (waitFor: unknown, date: string) => ['assets', 'consecutive-progress', waitFor, date] as const,
     
     // Asset queries
-    assetsData: (date: string) => ['assets', 'data', date] as const,
+    assetsData: () => ['assets', 'data'] as const,
     assetEvents: (name: string) => ['assets', 'events', name] as const,
     assetGlueSchema: (name: string) => ['assets', 'glue-schema', name] as const,
     assetMatrix: (from: string, to: string, group: string | null, includeViews: boolean, granularity: string = 'daily') =>

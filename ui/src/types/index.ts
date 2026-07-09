@@ -360,7 +360,7 @@ export interface RunSparklineProps {
 export interface PipelineWithUI extends Pipeline {
   status?: string;
   group?: string;
-  recent_runs?: Array<{ status: string }>;
+  recent_runs?: Array<{ status: string; date?: string }>;
   arn?: string;
   today_stats?: PipelineStats;
 }

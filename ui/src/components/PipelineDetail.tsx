@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
+import { DatePicker } from './DatePicker';
 import { 
     DAGGraph, 
     DAGSkeleton, 
@@ -202,10 +203,18 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
         total: dagTaskNames.length
     }), [filteredTasks, dagTaskNames.length]);
 
+
+    // Date of this pipeline's most recent run (from the sidebar stats), so an empty
+    // date can offer a one-click jump to the latest execution instead of guessing.
+    const latestRunDate = useMemo(() => {
+        const full = pipelines.find(p => p.name === pipeline?.name) ?? pipeline;
+        return full?.recent_runs?.find(r => r.date)?.date ?? null;
+    }, [pipelines, pipeline]);
+
     // Close dropdown on outside click
     React.useEffect(() => {
         const handleClick = (e: Event) => {
-            if ((e.target as HTMLElement).closest('.dropdown-container')) return;
+            if ((e.target as HTMLElement).closest('.pd-dropdown-container')) return;
             setShowHistory(false);
         };
         if (showHistory) {
@@ -228,18 +237,19 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                         {pipeline ? (
                             <>
                                 <span>
-                                    Execution: {selectedExecution 
+                                    Execution scope: {selectedExecution
                                         ? `${selectedExecution.execution_short || selectedExecution.execution_id?.substring(0, 8)}... (${selectedExecution.date || date})`
                                         : date}
                                 </span>
-                                {executions.length > 0 && (
-                                    <ExecutionDropdown
-                                        executions={executions}
-                                        showHistory={showHistory}
-                                        onToggleHistory={() => setShowHistory(!showHistory)}
-                                        onCloseHistory={() => setShowHistory(false)}
-                                    />
-                                )}
+                                {/* Always render — the drawer owns the date picker,
+                                    so it must be reachable even when the current date
+                                    has no executions (otherwise the page deadlocks). */}
+                                <ExecutionDropdown
+                                    executions={executions}
+                                    showHistory={showHistory}
+                                    onToggleHistory={() => setShowHistory(!showHistory)}
+                                    onCloseHistory={() => setShowHistory(false)}
+                                />
                             </>
                         ) : (
                             'Choose from the sidebar'
@@ -250,7 +260,9 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                 {/* Actions */}
                 {pipeline && (
                     <div className="flex items-center gap-lg">
-                        {/* View Mode Tabs */}
+                        {/* View Mode Tabs — only when more than one view exists.
+                            In OSS, DAG is the only view, so no tab strip is shown. */}
+                        {(GanttChart || CalendarView) && (
                         <div className="nav-pills" role="tablist" aria-label="View mode">
                             <div 
                                 className={`nav-pill nav-pill--md ${viewMode === 'dag' ? 'active' : ''}`} 
@@ -287,54 +299,61 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                             </div>
                             )}
                         </div>
+                        )}
 
-                        {/* Action Buttons */}
+                        {/* Action Buttons — grouped by intent: utility · primary · danger */}
                         <div className="pd-canvas-actions">
-                            <Button variant="secondary" onClick={handleRefresh} disabled={isFetching}>
-                                {isFetching
-                                    ? <><Loader2 size={14} className="animate-spin" /> Refreshing...</>
-                                    : <><RefreshCw size={14} /> Refresh</>
-                                }
-                            </Button>
-                            
-                            {actions && (<>
-                            {(stats.active > 0 || stats.paused > 0) && (
-                                <Button
-                                    variant={executionPaused ? 'default' : 'outline'}
-                                    className={executionPaused 
-                                        ? 'bg-green-600 hover:bg-green-700' 
-                                        : 'border-yellow-500 text-yellow-600 hover:bg-yellow-50'}
-                                    onClick={actions.handlePauseResume}
-                                    title={executionPaused 
-                                        ? 'Resume pipeline execution' 
-                                        : 'Pause pipeline (running tasks will complete)'}
-                                >
-                                    {executionPaused ? <><Play size={14} /> Resume</> : <><Pause size={14} /> Pause</>}
+                            <div className="pd-action-group pd-action-group--utility">
+                                <Button variant="secondary" onClick={handleRefresh} disabled={isFetching}>
+                                    {isFetching
+                                        ? <><Loader2 size={14} className="animate-spin" /> Refreshing...</>
+                                        : <><RefreshCw size={14} /> Refresh</>
+                                    }
                                 </Button>
-                            )}
-                            
+                            </div>
+
+                            {actions && (<>
+                            <div className="pd-action-group pd-action-group--primary">
+                                <Button onClick={actions.handleRun}><Rocket size={14} /> Run</Button>
+
+                                {paidSurface.BackfillNavTab && (
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => {
+                                        if (!pipeline?.name) return;
+                                        openBackfillModal({
+                                            origin: 'pipeline',
+                                            target: { type: 'pipeline', name: pipeline.name },
+                                        });
+                                    }}
+                                    title="Backfill pipeline for date range"
+                                >
+                                    <ActionIcons.backfill size={14} /> Backfill
+                                </Button>
+                                )}
+                            </div>
+
                             {(stats.active > 0 || stats.wait > 0 || stats.paused > 0) && (
+                            <div className="pd-action-group pd-action-group--danger">
+                                {(stats.active > 0 || stats.paused > 0) && (
+                                    <Button
+                                        variant={executionPaused ? 'default' : 'outline'}
+                                        className={executionPaused
+                                            ? 'bg-green-600 hover:bg-green-700'
+                                            : 'border-yellow-500 text-yellow-600 hover:bg-yellow-50'}
+                                        onClick={actions.handlePauseResume}
+                                        title={executionPaused
+                                            ? 'Resume pipeline execution'
+                                            : 'Pause pipeline (running tasks will complete)'}
+                                    >
+                                        {executionPaused ? <><Play size={14} /> Resume</> : <><Pause size={14} /> Pause</>}
+                                    </Button>
+                                )}
+
                                 <Button variant="destructive" onClick={actions.handleStop}>
                                     <Square size={14} /> Stop
                                 </Button>
-                            )}
-                            
-                            <Button onClick={actions.handleRun}><Rocket size={14} /> Run</Button>
-                            
-                            {paidSurface.BackfillNavTab && (
-                            <Button
-                                variant="secondary"
-                                onClick={() => {
-                                    if (!pipeline?.name) return;
-                                    openBackfillModal({
-                                        origin: 'pipeline',
-                                        target: { type: 'pipeline', name: pipeline.name },
-                                    });
-                                }}
-                                title="Backfill pipeline for date range"
-                            >
-                                <ActionIcons.backfill size={14} /> Backfill
-                            </Button>
+                            </div>
                             )}
                             </>)}
                         </div>
@@ -388,8 +407,18 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                                 serverOffsetMs={0}
                                 isBlueprint={true}
                             />
-                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-[var(--bg-primary)] px-5 py-2.5 rounded-lg shadow-lg border border-[var(--border)] z-10 text-[var(--text-muted)] text-[13px]">
-                                No executions for {date}
+                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-[var(--bg-primary)] px-5 py-2.5 rounded-lg shadow-lg border border-[var(--border)] z-10 text-[var(--text-muted)] text-[13px] flex items-center gap-3">
+                                <span>No executions for {date}</span>
+                                {latestRunDate && latestRunDate !== date ? (
+                                    <Button
+                                        size="sm"
+                                        onClick={() => { setSelectedExecution(null); setDate(latestRunDate); }}
+                                    >
+                                        View latest run · {latestRunDate}
+                                    </Button>
+                                ) : (
+                                    <span>— open <strong>Execution history</strong> to pick another date</span>
+                                )}
                             </div>
                         </div>
                     ) : (
@@ -397,7 +426,13 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                         icon={<Inbox size={48} className="text-gray-300" />}
                         title={`No executions for ${date}`}
                         text="This pipeline has no runs on this date."
-                    />
+                    >
+                        {latestRunDate && latestRunDate !== date && (
+                            <Button onClick={() => { setSelectedExecution(null); setDate(latestRunDate); }}>
+                                View latest run · {latestRunDate}
+                            </Button>
+                        )}
+                    </EmptyState>
                     )
                 ) : viewMode === 'calendar' && CalendarView ? (
                     <ErrorBoundary fallback={<ErrorFallback message="Failed to load calendar." onRetry={() => window.location.reload()} />}>
@@ -469,15 +504,15 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
 /**
  * ExecutionDropdown — reads selectedExecution and date from store
  */
-function ExecutionDropdown({ 
-    executions, 
-    showHistory, 
-    onToggleHistory, 
+function ExecutionDropdown({
+    executions,
+    showHistory,
+    onToggleHistory,
     onCloseHistory
-}: { 
-    executions: Execution[]; 
-    showHistory: boolean; 
-    onToggleHistory: () => void; 
+}: {
+    executions: Execution[];
+    showHistory: boolean;
+    onToggleHistory: () => void;
     onCloseHistory: () => void;
 }) {
     const { selectedExecution, setSelectedExecution, date, setDate } = useAppStore(useShallow(s => ({
@@ -485,59 +520,79 @@ function ExecutionDropdown({
         date: s.date, setDate: s.setDate,
     })));
 
+    const goToday = () => {
+        setSelectedExecution(null);
+        setDate(new Date().toISOString().split('T')[0]);
+    };
+
     return (
         <div className="pd-dropdown-container">
             <Button variant="secondary" size="sm" onClick={onToggleHistory}>
-                <FileText size={14} /> Executions ({executions.length})
+                <FileText size={14} /> Execution history ({executions.length})
             </Button>
-            
+
             {selectedExecution && (
                 <Button
                     variant="secondary"
                     size="sm"
                     className="ml-2"
-                    onClick={() => {
-                        setSelectedExecution(null);
-                        setDate(new Date().toISOString().split('T')[0]);
-                    }}
-                    title="Clear filter, show today"
+                    onClick={goToday}
+                    title="Clear selection, show today"
                 >
                     <X size={14} />
                 </Button>
             )}
-            
+
             {showHistory && (
-                <div className="pd-dropdown-menu">
-                    <div className="pd-dropdown-header">PIPELINE EXECUTIONS</div>
-                    {executions.map((ex, i: number) => {
-                        const isSelected = selectedExecution?.execution_id === ex.execution_id || 
-                                          (!selectedExecution && ex.date === date);
-                        const statusClass = normalizeStatus(ex.status);
-                        
-                        return (
-                            <div
-                                key={i}
-                                className={`pd-dropdown-item ${isSelected ? 'selected' : ''}`}
-                                onClick={() => {
-                                    setSelectedExecution({ ...ex, auto_selected: false });
-                                    if (ex.date) setDate(ex.date);
-                                    onCloseHistory();
-                                }}
-                            >
-                                <div className="flex-between">
-                                    <span className="pd-dropdown-item-title">
-                                        {ex.execution_short || (ex.execution_id ? ex.execution_id.substring(0, 8) : ex.date)}...
-                                    </span>
-                                    <span className={`pd-exec-status-mini ${statusClass}`}>
-                                        {ex.status || 'unknown'}
-                                    </span>
-                                </div>
-                                <div className="pd-dropdown-item-meta">
-                                    {ex.started_at ? new Date(ex.started_at).toLocaleString() : ex.date}
-                                </div>
-                            </div>
-                        );
-                    })}
+                <div className="pd-exec-dropdown" role="dialog" aria-label="Execution history">
+                    <div className="pd-exec-dropdown-head">
+                        <span className="pd-exec-dropdown-title">Execution history</span>
+                    </div>
+
+                    {/* Date scope — on the pipeline page the date scopes which executions show */}
+                    <div className="pd-exec-dropdown-datebar">
+                        <DatePicker
+                            value={date}
+                            onChange={d => { setSelectedExecution(null); setDate(d); }}
+                            placeholder="All dates"
+                            ariaLabel="Execution date"
+                        />
+                    </div>
+
+                    <div className="pd-exec-dropdown-list">
+                        {executions.length === 0 && (
+                            <div className="pd-exec-dropdown-empty">No executions for this date</div>
+                        )}
+                            {executions.map((ex, i: number) => {
+                                const isSelected = selectedExecution?.execution_id === ex.execution_id ||
+                                                  (!selectedExecution && ex.date === date);
+                                const statusClass = normalizeStatus(ex.status);
+
+                                return (
+                                    <div
+                                        key={i}
+                                        className={`pd-dropdown-item ${isSelected ? 'selected' : ''}`}
+                                        onClick={() => {
+                                            setSelectedExecution({ ...ex, auto_selected: false });
+                                            if (ex.date) setDate(ex.date);
+                                            onCloseHistory();
+                                        }}
+                                    >
+                                        <div className="flex-between">
+                                            <span className="pd-dropdown-item-title">
+                                                {ex.execution_short || (ex.execution_id ? ex.execution_id.substring(0, 8) : ex.date)}...
+                                            </span>
+                                            <span className={`pd-exec-status-mini ${statusClass}`}>
+                                                {ex.status || 'unknown'}
+                                            </span>
+                                        </div>
+                                        <div className="pd-dropdown-item-meta">
+                                            {ex.started_at ? new Date(ex.started_at).toLocaleString() : ex.date}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
                 </div>
             )}
         </div>

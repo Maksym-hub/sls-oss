@@ -24,6 +24,7 @@ export { TaskDetailModal } from './TaskDetailModal';
 export { default as Notifications } from './Notifications';
 export { CommandPalette } from './CommandPalette';
 export { Header } from './Header';
+export { AppNav } from './AppNav';
 export { PipelinesSidebar } from './PipelinesSidebar';
 export { PipelineDetail } from './PipelineDetail';
 // Note: AllTasksView and AllRunsView are lazy-loaded in App.jsx, don't export statically

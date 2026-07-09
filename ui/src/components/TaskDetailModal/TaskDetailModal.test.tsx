@@ -427,4 +427,36 @@ describe('TaskDetailModal', () => {
             fireEvent.keyDown(document, { key: 't' });
         });
     });
+
+    describe('paid boundary', () => {
+        it('hides the Backfill action in the free build (paid surface gated)', () => {
+            render(<TaskDetailModal {...defaultProps} />);
+            fireEvent.click(screen.getByRole('tab', { name: /Actions/i }));
+            // Backfill is a Team-only surface — must not leak into OSS.
+            expect(screen.queryByText('Backfill This Task')).not.toBeInTheDocument();
+            // Basic task control stays available.
+            expect(screen.getByText('Restart Task')).toBeInTheDocument();
+        });
+    });
+
+
+    describe('AWS Console links', () => {
+        it('shows only the Wrapper link for non-SFN tasks (no states task execution)', () => {
+            // default factory task is a lambda with no task_execution_arn
+            render(<TaskDetailModal {...defaultProps} />);
+            expect(screen.getByRole('link', { name: /Wrapper/i })).toBeInTheDocument();
+            expect(screen.queryByRole('link', { name: /^Task$/i })).not.toBeInTheDocument();
+        });
+
+        it('also shows the Task link for SFN tasks (states execution ARN)', () => {
+            const task = createTask({
+                task_type: 'sfn',
+                task_execution_arn: 'arn:aws:states:us-east-1:123456:execution:my-sfn:run001',
+            });
+            render(<TaskDetailModal {...defaultProps} task={task} />);
+            expect(screen.getByRole('link', { name: /^Task$/i })).toBeInTheDocument();
+            expect(screen.getByRole('link', { name: /Wrapper/i })).toBeInTheDocument();
+        });
+    });
+
 });

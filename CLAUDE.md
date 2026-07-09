@@ -412,6 +412,15 @@ once a baseline is measured — until then the rule stands as policy.)
 ---
 
 
+
+## Date picker is per-workspace, not global (ADR #106)
+
+The date scopes a workspace's data, so its control lives with that data — not in
+the global topbar. Assets are current-state (no date; per-date history is on the
+Team matrix), and the pipeline page now scopes the date inside its execution-history drawer, so the
+topbar date picker shows only on `/runs`. When the Runs workspace grows its own date
+control the topbar picker is removed entirely.
+
 ## Coding Philosophy
 
 The 12 Core Principles above are **hard rules** — violations get
