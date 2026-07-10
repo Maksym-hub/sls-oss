@@ -64,13 +64,16 @@
     .um-user-menu-trigger { padding: 4px; gap: 0; }
     .um-user-avatar { width: 28px; height: 28px; font-size: 0.75rem; }
     
-    /* User menu dropdown - don't go off-screen */
-    .um-user-menu-dropdown {
+    /* Account menu dropdown (in the left rail) — pin above the rail account,
+       capped to the viewport so it can't run off-screen on small displays. */
+    .um-user-menu--rail .um-user-menu-dropdown {
         position: fixed;
         top: auto;
-        right: 0.5rem;
-        left: auto;
-        max-width: calc(100vw - 1rem);
+        bottom: 4.5rem;
+        left: 0.5rem;
+        right: auto;
+        min-width: 0;
+        width: min(288px, calc(100vw - 1rem));
     }
     
     /* Hide non-essential header controls on mobile */

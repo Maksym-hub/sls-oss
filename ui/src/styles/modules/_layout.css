@@ -29,6 +29,8 @@
     border-right: 1px solid var(--border);
     overflow-y: auto;
 }
+.app-rail-account { margin-top: auto; display: flex; justify-content: center; padding-top: 0.5rem; }
+
 
 
 .app-rail-nav {

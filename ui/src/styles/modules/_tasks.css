@@ -296,20 +296,6 @@
 }
 
 /* Theme Toggle */
-.hdr-theme-toggle {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 9999px;
-    padding: 0.25rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    font-size: 1.1rem;
-    width: 32px; height: 32px;
-    justify-content: center;
-    transition: all 0.2s ease;
-}
-.hdr-theme-toggle:hover { background: var(--bg-hover); }
 
 /* Calendar View */
 .cal-calendar-container {

@@ -2,6 +2,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { viewFromPathname } from '../utils';
 import { paidSurface } from '@/ee-active.generated';
 import { ViewTab } from './ViewTab';
+import { UserMenu } from './UserMenu';
 import { Workflow, Package, ListTodo, Activity } from 'lucide-react';
 
 /**
@@ -57,6 +58,10 @@ export function AppNav() {
                         onClick={() => switchView('backfills')}
                     />
                 )}
+            </div>
+
+            <div className="app-rail-account">
+                <UserMenu />
             </div>
         </nav>
     );

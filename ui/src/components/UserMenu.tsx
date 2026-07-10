@@ -17,11 +17,12 @@ import { useShallow } from 'zustand/react/shallow';
 import { 
     User, 
     LogOut, 
-    ChevronDown,
+    ChevronUp,
     Shield,
     Users,
     Settings,
     HelpCircle,
+    Moon,
     Loader2
 } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
@@ -46,7 +47,9 @@ const getInitials = (name: string, email: string) => {
  */
 export function UserMenu({ onManageUsers }: UserMenuProps) {
     const { user, signOut, isAuthEnabled } = useAuth();
-    const { setShowHelpModal } = useAppStore(useShallow(s => ({ setShowHelpModal: s.setShowHelpModal })));
+    const { setShowHelpModal, theme, toggleTheme } = useAppStore(useShallow(s => ({
+        setShowHelpModal: s.setShowHelpModal, theme: s.theme, toggleTheme: s.toggleTheme,
+    })));
     const [isOpen, setIsOpen] = useState(false);
     const [isSigningOut, setIsSigningOut] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -108,13 +111,13 @@ export function UserMenu({ onManageUsers }: UserMenuProps) {
     const displayName = authed ? (user!.name || user!.email?.split('@')[0] || 'User') : '';
     
     return (
-        <div className="um-user-menu" ref={menuRef}>
+        <div className="um-user-menu um-user-menu--rail" ref={menuRef}>
             <button
                 className="um-user-menu-trigger"
                 onClick={() => setIsOpen(!isOpen)}
                 aria-expanded={isOpen}
                 aria-haspopup="true"
-                aria-label={authed ? undefined : 'Menu'}
+                aria-label={authed ? `Account: ${displayName}` : 'Menu'}
             >
                 {authed ? (
                     <>
@@ -124,7 +127,7 @@ export function UserMenu({ onManageUsers }: UserMenuProps) {
                 ) : (
                     <Settings size={18} />
                 )}
-                <ChevronDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                <ChevronUp size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
             </button>
             
             {isOpen && (
@@ -153,6 +156,15 @@ export function UserMenu({ onManageUsers }: UserMenuProps) {
                     )}
 
                     <div className="um-user-menu-content">
+                        <button
+                            className="um-user-menu-item um-user-menu-toggle"
+                            onClick={toggleTheme}
+                            role="menuitemcheckbox"
+                            aria-checked={theme === 'dark'}
+                        >
+                            <span className="um-toggle-label"><Moon size={16} /> Dark mode</span>
+                            <span className={`um-toggle-switch ${theme === 'dark' ? 'is-on' : ''}`} aria-hidden="true"><span className="um-toggle-knob" /></span>
+                        </button>
                         <button
                             className="um-user-menu-item"
                             onClick={() => {

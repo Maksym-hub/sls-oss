@@ -1,7 +1,6 @@
 import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Notifications from './Notifications';
-import { UserMenu } from './UserMenu';
 import { viewFromPathname } from '../utils';
 import { useAppStore } from '../stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -9,8 +8,6 @@ import {
     RefreshCw,
     Zap,
     Pause,
-    Sun,
-    Moon,
     ChevronRight,
     Menu,
     X
@@ -27,8 +24,8 @@ interface HeaderProps {
  * Header — the app-shell topbar: contextual breadcrumbs and global controls.
  *
  * Primary navigation lives in the left rail (AppNav); this topbar carries location
- * (breadcrumbs) and global controls (API status, auto-refresh, notifications, theme,
- * user menu). Top-level view is read from the pathname; other state from Zustand.
+ * (breadcrumbs) and global controls (API status, auto-refresh, notifications).
+ * The theme toggle and account menu live in the left rail's account menu (AppNav). Top-level view is read from the pathname; other state from Zustand.
  */
 export function Header({ apiConnected, onNotificationNavigate, onNotificationNavigateBackfill }: HeaderProps) {
     const pathname = usePathname();
@@ -36,11 +33,9 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
 
     const {
         liveMode, toggleLiveMode,
-        theme, toggleTheme,
         sidebarOpen, toggleSidebar,
     } = useAppStore(useShallow(s => ({
         liveMode: s.liveMode, toggleLiveMode: s.toggleLiveMode,
-        theme: s.theme, toggleTheme: s.toggleTheme,
         sidebarOpen: s.sidebarOpen, toggleSidebar: s.toggleSidebar,
     })));
 
@@ -85,19 +80,6 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
 
                 {/* Notifications */}
                 <Notifications onNavigate={onNotificationNavigate} onNavigateBackfill={onNotificationNavigateBackfill} />
-
-                {/* Theme Toggle */}
-                <button
-                    className="hdr-theme-toggle"
-                    onClick={toggleTheme}
-                    aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                    title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-                >
-                    {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-                </button>
-
-                {/* User Menu (Settings and Help & documentation live inside this dropdown) */}
-                <UserMenu />
             </div>
         </header>
     );

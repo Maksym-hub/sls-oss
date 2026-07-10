@@ -106,7 +106,7 @@
 
 .lp-login-card {
     background: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
+    border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: var(--space-3xl, 40px) var(--space-2xl, 32px);
     box-shadow: 
@@ -347,7 +347,7 @@
 
 .um-user-menu-trigger:hover {
     background: hsl(var(--muted));
-    border-color: hsl(var(--border));
+    border-color: var(--border);
 }
 
 .um-user-avatar {
@@ -385,7 +385,7 @@
     right: 0;
     min-width: 300px;
     background: hsl(var(--card));
-    border: 1px solid hsl(var(--border));
+    border: 1px solid var(--border);
     border-radius: 14px;
     box-shadow:
         0 4px 6px -1px hsl(var(--foreground) / 0.08),
@@ -394,6 +394,41 @@
     overflow: hidden;
     animation: dropdown-enter 0.15s ease-out;
 }
+
+/* Rail placement: the account sits at the bottom of the left rail. The menu uses fixed
+   positioning so it escapes the rail's overflow clipping, opening just to the right of the
+   rail near the bottom. The avatar is enlarged for the rail context. */
+.um-user-menu--rail .um-user-menu-trigger { width: 100%; justify-content: center; padding: 6px; }
+.um-user-menu--rail .um-user-name { display: none; }
+.um-user-menu--rail .um-user-avatar { width: 40px; height: 40px; font-size: 0.95rem; }
+.um-user-menu--rail .um-user-menu-dropdown {
+    position: fixed;
+    top: auto;
+    right: auto;
+    bottom: 14px;
+    left: 92px;
+    min-width: 258px;
+    animation: dropdown-enter-up 0.15s ease-out;
+}
+@keyframes dropdown-enter-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Dark-mode toggle row inside the account menu */
+.um-user-menu-toggle { justify-content: space-between; }
+.um-toggle-label { display: inline-flex; align-items: center; gap: 12px; }
+.um-toggle-switch {
+    width: 34px; height: 20px; border-radius: 10px; flex-shrink: 0;
+    background: var(--border-strong); position: relative; transition: background 0.15s;
+}
+.um-toggle-switch.is-on { background: var(--accent); }
+.um-toggle-knob {
+    position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    border-radius: 50%; background: #fff; transition: left 0.15s;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.um-toggle-switch.is-on .um-toggle-knob { left: 16px; }
 
 @keyframes dropdown-enter {
     from { opacity: 0; transform: translateY(-8px); }
@@ -406,7 +441,7 @@
     gap: 12px;
     padding: 16px;
     background: hsl(var(--muted) / 0.5);
-    border-bottom: 1px solid hsl(var(--border));
+    border-bottom: 1px solid var(--border);
 }
 
 .um-user-menu-identity {
@@ -443,7 +478,7 @@
     margin-top: 6px;
     padding: 2px 8px;
     background: hsl(var(--muted));
-    border: 1px solid hsl(var(--border));
+    border: 1px solid var(--border);
     border-radius: 999px;
 }
 
@@ -453,7 +488,7 @@
 
 .um-user-menu-divider {
     height: 1px;
-    background: hsl(var(--border));
+    background: var(--border);
     margin: 6px 8px;
 }
 
@@ -497,7 +532,7 @@
 
 .um-user-menu-divider {
     height: 1px;
-    background: hsl(var(--border));
+    background: var(--border);
     margin: var(--space-xs) var(--space-md);
 }
 

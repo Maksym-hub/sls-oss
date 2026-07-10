@@ -43,7 +43,6 @@ textarea:focus:not(:focus-visible) {
 }
 
 /* Icon buttons */
-.hdr-theme-toggle:focus-visible,
 .copy-btn:focus-visible,
 .ntf-notification-bell:focus-visible,
 .hdr-hamburger-btn:focus-visible {

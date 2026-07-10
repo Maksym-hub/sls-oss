@@ -55,10 +55,14 @@ describe('Header', () => {
     });
 
     describe('rendering', () => {
-        it('renders Notifications and UserMenu', () => {
+        it('renders Notifications', () => {
             render(<Header {...props} />);
             expect(screen.getByTestId('notifications')).toBeInTheDocument();
-            expect(screen.getByTestId('user-menu')).toBeInTheDocument();
+        });
+
+        it('no longer renders the user menu in the header (moved to the rail)', () => {
+            render(<Header {...props} />);
+            expect(screen.queryByTestId('user-menu')).not.toBeInTheDocument();
         });
 
         it('renders the polyris home breadcrumb', () => {
@@ -122,16 +126,9 @@ describe('Header', () => {
     });
 
     describe('theme toggle', () => {
-        it('toggles store on click', () => {
+        it('no longer lives in the header — it moved into the account menu', () => {
             render(<Header {...props} />);
-            fireEvent.click(screen.getByTitle(/Switch to/));
-            expect(useAppStore.getState().theme).toBe('dark');
-        });
-
-        it('shows correct label for dark mode', () => {
-            resetStore({ theme: 'dark' });
-            render(<Header {...props} />);
-            expect(screen.getByTitle('Switch to light mode')).toBeInTheDocument();
+            expect(screen.queryByTitle(/Switch to/)).not.toBeInTheDocument();
         });
     });
 
