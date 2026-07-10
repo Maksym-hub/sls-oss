@@ -166,6 +166,37 @@ describe('Header', () => {
             render(<Header {...props} />);
             expect(screen.queryByText('acme-daily')).not.toBeInTheDocument();
         });
+
+        it('starts the trail with the section name', () => {
+            resetStore({ selectedPipeline: { name: 'acme-daily' } as PipelineWithUI });
+            render(<Header {...props} />);
+            expect(screen.getByText('Pipelines')).toBeInTheDocument();
+        });
+
+        it('prefixes the execution crumb with "Run"', () => {
+            resetStore({
+                selectedPipeline: { name: 'acme-daily' } as PipelineWithUI,
+                selectedExecution: { execution_short: 'abc12345' } as unknown,
+            });
+            render(<Header {...props} />);
+            expect(screen.getByText((_c, el) => el?.textContent === 'Run abc12345')).toBeInTheDocument();
+        });
+
+        it('shows the execution crumb for the auto-selected latest run', () => {
+            resetStore({
+                selectedPipeline: { name: 'acme-daily' } as PipelineWithUI,
+                selectedExecution: { execution_short: 'abc12345', auto_selected: true } as unknown,
+            });
+            render(<Header {...props} />);
+            expect(screen.getByText((_c, el) => el?.textContent === 'Run abc12345')).toBeInTheDocument();
+        });
+
+        it('navigates to the section when the section crumb is clicked', () => {
+            resetStore({ selectedPipeline: { name: 'acme-daily' } as PipelineWithUI });
+            render(<Header {...props} />);
+            fireEvent.click(screen.getByText('Pipelines'));
+            expect(pushMock).toHaveBeenCalledWith('/pipelines/');
+        });
     });
 
     describe('Backfills nav tab (paid surface)', () => {

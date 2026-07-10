@@ -33,12 +33,11 @@ import {
     Rocket, 
     ActionIcons,
     Clock,
-    FileText,
+    BookOpen,
     AlertTriangle,
     Inbox,
     ArrowLeft,
-    Loader2,
-    X
+    Loader2
 } from '../utils/icons';
 import type { Task, Execution } from '@/types';
 
@@ -246,6 +245,7 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                                     has no executions (otherwise the page deadlocks). */}
                                 <ExecutionDropdown
                                     executions={executions}
+                                    latestRunDate={latestRunDate}
                                     showHistory={showHistory}
                                     onToggleHistory={() => setShowHistory(!showHistory)}
                                     onCloseHistory={() => setShowHistory(false)}
@@ -301,61 +301,81 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                         </div>
                         )}
 
-                        {/* Action Buttons — grouped by intent: utility · primary · danger */}
+                        {/* Action buttons — state-driven. Refresh is icon-only utility;
+                            the run/pause/resume/stop set switches on pipeline state. */}
                         <div className="pd-canvas-actions">
                             <div className="pd-action-group pd-action-group--utility">
-                                <Button variant="secondary" onClick={handleRefresh} disabled={isFetching}>
-                                    {isFetching
-                                        ? <><Loader2 size={14} className="animate-spin" /> Refreshing...</>
-                                        : <><RefreshCw size={14} /> Refresh</>
-                                    }
+                                <Button variant="secondary" onClick={handleRefresh} disabled={isFetching} title="Refresh" aria-label="Refresh">
+                                    <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />
                                 </Button>
                             </div>
 
-                            {actions && (<>
-                            <div className="pd-action-group pd-action-group--primary">
-                                <Button onClick={actions.handleRun}><Rocket size={14} /> Run</Button>
+                            {actions && (
+                                executionPaused ? (
+                                    <div className="pd-action-group pd-action-group--danger">
+                                        <Button
+                                            variant="default"
+                                            className="bg-green-600 hover:bg-green-700"
+                                            onClick={actions.handlePauseResume}
+                                            disabled={!!actions.pendingAction}
+                                            title="Resume pipeline execution"
+                                        >
+                                            {actions.pendingAction === 'resume'
+                                                ? <><Loader2 size={14} className="animate-spin" /> Resuming…</>
+                                                : <><Play size={14} /> Resume</>}
+                                        </Button>
+                                        <span className="pd-action-sep" aria-hidden="true" />
+                                        <Button variant="destructive" onClick={actions.handleStop} disabled={!!actions.pendingAction}>
+                                            {actions.pendingAction === 'stop'
+                                                ? <><Loader2 size={14} className="animate-spin" /> Stopping…</>
+                                                : <><Square size={14} /> Stop</>}
+                                        </Button>
+                                    </div>
+                                ) : (stats.active > 0 || stats.wait > 0) ? (
+                                    <div className="pd-action-group pd-action-group--danger">
+                                        <Button
+                                            variant="outline"
+                                            onClick={actions.handlePauseResume}
+                                            disabled={!!actions.pendingAction}
+                                            title="Pause pipeline (running tasks will complete)"
+                                        >
+                                            {actions.pendingAction === 'pause'
+                                                ? <><Loader2 size={14} className="animate-spin" /> Pausing…</>
+                                                : <><Pause size={14} /> Pause</>}
+                                        </Button>
+                                        <span className="pd-action-sep" aria-hidden="true" />
+                                        <Button variant="destructive" onClick={actions.handleStop} disabled={!!actions.pendingAction}>
+                                            {actions.pendingAction === 'stop'
+                                                ? <><Loader2 size={14} className="animate-spin" /> Stopping…</>
+                                                : <><Square size={14} /> Stop</>}
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div className="pd-action-group pd-action-group--primary">
+                                        <Button onClick={actions.handleRun} disabled={!!actions.pendingAction}>
+                                            {actions.pendingAction === 'run'
+                                                ? <><Loader2 size={14} className="animate-spin" /> Starting…</>
+                                                : <><Rocket size={14} /> Run</>}
+                                        </Button>
 
-                                {paidSurface.BackfillNavTab && (
-                                <Button
-                                    variant="secondary"
-                                    onClick={() => {
-                                        if (!pipeline?.name) return;
-                                        openBackfillModal({
-                                            origin: 'pipeline',
-                                            target: { type: 'pipeline', name: pipeline.name },
-                                        });
-                                    }}
-                                    title="Backfill pipeline for date range"
-                                >
-                                    <ActionIcons.backfill size={14} /> Backfill
-                                </Button>
-                                )}
-                            </div>
-
-                            {(stats.active > 0 || stats.wait > 0 || stats.paused > 0) && (
-                            <div className="pd-action-group pd-action-group--danger">
-                                {(stats.active > 0 || stats.paused > 0) && (
-                                    <Button
-                                        variant={executionPaused ? 'default' : 'outline'}
-                                        className={executionPaused
-                                            ? 'bg-green-600 hover:bg-green-700'
-                                            : 'border-yellow-500 text-yellow-600 hover:bg-yellow-50'}
-                                        onClick={actions.handlePauseResume}
-                                        title={executionPaused
-                                            ? 'Resume pipeline execution'
-                                            : 'Pause pipeline (running tasks will complete)'}
-                                    >
-                                        {executionPaused ? <><Play size={14} /> Resume</> : <><Pause size={14} /> Pause</>}
-                                    </Button>
-                                )}
-
-                                <Button variant="destructive" onClick={actions.handleStop}>
-                                    <Square size={14} /> Stop
-                                </Button>
-                            </div>
+                                        {paidSurface.BackfillNavTab && (
+                                        <Button
+                                            variant="secondary"
+                                            onClick={() => {
+                                                if (!pipeline?.name) return;
+                                                openBackfillModal({
+                                                    origin: 'pipeline',
+                                                    target: { type: 'pipeline', name: pipeline.name },
+                                                });
+                                            }}
+                                            title="Backfill pipeline for date range"
+                                        >
+                                            <ActionIcons.backfill size={14} /> Backfill
+                                        </Button>
+                                        )}
+                                    </div>
+                                )
                             )}
-                            </>)}
                         </div>
                     </div>
                 )}
@@ -506,11 +526,13 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
  */
 function ExecutionDropdown({
     executions,
+    latestRunDate,
     showHistory,
     onToggleHistory,
     onCloseHistory
 }: {
     executions: Execution[];
+    latestRunDate: string | null;
     showHistory: boolean;
     onToggleHistory: () => void;
     onCloseHistory: () => void;
@@ -520,28 +542,18 @@ function ExecutionDropdown({
         date: s.date, setDate: s.setDate,
     })));
 
-    const goToday = () => {
+    // Clear the manual selection and jump back to the latest run.
+    const goLatest = () => {
         setSelectedExecution(null);
-        setDate(new Date().toISOString().split('T')[0]);
+        if (latestRunDate) setDate(latestRunDate);
+        onCloseHistory();
     };
 
     return (
         <div className="pd-dropdown-container">
             <Button variant="secondary" size="sm" onClick={onToggleHistory}>
-                <FileText size={14} /> Execution history ({executions.length})
+                <BookOpen size={16} /> History ({executions.length})
             </Button>
-
-            {selectedExecution && (
-                <Button
-                    variant="secondary"
-                    size="sm"
-                    className="ml-2"
-                    onClick={goToday}
-                    title="Clear selection, show today"
-                >
-                    <X size={14} />
-                </Button>
-            )}
 
             {showHistory && (
                 <div className="pd-exec-dropdown" role="dialog" aria-label="Execution history">
@@ -557,6 +569,17 @@ function ExecutionDropdown({
                             placeholder="All dates"
                             ariaLabel="Execution date"
                         />
+                        {latestRunDate && (date !== latestRunDate || (selectedExecution && !selectedExecution.auto_selected)) && (
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                className="ml-auto"
+                                onClick={goLatest}
+                                title="Back to the latest run"
+                            >
+                                Latest
+                            </Button>
+                        )}
                     </div>
 
                     <div className="pd-exec-dropdown-list">

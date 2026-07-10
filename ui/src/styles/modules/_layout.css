@@ -322,6 +322,14 @@
     font-size: 0.875rem;
 }
 
+.ntf-notification-header-actions { display: flex; align-items: center; gap: 8px; }
+.ntf-notification-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: none; border: none; cursor: pointer; padding: 2px;
+    color: var(--text-tertiary); border-radius: 4px;
+}
+.ntf-notification-toggle:hover { color: var(--text-secondary); background: var(--bg-tertiary); }
+.ntf-notification-toggle[aria-pressed="false"] { color: var(--text-quaternary, var(--text-tertiary)); }
 .ntf-notification-clear-all {
     background: transparent;
     border: none;
@@ -367,6 +375,10 @@
 .ntf-notification-item:hover {
     background: var(--bg-hover);
 }
+
+/* Acknowledged ("read") notification — lingers dimmed until it auto-expires. */
+.ntf-notification-item--read { opacity: 0.5; }
+.ntf-notification-item--read:hover { opacity: 0.7; }
 .ntf-notification-item.failure {
     background: var(--error-light);
 }
@@ -530,12 +542,3 @@
 
 /* Canvas */
 
-/* polyris brand as the first breadcrumb (home). Small accent logo + wordmark. */
-.hdr-breadcrumb-home { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; }
-.hdr-breadcrumb-logo {
-    width: 24px; height: 24px; flex-shrink: 0;
-    background: linear-gradient(135deg, var(--accent) 0%, var(--running) 100%);
-    border-radius: 6px;
-    display: inline-flex; align-items: center; justify-content: center;
-    color: white;
-}

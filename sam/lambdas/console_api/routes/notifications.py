@@ -49,7 +49,7 @@ def get_notifications(event: Dict) -> Dict:
         current_date -= timedelta(days=1)
     
     notifications = []
-    seen_executions = set()  # Dedupe by pipeline_execution
+    run_state: Dict[str, Dict] = {}  # dedup_key -> one notification per run
     items_scanned = 0
     
     try:
@@ -62,9 +62,11 @@ def get_notifications(event: Dict) -> Dict:
             while items_scanned < Limits.MAX_NOTIFICATIONS_SCAN:
                 query_params = {
                     'KeyConditionExpression': Key('date').eq(date_str),
-                    'FilterExpression': Attr('status').eq('failed'),
-                    'ProjectionExpression': 'pipeline_name, task_name, pipeline_execution, finished_at, #e, #d',
-                    'ExpressionAttributeNames': {'#e': 'error', '#d': 'date'}
+                    # Two attention states (ADR #107): a task that failed, or one paused
+                    # awaiting a manual decision (skip / mark success / fail).
+                    'FilterExpression': Attr('status').is_in(['failed', 'waiting_decision']),
+                    'ProjectionExpression': 'pipeline_name, task_name, pipeline_execution, finished_at, started_at, running_at, #s, #e, #d',
+                    'ExpressionAttributeNames': {'#s': 'status', '#e': 'error', '#d': 'date'}
                 }
                 if last_key:
                     query_params['ExclusiveStartKey'] = last_key
@@ -73,41 +75,43 @@ def get_notifications(event: Dict) -> Dict:
                 items_scanned += response.get('Count', 0)
                 
                 for item in response.get('Items', []):
-                    finished_at = item.get('finished_at', '')
-                    
-                    # Skip if outside time window
-                    if not finished_at or finished_at < cutoff_iso:
-                        continue
-                    
+                    status = item.get('status', '')
+                    is_decision = status == 'waiting_decision'
+                    # A waiting_decision task is paused (not finished) so it has no
+                    # finished_at — anchor it on when it started running/waiting, and
+                    # always surface it (it is actively blocking the run right now).
+                    ts = item.get('finished_at') or item.get('running_at') or item.get('started_at') or ''
+                    if not is_decision and (not ts or ts < cutoff_iso):
+                        continue  # a plain failure must fall within the time window
+
                     pipeline_name = item.get('pipeline_name', '')
                     exec_id = item.get('pipeline_execution', '')
-                    
-                    # Dedupe by execution (one notification per failed run)
                     dedup_key = f"{pipeline_name}:{exec_id}"
-                    if dedup_key in seen_executions:
+
+                    # One notification per run; a decision-required state outranks a plain
+                    # failure (it needs human action), so it wins when both are present.
+                    existing = run_state.get(dedup_key)
+                    if existing and (existing['type'] == 'decision_required' or not is_decision):
                         continue
-                    seen_executions.add(dedup_key)
-                    
-                    # Parse time for relative display
-                    time_ago = _format_time_ago(finished_at, now)
-                    
-                    notifications.append({
+
+                    run_state[dedup_key] = {
                         'id': dedup_key,
-                        'type': 'failure',
+                        'type': 'decision_required' if is_decision else 'failure',
                         'pipeline_name': pipeline_name,
                         'task_name': item.get('task_name', ''),
                         'pipeline_execution': exec_id,
-                        'error': item.get('error', 'Unknown error'),
+                        'error': '' if is_decision else item.get('error', 'Unknown error'),
                         'date': item.get('date', ''),
-                        'finished_at': finished_at,
-                        'time_ago': time_ago
-                    })
+                        'finished_at': ts,
+                        'time_ago': _format_time_ago(ts, now) if ts else 'just now'
+                    }
                 
                 last_key = response.get('LastEvaluatedKey')
                 if not last_key:
                     break
         
-        # Sort by finished_at descending (newest first)
+        # Sort by timestamp descending (newest first)
+        notifications = list(run_state.values())
         notifications.sort(key=lambda x: x.get('finished_at', ''), reverse=True)
         notifications = notifications[:limit]
 

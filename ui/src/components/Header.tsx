@@ -104,67 +104,81 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
 }
 
 /**
- * Breadcrumbs — reads view from pathname, deep state from store.
+ * Breadcrumbs — logo (home) as a separate brand element, then a clickable breadcrumb
+ * trail that starts with the section name (not the logo). The last crumb is the current
+ * location and is not clickable.
  */
+const SECTION_LABEL: Record<string, string> = {
+    pipelines: 'Pipelines',
+    tasks: 'All Tasks',
+    runs: 'All Runs',
+    assets: 'Assets',
+};
+
 function Breadcrumbs() {
     const router = useRouter();
     const pathname = usePathname();
     const mainView = viewFromPathname(pathname);
 
-    const { selectedPipeline, selectedExecution, setSelectedPipeline } = useAppStore(useShallow(s => ({
+    const { selectedPipeline, selectedExecution, setSelectedPipeline, setSelectedExecution, setDate } = useAppStore(useShallow(s => ({
         selectedPipeline: s.selectedPipeline, selectedExecution: s.selectedExecution,
-        setSelectedPipeline: s.setSelectedPipeline,
+        setSelectedPipeline: s.setSelectedPipeline, setSelectedExecution: s.setSelectedExecution,
+        setDate: s.setDate,
     })));
 
-    const onHomeClick = () => {
-        setSelectedPipeline(null);
-        router.push('/pipelines/');
-    };
+    const latestRunDate = selectedPipeline?.recent_runs?.find(r => r.date)?.date ?? null;
+
+    const goSection = () => { setSelectedPipeline(null); setSelectedExecution(null); router.push(`/${mainView}/`); };
+    const goPipeline = () => { setSelectedExecution(null); if (latestRunDate) setDate(latestRunDate); };
+
+    const sectionLabel = SECTION_LABEL[mainView] ?? mainView;
+    const onPipeline = mainView === 'pipelines' && !!selectedPipeline;
+    // Show the execution crumb whenever an execution is in scope — including the default
+    // auto-selected latest. The short id now comes from the backend (pipeline_execution_short),
+    // so it matches the history list and no longer renders a phantom like "Run hello-wo".
+    const onExecution = onPipeline && !!selectedExecution;
+    const key = (fn: () => void) => (e: React.KeyboardEvent) => { if (e.key === 'Enter') fn(); };
 
     return (
-        <nav className="hdr-breadcrumbs" aria-label="Breadcrumb">
-            <span className="hdr-breadcrumb-item hdr-breadcrumb-home clickable" onClick={onHomeClick} role="link" tabIndex={0} aria-label="polyris — home" onKeyDown={e => { if (e.key === 'Enter') onHomeClick(); }}>
-                <span className="hdr-breadcrumb-logo"><Zap size={16} /></span>
+        <div className="hdr-nav-left">
+            <span className="hdr-brand" aria-label="polyris">
+                <span className="hdr-brand-logo"><Zap size={16} /></span>
                 polyris
             </span>
+            <span className="hdr-brand-divider" aria-hidden="true" />
 
-            {mainView === 'pipelines' && selectedPipeline && (
-                <>
-                    <span className="hdr-breadcrumb-sep"><ChevronRight size={14} /></span>
-                    <span className="hdr-breadcrumb-item">{selectedPipeline.name}</span>
-                </>
-            )}
-
-            {mainView === 'pipelines' && selectedPipeline && selectedExecution && (
-                <>
-                    <span className="hdr-breadcrumb-sep"><ChevronRight size={14} /></span>
-                    <span className="hdr-breadcrumb-item">
-                        {selectedExecution.execution_short || selectedExecution.execution_id?.substring(0, 8)}
+            <nav className="hdr-breadcrumbs" aria-label="Breadcrumb">
+                {onPipeline ? (
+                    <span className="hdr-breadcrumb-item clickable" onClick={goSection} role="link" tabIndex={0} onKeyDown={key(goSection)}>
+                        {sectionLabel}
                     </span>
-                </>
-            )}
+                ) : (
+                    <span className="hdr-breadcrumb-item hdr-breadcrumb-current" aria-current="page">{sectionLabel}</span>
+                )}
 
-            {mainView === 'assets' && (
-                <>
-                    <span className="hdr-breadcrumb-sep"><ChevronRight size={14} /></span>
-                    <span className="hdr-breadcrumb-item">Assets</span>
-                </>
-            )}
+                {onPipeline && (
+                    <>
+                        <span className="hdr-breadcrumb-sep"><ChevronRight size={14} /></span>
+                        {onExecution ? (
+                            <span className="hdr-breadcrumb-item clickable" onClick={goPipeline} role="link" tabIndex={0} onKeyDown={key(goPipeline)}>
+                                {selectedPipeline.name}
+                            </span>
+                        ) : (
+                            <span className="hdr-breadcrumb-item hdr-breadcrumb-current" aria-current="page">{selectedPipeline.name}</span>
+                        )}
+                    </>
+                )}
 
-            {mainView === 'tasks' && (
-                <>
-                    <span className="hdr-breadcrumb-sep"><ChevronRight size={14} /></span>
-                    <span className="hdr-breadcrumb-item">All Tasks</span>
-                </>
-            )}
-
-            {mainView === 'runs' && (
-                <>
-                    <span className="hdr-breadcrumb-sep"><ChevronRight size={14} /></span>
-                    <span className="hdr-breadcrumb-item">All Runs</span>
-                </>
-            )}
-        </nav>
+                {onExecution && (
+                    <>
+                        <span className="hdr-breadcrumb-sep"><ChevronRight size={14} /></span>
+                        <span className="hdr-breadcrumb-item hdr-breadcrumb-current" aria-current="page">
+                            Run {selectedExecution.execution_short || selectedExecution.execution_id?.substring(0, 8)}
+                        </span>
+                    </>
+                )}
+            </nav>
+        </div>
     );
 }
 

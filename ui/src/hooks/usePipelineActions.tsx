@@ -53,6 +53,8 @@ export function usePipelineActions({
     const [triggerParams, setTriggerParams] = useState('{}');
     const [executionPaused, setExecutionPaused] = useState(false);
     const [actionPending, setActionPending] = useState(false);
+    // Which action is in flight, for button loading labels: 'run' | 'pause' | 'resume' | 'stop'.
+    const [pendingAction, setPendingAction] = useState<string | null>(null);
     
     // ========== Invalidation Helpers ==========
     // eslint-disable-next-line react-hooks/preserve-manual-memoization -- manual useCallback kept intentionally
@@ -117,6 +119,7 @@ export function usePipelineActions({
         
         const pipelineExecution = currentExecution.execution_id;
         
+        setPendingAction(executionPaused ? 'resume' : 'pause');
         try {
             if (executionPaused) {
                 const result = await api.post(`/execution-resume?id=${pipelineExecution}`, {});
@@ -138,6 +141,8 @@ export function usePipelineActions({
             }
         } catch (e: unknown) {
             showToast(`Failed to ${executionPaused ? 'resume' : 'pause'}: ${e instanceof Error ? e.message : String(e)}`, 'error');
+        } finally {
+            setPendingAction(null);
         }
     }, [selectedPipeline, executions, selectedExecution, executionPaused, showToast, handleRefresh]);
     
@@ -296,9 +301,11 @@ export function usePipelineActions({
         }
         
         setActionPending(true);
+        setPendingAction(action === 'runPipeline' ? 'run' : action === 'stopPipeline' ? 'stop' : null);
         
         if (!selectedPipeline) {
             setActionPending(false);
+            setPendingAction(null);
             return;
         }
         
@@ -407,6 +414,7 @@ export function usePipelineActions({
         }
         } finally {
             setActionPending(false);
+            setPendingAction(null);
         }
     }, [
         modal.action, triggerParams, selectedPipeline, selectedTask, tasks, executions,
@@ -426,6 +434,7 @@ export function usePipelineActions({
         executionPaused,
         setExecutionPaused,
         actionPending,
+        pendingAction,
         
         // Pipeline actions
         handleRun,

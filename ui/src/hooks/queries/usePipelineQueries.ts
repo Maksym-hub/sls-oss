@@ -71,10 +71,15 @@ export function usePipelineDetailQuery(pipelineName: string, date: string, execu
             // Extract auto-selected execution
             let selectedExecution = null;
             if (!execution && statusData.selected_execution) {
-                const fullArn = statusData.selected_execution;
-                const shortId = fullArn.includes(':') ? fullArn.split(':').pop() : fullArn.substring(0, 8);
+                const fullId = statusData.selected_execution;
+                // Prefer the backend-computed short (same value the history list shows). If a
+                // task-less execution doesn't carry it, fall back to the same rule as the
+                // backend's compute_pipeline_execution_short (last 20 chars, strip '.'/':')
+                // so we never render a naive prefix like "hello-wo".
+                const shortId = tasks[0]?.pipeline_execution_short
+                    || fullId.slice(-20).replace(/[.:]/g, '');
                 selectedExecution = {
-                    execution_id: fullArn,
+                    execution_id: fullId,
                     execution_short: shortId,
                     auto_selected: true,
                 };

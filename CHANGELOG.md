@@ -4,6 +4,61 @@
 
 ### Fixed
 
+- The floating notification toasts now only show unread notifications and only while
+  notifications are enabled. Previously a read (acknowledged) notification kept floating
+  until it expired, and the enable/disable toggle did not suppress the floating toasts.
+
+
+### Changed — notifications: per-user state + on/off toggle
+
+- Notification read/dismissed/enabled state is now scoped per signed-in user in
+  localStorage, so two Cognito users on the same browser no longer share state. (Browser
+  OS-notification dedup stays per-device.) State reloads when the signed-in user changes.
+- Added a bell toggle in the notification dropdown to turn notifications on/off. When off,
+  no browser (OS) notifications fire and the bell shows a muted state with no badge. The
+  choice persists per user.
+
+
+### Fixed
+
+- The `waiting_decision` colour is now consistent everywhere. The React Flow DAG node
+  used amber (`--warning` / `#eab308`) while the status badge, task icon, and SVG node
+  used orange (`--decision`). All of them now use `--decision` (theme-adaptive), matching
+  the decision-required notification.
+
+
+### Added — decision-required notifications (ADR #107)
+
+- Notifications are now computed one per run with two states: **failure** (red — a task
+  failed) and **decision-required** (orange — a task is paused awaiting a manual
+  decision, `waiting_decision`). A run blocked on a decision now alerts (previously it
+  was silent, since the filter only matched `failed`). When a run has both, the
+  decision-required state wins. Still one notification per run, never one per task.
+
+
+### Changed — notifications: wider window + linger-then-expire
+
+- The header notification query now looks back 48 hours instead of 4, so a failure from
+  an overnight or previous-day run (records are dated by the run's schedule) still shows
+  up, not only failures dated today.
+- Acknowledged notifications now linger instead of vanishing. Clicking the arrow (view)
+  or the X marks a notification as read: it stays in the list, dimmed, and the bell badge
+  drops (badge counts unread only). Read notifications auto-expire 48 hours after being
+  acknowledged (kept in step with the 48h query window so they aren't dropped early).
+  "Clear All" still removes everything immediately.
+
+
+### Changed — full-width top bar with polyris as the home breadcrumb
+
+- Restructured the app shell so the top bar spans the full width. The polyris brand
+  moved out of the left rail and is now the first breadcrumb (the home link):
+  `polyris > pipeline > execution`. The top divider runs edge to edge, and the rail's
+  vertical divider now starts below it (only alongside the navigation), instead of
+  running up through the brand row.
+
+
+### Fixed
+
 - The DatePicker calendar is now rendered in a portal (anchored to the trigger,
   positioned via `fixed`), so it no longer gets clipped when the picker sits inside a
   container with `overflow: hidden` — e.g. the pipeline execution-history dropdown. It

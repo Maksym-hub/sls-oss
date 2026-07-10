@@ -212,7 +212,7 @@ export type ApiResult<T = unknown> =
 
 export interface Notification {
   id: string;
-  type: 'error' | 'warning' | 'info' | 'success' | 'failure' | 'backfill';
+  type: 'error' | 'warning' | 'info' | 'success' | 'failure' | 'backfill' | 'decision_required';
   message?: string;
   pipeline_name?: string;
   task_name?: string;
@@ -895,4 +895,6 @@ export interface PipelineActions {
   handleExtendPause: () => void;
   handleTaskAction: (action: string, task?: Task | null) => void;
   handleRunAction: (actionType: string, task: Task) => void;
+  /** Which action is in flight, for button loading labels. */
+  pendingAction?: string | null;
 }

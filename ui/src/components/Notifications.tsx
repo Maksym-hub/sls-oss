@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNotificationsQuery } from '@/hooks/queries';
-import { Bell, Check, Siren, AlertTriangle, ArrowRight, X, ActionIcons } from '@/utils/icons';
+import { useAuth } from '@/hooks/useAuth';
+import { Bell, BellOff, Check, Siren, AlertTriangle, ArrowRight, X, ActionIcons } from '@/utils/icons';
 import { MS } from '@/utils/constants';
 import { logger } from '@/utils/logger';
 import { asStringArray } from '@/utils/formatters';
@@ -37,15 +38,55 @@ interface NotificationsProps {
     onNavigateBackfill?: (backfillId: string) => void;
 }
 
-function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
-    const [dismissed, setDismissed] = useState<Set<string>>(() => {
-        try {
-            const saved = localStorage.getItem('polyris-dismissed-notifications');
-            return saved ? new Set(asStringArray(JSON.parse(saved))) : new Set();
-        } catch {
-            return new Set();
-        }
-    });
+interface NotificationsInnerProps extends NotificationsProps {
+    /** Scope key for per-user state (signed-in user, or 'anon'). Supplied by the wrapper. */
+    userKey: string;
+}
+
+// Read notifications linger this long (dimmed) after being acknowledged, then auto-expire.
+// Kept in step with the notification query window below so a read item isn't dropped early.
+const READ_NOTIFICATION_EXPIRY_MS = 48 * 60 * 60 * 1000;
+
+// Per-user localStorage helpers. Read/dismissed/enabled state is scoped by the signed-in
+// user so two Cognito users on the same browser don't share state. (Browser OS-notification
+// dedup stays unscoped below — that is correctly per-device, not per-user.)
+const loadSet = (key: string): Set<string> => {
+    try {
+        const s = localStorage.getItem(key);
+        return s ? new Set(asStringArray(JSON.parse(s))) : new Set();
+    } catch {
+        return new Set();
+    }
+};
+const loadMap = (key: string): Record<string, number> => {
+    try {
+        const s = localStorage.getItem(key);
+        return s ? (JSON.parse(s) as Record<string, number>) : {};
+    } catch {
+        return {};
+    }
+};
+const loadBool = (key: string, dflt: boolean): boolean => {
+    try {
+        const s = localStorage.getItem(key);
+        return s === null ? dflt : s === 'true';
+    } catch {
+        return dflt;
+    }
+};
+
+function NotificationsInner({ onNavigate, onNavigateBackfill, userKey }: NotificationsInnerProps) {
+    const kDismissed = `polyris-dismissed-notifications:${userKey}`;
+    const kRead = `polyris-read-notifications:${userKey}`;
+    const kEnabled = `polyris-notifications-enabled:${userKey}`;
+
+    const [dismissed, setDismissed] = useState<Set<string>>(() => loadSet(kDismissed));
+    // Acknowledged ("read") notifications: id -> timestamp. A read notification stays
+    // visible (dimmed) and auto-expires READ_NOTIFICATION_EXPIRY_MS after being read.
+    const [readAt, setReadAt] = useState<Record<string, number>>(() => loadMap(kRead));
+    // Bell toggle: when off, no OS popups fire and the bell shows a muted state.
+    const [enabled, setEnabled] = useState<boolean>(() => loadBool(kEnabled, true));
+    const [now, setNow] = useState(() => Date.now());
     const shownBrowserNotifsRef = useRef<Set<string>>(getInitialShownNotifs());
     const [permissionGranted, setPermissionGranted] = useState(
         () => typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
@@ -53,22 +94,55 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
     const [showDropdown, setShowDropdown] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     
-    // Fetch notifications via React Query (polls every 30s)
-    const { data: allNotifications = [] } = useNotificationsQuery(10, 4);
+    // Fetch notifications via React Query (polls every 30s). 48h window so failures from
+    // overnight / previous-day runs (dated by schedule) still surface, and read items can
+    // linger the full read-expiry without being dropped by the query aging them out.
+    const { data: allNotifications = [] } = useNotificationsQuery(10, 48);
     
-    // Filter out dismissed notifications for UI display
-    const notifications: NotificationType[] = allNotifications.filter(
-        (n: NotificationType) => !dismissed.has(n.id)
-    );
+    // Visible notifications: drop dismissed (Clear All) and read-then-expired ones, and
+    // tag each with isRead so acknowledged ones render dimmed while they linger.
+    const notifications: (NotificationType & { isRead: boolean })[] = allNotifications
+        .filter((n: NotificationType) => !dismissed.has(n.id))
+        .filter((n: NotificationType) => {
+            const r = readAt[n.id];
+            return !r || now - r < READ_NOTIFICATION_EXPIRY_MS;
+        })
+        .map((n: NotificationType) => ({ ...n, isRead: !!readAt[n.id] }));
     
-    // Save dismissed to localStorage
+    // Re-evaluate read-expiry on a timer (independent of the 30s query poll).
+    useEffect(() => {
+        const t = setInterval(() => setNow(Date.now()), 30 * 1000);
+        return () => clearInterval(t);
+    }, []);
+    
+    // Save dismissed to (user-scoped) localStorage
     useEffect(() => {
         try {
-            localStorage.setItem('polyris-dismissed-notifications', JSON.stringify([...dismissed]));
+            localStorage.setItem(kDismissed, JSON.stringify([...dismissed]));
         } catch {
             // localStorage may be unavailable
         }
-    }, [dismissed]);
+    }, [dismissed, kDismissed]);
+    
+    // Save read map, pruned to the query window so it can't grow unbounded.
+    useEffect(() => {
+        try {
+            const cutoff = Date.now() - 49 * 60 * 60 * 1000;
+            const pruned = Object.fromEntries(Object.entries(readAt).filter(([, ts]) => ts > cutoff));
+            localStorage.setItem(kRead, JSON.stringify(pruned));
+        } catch {
+            // localStorage may be unavailable
+        }
+    }, [readAt, kRead]);
+    
+    // Save the enabled toggle.
+    useEffect(() => {
+        try {
+            localStorage.setItem(kEnabled, String(enabled));
+        } catch {
+            // localStorage may be unavailable
+        }
+    }, [enabled, kEnabled]);
     
     // (shownBrowserNotifs persisted inline when updated)
     
@@ -95,7 +169,7 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
     
     // Show browser notifications for unseen failures
     useEffect(() => {
-        if (!permissionGranted || allNotifications.length === 0) return;
+        if (!enabled || !permissionGranted || allNotifications.length === 0) return;
         
         const shownBrowserNotifs = shownBrowserNotifsRef.current;
         const unseenNotifs = allNotifications.filter(
@@ -106,11 +180,14 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
         
         unseenNotifs.forEach((n: NotificationType) => {
             try {
-                new Notification('Pipeline Failed', {
-                    body: `${n.pipeline_name} • ${n.task_name}`,
-                    icon: '/favicon.ico',
-                    tag: n.id
-                });
+                new Notification(
+                    n.type === 'decision_required' ? 'Needs Decision' : 'Pipeline Failed',
+                    {
+                        body: `${n.pipeline_name} • ${n.task_name}`,
+                        icon: '/favicon.ico',
+                        tag: n.id
+                    }
+                );
                 shownBrowserNotifs.add(n.id);
             } catch (e: unknown) {
                 logger.warn('notifications', 'Failed to show browser notification', e);
@@ -126,11 +203,11 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
         } catch {
             // localStorage may be unavailable
         }
-    }, [allNotifications, permissionGranted]);
+    }, [allNotifications, permissionGranted, enabled]);
     
-    // Dismiss a notification
-    const dismissNotification = useCallback((id: string | number) => {
-        setDismissed(prev => new Set([...prev, String(id)]));
+    // Acknowledge ("read") a notification: keep it visible but dimmed; it auto-expires later.
+    const markRead = useCallback((id: string | number) => {
+        setReadAt(prev => ({ ...prev, [String(id)]: Date.now() }));
     }, []);
     
     // Dismiss all notifications
@@ -140,39 +217,41 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
         setShowDropdown(false);
     }, [notifications]);
     
-    // Handle "View" click - navigate to the failed pipeline
+    // Handle "View" click - navigate to the failed pipeline, then mark read (it lingers).
     const handleView = useCallback((notification: NotificationType) => {
         // ADR #68 — backfill notifications navigate to backfill detail.
         if (notification.type === 'backfill' && notification.backfill_id && onNavigateBackfill) {
             onNavigateBackfill(notification.backfill_id);
-            dismissNotification(notification.id);
+            markRead(notification.id);
             setShowDropdown(false);
             return;
         }
         if (onNavigate) {
             onNavigate(notification.pipeline_name ?? '', notification.pipeline_execution);
         }
-        dismissNotification(notification.id);
+        markRead(notification.id);
         setShowDropdown(false);
-    }, [onNavigate, onNavigateBackfill, dismissNotification]);
+    }, [onNavigate, onNavigateBackfill, markRead]);
     
     const notificationCount = notifications.length;
+    // Bell badge counts only unread items — read ones linger in the list but don't glow.
+    const unreadCount = notifications.filter(n => !n.isRead).length;
     
     return (
         <>
             {/* Bell Icon in Header */}
             <div className="ntf-notification-bell-container" ref={dropdownRef}>
                 <button 
-                    className={`ntf-notification-bell ${notificationCount > 0 ? 'has-notifications' : ''}`}
+                    className={`ntf-notification-bell ${enabled && unreadCount > 0 ? 'has-notifications' : ''}`}
                     onClick={() => setShowDropdown(!showDropdown)}
-                    aria-label={notificationCount > 0 ? `${notificationCount} notifications` : 'No notifications'}
+                    aria-label={!enabled ? 'Notifications off' : unreadCount > 0 ? `${unreadCount} notifications` : 'No notifications'}
                     aria-expanded={showDropdown}
                     aria-haspopup="true"
-                    title={notificationCount > 0 ? `${notificationCount} notifications` : 'No notifications'}
+                    title={!enabled ? 'Notifications off' : unreadCount > 0 ? `${unreadCount} notifications` : 'No notifications'}
                 >
-                    <Bell size={18} />
-                    {notificationCount > 0 && (
-                        <span className="ntf-notification-badge">{notificationCount > 9 ? '9+' : notificationCount}</span>
+                    {enabled ? <Bell size={18} /> : <BellOff size={18} />}
+                    {enabled && unreadCount > 0 && (
+                        <span className="ntf-notification-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
                     )}
                 </button>
                 
@@ -181,14 +260,25 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                     <div className="ntf-notification-dropdown">
                         <div className="ntf-notification-dropdown-header">
                             <span className="ntf-notification-dropdown-title">Notifications</span>
-                            {notificationCount > 0 && (
-                                <button 
-                                    className="ntf-notification-clear-all"
-                                    onClick={dismissAll}
+                            <div className="ntf-notification-header-actions">
+                                <button
+                                    className="ntf-notification-toggle"
+                                    onClick={() => setEnabled(e => !e)}
+                                    title={enabled ? 'Turn notifications off' : 'Turn notifications on'}
+                                    aria-label={enabled ? 'Turn notifications off' : 'Turn notifications on'}
+                                    aria-pressed={enabled}
                                 >
-                                    Clear All
+                                    {enabled ? <Bell size={14} /> : <BellOff size={14} />}
                                 </button>
-                            )}
+                                {notificationCount > 0 && (
+                                    <button 
+                                        className="ntf-notification-clear-all"
+                                        onClick={dismissAll}
+                                    >
+                                        Clear All
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         <div className="ntf-notification-dropdown-content">
                             {notifications.length === 0 ? (
@@ -202,7 +292,7 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                                 notifications.map(notification => (
                                     <div 
                                         key={notification.id} 
-                                        className={`ntf-notification-item ${notification.type}`}
+                                        className={`ntf-notification-item ${notification.type}${notification.isRead ? ' ntf-notification-item--read' : ''}`}
                                     >
                                         <div className="ntf-notification-item-icon">
                                             {notification.type === 'backfill'
@@ -212,6 +302,8 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                                                     : notification.backfill_status === 'partial' ? 'text-amber-500'
                                                     : 'text-slate-400'
                                                 } />
+                                                : notification.type === 'decision_required'
+                                                ? <AlertTriangle size={16} className="text-orange-500" />
                                                 : notification.type === 'failure'
                                                 ? <Siren size={16} className="text-red-500" />
                                                 : <AlertTriangle size={16} className="text-amber-500" />
@@ -226,6 +318,8 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                                             <div className="ntf-notification-item-subtitle">
                                                 {notification.type === 'backfill'
                                                     ? `${notification.completed_partitions}/${notification.total_partitions} partitions • ${notification.time_ago}`
+                                                    : notification.type === 'decision_required'
+                                                    ? `${notification.task_name} • awaiting decision • ${notification.time_ago}`
                                                     : `${notification.task_name} • ${notification.time_ago}`}
                                             </div>
                                         </div>
@@ -237,6 +331,8 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                                                 aria-label={
                                                     notification.type === 'backfill'
                                                         ? `View backfill ${notification.backfill_id}`
+                                                        : notification.type === 'decision_required'
+                                                        ? `View ${notification.pipeline_name} decision`
                                                         : `View ${notification.pipeline_name} failure`
                                                 }
                                             >
@@ -244,9 +340,9 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                                             </button>
                                             <button 
                                                 className="ntf-notification-item-btn ntf-dismiss"
-                                                onClick={() => dismissNotification(notification.id)}
-                                                title="Dismiss"
-                                                aria-label="Dismiss notification"
+                                                onClick={() => markRead(notification.id)}
+                                                title="Mark as read"
+                                                aria-label="Mark notification as read"
                                             >
                                                 <X size={14} />
                                             </button>
@@ -259,10 +355,10 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                 )}
             </div>
             
-            {/* Toast Notifications (floating) */}
-            {notifications.length > 0 && !showDropdown && (
+            {/* Toast Notifications (floating) — only unread, and only while enabled */}
+            {enabled && unreadCount > 0 && !showDropdown && (
                 <div className="ntf-notifications-container" role="log" aria-live="polite" aria-label="Pipeline failure notifications">
-                    {notifications.slice(0, 3).map(notification => (
+                    {notifications.filter(n => !n.isRead).slice(0, 3).map(notification => (
                         <div 
                             key={notification.id} 
                             className={`ntf-notification-toast ${notification.type}`}
@@ -275,6 +371,8 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                                         : notification.backfill_status === 'partial' ? 'text-amber-500'
                                         : 'text-slate-400'
                                     } />
+                                    : notification.type === 'decision_required'
+                                    ? <AlertTriangle size={18} className="text-orange-500" />
                                     : notification.type === 'failure'
                                     ? <Siren size={18} className="text-red-500" />
                                     : <AlertTriangle size={18} className="text-amber-500" />
@@ -284,6 +382,8 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                                 <div className="ntf-notification-title">
                                     {notification.type === 'backfill'
                                         ? `Backfill ${notification.backfill_status}`
+                                        : notification.type === 'decision_required'
+                                        ? 'Needs Decision'
                                         : 'Pipeline Failed'}
                                 </div>
                                 <div className="ntf-notification-subtitle">
@@ -300,17 +400,17 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
                                     </button>
                                     <button 
                                         className="ntf-notification-btn secondary"
-                                        onClick={() => dismissNotification(notification.id)}
+                                        onClick={() => markRead(notification.id)}
                                     >
-                                        Dismiss
+                                        Mark read
                                     </button>
                                 </div>
                             </div>
                             <button 
                                 className="ntf-notification-close"
-                                onClick={() => dismissNotification(notification.id)}
-                                title="Dismiss"
-                                aria-label="Dismiss notification"
+                                onClick={() => markRead(notification.id)}
+                                title="Mark as read"
+                                aria-label="Mark notification as read"
                             >
                                 <X size={14} />
                             </button>
@@ -320,6 +420,15 @@ function Notifications({ onNavigate, onNavigateBackfill }: NotificationsProps) {
             )}
         </>
     );
+}
+
+// Keying NotificationsInner by the signed-in user resets all per-user state cleanly on a
+// user change (React's recommended pattern for identity-based reset) — the per-user keys
+// are read fresh in the child's initializers on remount, so no reload effect is needed.
+function Notifications(props: NotificationsProps) {
+    const { user } = useAuth();
+    const userKey = user?.username || 'anon';
+    return <NotificationsInner key={userKey} userKey={userKey} {...props} />;
 }
 
 export default Notifications;

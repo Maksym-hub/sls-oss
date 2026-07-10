@@ -125,6 +125,55 @@ describe('usePipelineDetailQuery', () => {
         expect(result.current.data.dag).toEqual(mockDag);
     });
 
+    it('uses backend pipeline_execution_short for the auto-selected execution', async () => {
+        const mockStatus = {
+            pipeline_name: 'test-pipeline',
+            selected_execution: 'test-pipeline-2024-01-15-7a6e479e',
+            tasks: [{ task_name: 'task-1', status: 'succeeded', pipeline_execution_short: '2024-01-15-7a6e479e' }],
+            server_now_ms: Date.now(),
+        };
+        api.get.mockImplementation((url) => {
+            if (url.includes('pipeline-status')) return Promise.resolve(mockStatus);
+            if (url.includes('pipeline-dag')) return Promise.resolve({ dag: { nodes: [], edges: [] } });
+            return Promise.resolve({});
+        });
+
+        const { result } = renderHook(
+            () => usePipelineDetailQuery('test-pipeline', '2024-01-15'),
+            { wrapper: createWrapper() }
+        );
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        expect(result.current.data.selectedExecution).toMatchObject({
+            execution_short: '2024-01-15-7a6e479e',
+            auto_selected: true,
+        });
+    });
+
+    it('falls back to a clean short (no phantom prefix) when the execution has no tasks', async () => {
+        const mockStatus = {
+            pipeline_name: 'hello-world',
+            selected_execution: 'hello-world-2024-01-15-7a6e479e',
+            tasks: [],
+            server_now_ms: Date.now(),
+        };
+        api.get.mockImplementation((url) => {
+            if (url.includes('pipeline-status')) return Promise.resolve(mockStatus);
+            if (url.includes('pipeline-dag')) return Promise.resolve({ dag: { nodes: [], edges: [] } });
+            return Promise.resolve({});
+        });
+
+        const { result } = renderHook(
+            () => usePipelineDetailQuery('hello-world', '2024-01-15'),
+            { wrapper: createWrapper() }
+        );
+
+        await waitFor(() => expect(result.current.isSuccess).toBe(true));
+        const short = result.current.data.selectedExecution.execution_short;
+        expect(short).not.toContain('hello');
+        expect(short).toBe('-2024-01-15-7a6e479e');
+    });
+
     it('should not fetch when pipelineName is empty', () => {
         const { result } = renderHook(
             () => usePipelineDetailQuery('', '2024-01-15'),

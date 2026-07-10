@@ -29,7 +29,7 @@ vi.mock('../hooks/queries', () => ({
 const mockActions = {
     modal: { isOpen: false, action: null, title: '', message: '', icon: '', confirmText: '', confirmStyle: '', customContent: false, toRun: null, toSkip: null },
     triggerParams: '{}', setTriggerParams: vi.fn(),
-    actionPending: false,
+    actionPending: false, pendingAction: null as string | null,
     handleRun: vi.fn(), handleStop: vi.fn(), handlePauseResume: vi.fn(),
     handleExtendPause: vi.fn(), handleRefresh: vi.fn(), handleTaskAction: vi.fn(), handleRunAction: vi.fn(),
     executeModalAction: vi.fn(), closeModal: vi.fn(),
@@ -117,6 +117,8 @@ describe('PipelineDetail', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setStore();
+        useAppStore.getState().setExecutionPaused(false);
+        mockActions.pendingAction = null;
         // Reset mock query data
         mockDetailQuery.data = { tasks: mockTasks, dag: mockDag, serverOffsetMs: 0, selectedExecution: null };
         mockDetailQuery.isLoading = false;
@@ -223,25 +225,82 @@ describe('PipelineDetail', () => {
     });
 
     describe('action buttons', () => {
-        it('has a Run button', () => {
+        const idleTasks = [
+            createTask({ task_name: 'a', status: 'success' }),
+            createTask({ task_name: 'b', status: 'success' }),
+        ];
+
+        it('shows Run when the pipeline is idle', () => {
+            mockDetailQuery.data = { ...mockDetailQuery.data, tasks: idleTasks };
             render(<PipelineDetail {...defaultProps} />);
             expect(screen.getByRole('button', { name: /run/i })).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: /pause/i })).not.toBeInTheDocument();
         });
 
-        it('renders the Execution history trigger even with no executions on the date (regression: drawer must stay reachable to change the date)', () => {
+        it('shows Pause and Stop while running', () => {
+            render(<PipelineDetail {...defaultProps} />);
+            expect(screen.getByRole('button', { name: /pause/i })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: /^\s*run\s*$/i })).not.toBeInTheDocument();
+        });
+
+        it('shows Resume and Stop while paused', () => {
+            mockDetailQuery.data = { ...mockDetailQuery.data, tasks: [createTask({ task_name: 'transform', status: 'waiting_paused' })] };
+            useAppStore.getState().setExecutionPaused(true);
+            render(<PipelineDetail {...defaultProps} />);
+            expect(screen.getAllByRole('button', { name: /resume/i }).length).toBeGreaterThan(0);
+            expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
+        });
+
+        it('shows a loading label while an action is pending', () => {
+            mockDetailQuery.data = { ...mockDetailQuery.data, tasks: idleTasks };
+            mockActions.pendingAction = 'run';
+            render(<PipelineDetail {...defaultProps} />);
+            expect(screen.getByText(/Starting/i)).toBeInTheDocument();
+        });
+
+        it('renders the History trigger even with no executions on the date (regression: drawer must stay reachable to change the date)', () => {
             const prev = mockExecQuery.data;
             mockExecQuery.data = [];
             render(<PipelineDetail {...defaultProps} />);
-            expect(screen.getByRole('button', { name: /Execution history/i })).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /History/i })).toBeInTheDocument();
             mockExecQuery.data = prev;
         });
 
         it('calls handleRun when Run clicked', () => {
+            mockDetailQuery.data = { ...mockDetailQuery.data, tasks: idleTasks };
             render(<PipelineDetail {...defaultProps} />);
-            const runButtons = screen.getAllByText(/Run/i);
-            const runBtn = runButtons.find(el => el.textContent?.trim() === 'Run');
-            if (runBtn) fireEvent.click(runBtn);
+            fireEvent.click(screen.getByRole('button', { name: /run/i }));
             expect(mockActions.handleRun).toHaveBeenCalled();
         });
     });
+
+    describe('Latest button', () => {
+        afterEach(() => { mockPipelinesQuery.data = [createPipeline()]; });
+
+        it('shows Latest when a specific (manually selected) execution is chosen', () => {
+            mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ status: 'failed', date: '2024-01-15' }] })];
+            setStore({ selectedExecution: { execution_id: 'e1', auto_selected: false } });
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: /History/i }));
+            expect(screen.getByText('Latest')).toBeInTheDocument();
+        });
+
+        it('shows Latest when viewing a non-latest date', () => {
+            mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ status: 'succeeded', date: '2024-01-20' }] })];
+            setStore({ date: '2024-01-15', selectedExecution: { execution_id: 'e1', auto_selected: true } });
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: /History/i }));
+            expect(screen.getByText('Latest')).toBeInTheDocument();
+        });
+
+        it('hides Latest when on the auto-selected latest run', () => {
+            mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ status: 'failed', date: '2024-01-15' }] })];
+            setStore({ date: '2024-01-15', selectedExecution: { execution_id: 'e1', auto_selected: true } });
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: /History/i }));
+            expect(screen.queryByText('Latest')).not.toBeInTheDocument();
+        });
+    });
+
 });

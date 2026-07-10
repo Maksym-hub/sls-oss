@@ -138,7 +138,7 @@
 .dag-node.skipped rect { fill: var(--skipped-light); stroke: var(--skipped); stroke-dasharray: 4 2; }
 .dag-node.aborted rect { fill: var(--aborted-light); stroke: var(--aborted); }
 .dag-node.waiting_decision rect, .dag-node.decision rect { 
-    fill: #fff7ed; stroke: #f97316; stroke-width: 3;
+    fill: var(--decision-light); stroke: var(--decision); stroke-width: 3;
     animation: pulse-border 2s ease-in-out infinite;
 }
 @keyframes pulse-border {
@@ -374,10 +374,44 @@
     gap: 0.5rem;
     font-size: 0.85rem;
     color: var(--text-muted);
+}
+.hdr-nav-left {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
     margin-left: 1rem;
+}
+.hdr-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--accent);
+}
+.hdr-brand-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: var(--accent);
+    color: #fff;
+}
+.hdr-brand-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    flex-shrink: 0;
 }
 .hdr-breadcrumb-item {
     color: var(--text-muted);
+}
+.hdr-breadcrumb-item.hdr-breadcrumb-current {
+    color: var(--text-primary);
+    font-weight: 500;
+    cursor: default;
 }
 .hdr-breadcrumb-item.clickable {
     cursor: pointer;
@@ -586,3 +620,4 @@
     background: #eab308;
     transition: width 1s linear;
 }
+.pd-action-sep { width: 1px; height: 22px; background: var(--border); margin: 0 0.25rem; flex-shrink: 0; }
