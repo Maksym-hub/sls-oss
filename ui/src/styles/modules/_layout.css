@@ -328,10 +328,10 @@
 .ntf-notification-toggle {
     display: inline-flex; align-items: center; justify-content: center;
     background: none; border: none; cursor: pointer; padding: 2px;
-    color: var(--text-tertiary); border-radius: 4px;
+    color: var(--text-muted); border-radius: 4px;
 }
 .ntf-notification-toggle:hover { color: var(--text-secondary); background: var(--bg-tertiary); }
-.ntf-notification-toggle[aria-pressed="false"] { color: var(--text-quaternary, var(--text-tertiary)); }
+.ntf-notification-toggle[aria-pressed="false"] { color: var(--text-muted, var(--text-muted)); }
 .ntf-notification-clear-all {
     background: transparent;
     border: none;

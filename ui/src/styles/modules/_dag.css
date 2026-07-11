@@ -253,14 +253,14 @@
 }
 .td-dep-tag.td-asset-dep {
     background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border);
 }
 .td-dep-tag .td-freshness-badge {
     display: inline-flex; align-items: center; gap: 0.125rem;
     margin-left: 0.25rem;
     padding: 0.125rem 0.25rem;
-    background: var(--info-bg);
-    color: var(--info-text);
+    background: var(--accent-light);
+    color: var(--accent);
     border-radius: 3px;
     font-size: 0.625rem;
     font-weight: 500;

@@ -1519,7 +1519,7 @@
     align-items: center;
     gap: 12px;
     padding: 10px 18px;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border);
     background: var(--bg-secondary);
     flex-wrap: wrap;
 }
@@ -1537,7 +1537,7 @@
 .amv-toolbar-select {
     background: var(--bg-primary);
     color: var(--text-primary);
-    border: 1px solid var(--border-secondary);
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 4px 8px;
     font-size: 0.8125rem;
@@ -1552,7 +1552,7 @@
     gap: 6px;
     background: var(--bg-primary);
     color: var(--text-primary);
-    border: 1px solid var(--border-secondary);
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 5px 12px;
     font-size: 0.8125rem;
@@ -1593,8 +1593,8 @@
     font-weight: 500;
     text-align: left;
     min-width: 240px;
-    border-bottom: 1px solid var(--border-primary);
-    border-right: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
 }
 
 /* Date headers */
@@ -1610,7 +1610,7 @@
     min-width: 48px;
     width: 48px;
     text-align: center;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border);
 }
 .amv-date-header--today {
     color: var(--accent);
@@ -1620,7 +1620,7 @@
 .amv-date-main { font-weight: 500; }
 .amv-date-weekday {
     font-size: 0.6rem;
-    color: var(--text-tertiary, var(--text-secondary));
+    color: var(--text-muted, var(--text-secondary));
     margin-top: 1px;
     text-transform: uppercase;
 }
@@ -1637,7 +1637,7 @@
     position: sticky;
     left: 0;
     z-index: 1;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border);
 }
 .amv-group-count {
     color: var(--text-secondary);
@@ -1664,8 +1664,8 @@
     max-width: 240px;
     overflow: hidden;
     text-overflow: ellipsis;
-    border-bottom: 1px solid var(--border-primary);
-    border-right: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
     white-space: nowrap;
     display: flex;
     align-items: center;
@@ -1684,7 +1684,7 @@
 .amv-asset-type-badge {
     display: inline-flex;
     align-items: center;
-    color: var(--text-tertiary, var(--text-secondary));
+    color: var(--text-muted, var(--text-secondary));
     opacity: 0.7;
 }
 
@@ -1699,10 +1699,10 @@
     line-height: 1;
 }
 .amv-drift-badge--warning {
-    color: var(--warn, #f59e0b);
+    color: var(--warning, #f59e0b);
 }
 .amv-drift-badge--critical {
-    color: var(--err, #dc2626);
+    color: var(--error, #dc2626);
 }
 
 /* Group filter (multi-select popover, v0.77.1) */
@@ -1729,7 +1729,7 @@
     min-width: 200px;
     max-height: 320px;
     background: var(--bg-primary);
-    border: 1px solid var(--border-primary);
+    border: 1px solid var(--border);
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     overflow: hidden;
@@ -1740,14 +1740,14 @@
     display: flex;
     gap: 4px;
     padding: 6px;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border);
 }
 .amv-group-filter-action {
     flex: 1;
     padding: 4px 8px;
     font-size: 0.75rem;
     background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
+    border: 1px solid var(--border);
     border-radius: 4px;
     cursor: pointer;
     color: var(--text-primary);
@@ -1787,7 +1787,7 @@
     width: 48px;
     min-width: 48px;
     height: 32px;
-    border-bottom: 1px solid var(--border-primary);
+    border-bottom: 1px solid var(--border);
     position: relative;
     vertical-align: middle;
 }
@@ -1814,14 +1814,14 @@
 }
 .amv-cell--queued {
     background: rgba(251, 146, 60, 0.18);
-    color: var(--orange, #fb923c);
+    color: var(--warning, #fb923c);
     cursor: pointer;
 }
 .amv-cell--queued:hover {
     background: rgba(251, 146, 60, 0.30);
 }
 .amv-cell--missing {
-    color: var(--text-tertiary, var(--text-secondary));
+    color: var(--text-muted, var(--text-secondary));
     cursor: pointer;
 }
 .amv-cell--missing:hover {
@@ -1837,7 +1837,7 @@
     display: flex;
     gap: 18px;
     padding: 8px 18px;
-    border-top: 1px solid var(--border-primary);
+    border-top: 1px solid var(--border);
     background: var(--bg-secondary);
     font-size: 0.75rem;
     color: var(--text-secondary);
@@ -1847,15 +1847,15 @@
 .amv-text-green { color: var(--success, #4ade80); }
 .amv-text-red { color: var(--error, #f87171); }
 .amv-text-yellow { color: var(--warning, #fbbf24); }
-.amv-text-orange { color: var(--orange, #fb923c); }
-.amv-text-dim { color: var(--text-tertiary, var(--text-secondary)); }
+.amv-text-orange { color: var(--warning, #fb923c); }
+.amv-text-dim { color: var(--text-muted, var(--text-secondary)); }
 
 /* Legend */
 .amv-legend {
     display: flex;
     gap: 14px;
     padding: 8px 18px;
-    border-top: 1px solid var(--border-primary);
+    border-top: 1px solid var(--border);
     background: var(--bg-secondary);
     font-size: 0.6875rem;
     color: var(--text-secondary);
@@ -1875,7 +1875,7 @@
 }
 .amv-legend-hint {
     margin-left: auto;
-    color: var(--text-tertiary, var(--text-secondary));
+    color: var(--text-muted, var(--text-secondary));
     font-style: italic;
 }
 
@@ -1892,7 +1892,7 @@
     color: var(--text-secondary);
     text-align: center;
 }
-.amv-empty-icon { color: var(--text-tertiary, var(--text-secondary)); opacity: 0.5; }
+.amv-empty-icon { color: var(--text-muted, var(--text-secondary)); opacity: 0.5; }
 .amv-empty-hint { font-size: 0.8125rem; opacity: 0.7; }
 .amv-empty-btn,
 .amv-retry-btn {

@@ -351,7 +351,7 @@
     font-size: 0.6875rem;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: var(--text-tertiary);
+    color: var(--text-muted);
     margin-top: 0.125rem;
     white-space: nowrap;
 }
@@ -395,7 +395,7 @@
 .pd-exec-dropdown-empty {
     padding: 1.5rem 1rem;
     text-align: center;
-    color: var(--text-tertiary);
+    color: var(--text-muted);
     font-size: 0.8125rem;
 }
 
@@ -413,7 +413,7 @@
     transition: all 0.12s ease;
 }
 .ws-filter-chip:hover { border-color: var(--error); color: var(--error); }
-.ws-filter-chip-label { color: var(--text-tertiary); text-transform: uppercase; font-size: 0.625rem; letter-spacing: 0.04em; }
+.ws-filter-chip-label { color: var(--text-muted); text-transform: uppercase; font-size: 0.625rem; letter-spacing: 0.04em; }
 .ws-filter-chip-value { font-weight: 500; }
 
 
@@ -428,7 +428,7 @@
 }
 .dp-trigger:hover { border-color: var(--accent); }
 .dp-value { color: var(--text-primary); }
-.dp-placeholder { color: var(--text-tertiary); }
+.dp-placeholder { color: var(--text-muted); }
 .dp-popup {
     /* position + top/left are set inline (portaled to <body>, fixed positioning). */
     z-index: 9999; width: 260px; background: var(--bg-primary);
@@ -445,7 +445,7 @@
 }
 .dp-nav:hover { background: var(--bg-secondary); color: var(--text-primary); }
 .dp-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 4px; }
-.dp-weekday { text-align: center; font-size: 0.6875rem; color: var(--text-tertiary); padding: 4px 0; }
+.dp-weekday { text-align: center; font-size: 0.6875rem; color: var(--text-muted); padding: 4px 0; }
 .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
 .dp-cell {
     text-align: center; font-size: 0.75rem; padding: 6px 0;

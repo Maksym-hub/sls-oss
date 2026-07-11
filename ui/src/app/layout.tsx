@@ -15,6 +15,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Apply the persisted theme before first paint so dark mode doesn't flash light
+            (the store applies [data-theme] only after hydration). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.setAttribute('data-theme',t)}catch(e){}`,
+          }}
+        />
         {/* Runtime config — loaded before React boots, sets window.CONFIG */}
         {/* In production, deploy-ui.sh generates this with real API Gateway URL */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
