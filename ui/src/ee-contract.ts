@@ -31,13 +31,23 @@ export interface BackfillNavTabProps {
   onClick: () => void;
 }
 
+/**
+ * Navigate to a pipeline view (+ optional execution/date) by setting store state directly and
+ * client-navigating — not via URL params + a full reload. See ADR #63 / #111.
+ */
+export type NavigateToExecution = (pipelineName: string, executionId?: string, targetDate?: string) => void;
+
+export interface BackfillsViewProps {
+  onNavigateToExecution: NavigateToExecution;
+}
+
 export interface PaidSurface {
   /** Personal Access Token management (ADR #65/#66). Rendered in SettingsModal. */
   ApiTokensSection?: ComponentType;
   /** Per-pipeline failure-alert config: Slack/PagerDuty (ADR #103). Rendered in SettingsModal. */
   AlertsSection?: ComponentType;
   /** /backfills route view: list + detail sub-routing (ADR #99). */
-  BackfillsView?: ComponentType;
+  BackfillsView?: ComponentType<BackfillsViewProps>;
   /** Team backfill nav tab + active-count badge, rendered in the Header (ADR #99). */
   BackfillNavTab?: ComponentType<BackfillNavTabProps>;
   /** /assets route view: matrix, lineage, detail, asset-tabs (ADR #99). */

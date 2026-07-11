@@ -6,9 +6,8 @@ const mockRefetch = vi.fn();
 const mockQueryData = { data: [] as Record<string, unknown>[], isLoading: false, refetch: mockRefetch };
 const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }));
 
-vi.mock('next/navigation', () => ({
-    useRouter: () => ({ push: mockPush, replace: vi.fn() }),
-    usePathname: () => '/runs/',
+vi.mock('@/hooks/useClientRoute', () => ({
+    useClientRoute: () => ({ pathname: '/runs/', push: mockPush, replace: vi.fn() }),
 }));
 vi.mock('@/hooks/queries', () => ({
     useAllRunsQuery: () => mockQueryData,

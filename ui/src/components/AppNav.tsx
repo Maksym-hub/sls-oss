@@ -1,4 +1,4 @@
-import { useRouter, usePathname } from 'next/navigation';
+import { useClientRoute } from '@/hooks/useClientRoute';
 import { viewFromPathname } from '../utils';
 import { paidSurface } from '@/ee-active.generated';
 import { ViewTab } from './ViewTab';
@@ -15,10 +15,9 @@ import { Workflow, Package, ListTodo, Activity } from 'lucide-react';
  * neither the views nor their nav entries.
  */
 export function AppNav() {
-    const router = useRouter();
-    const pathname = usePathname();
+    const { pathname, push } = useClientRoute();
     const mainView = viewFromPathname(pathname);
-    const switchView = (view: string) => router.push(`/${view}/`);
+    const switchView = (view: string) => push(`/${view}/`);
 
     const BackfillNavTab = paidSurface.BackfillNavTab;
     const AssetsView = paidSurface.AssetsView;

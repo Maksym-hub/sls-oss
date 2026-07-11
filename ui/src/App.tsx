@@ -1,7 +1,7 @@
 'use client';
 
 import React, { lazy, Suspense, useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useClientRoute } from '@/hooks/useClientRoute';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, Loader2 } from './utils/icons';
 import { 
@@ -36,8 +36,8 @@ const ViewLoader = () => (
 );
 
 function App() {
-    const router = useRouter();
-    const pathname = usePathname();
+    const router = useClientRoute();
+    const pathname = router.pathname;
     const mainView = viewFromPathname(pathname);
     const BackfillsView = paidSurface.BackfillsView;
     const AssetsView = paidSurface.AssetsView;
@@ -154,7 +154,7 @@ function App() {
                     </Suspense>
                 ) : mainView === 'backfills' && BackfillsView ? (
                     <Suspense fallback={<ViewLoader />}>
-                        <BackfillsView />
+                        <BackfillsView onNavigateToExecution={navigateToExecution} />
                     </Suspense>
                 ) : mainView === 'assets' && AssetsView ? (
                     <ErrorBoundary fallback={

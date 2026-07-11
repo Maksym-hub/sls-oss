@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useClientRoute } from '@/hooks/useClientRoute';
 import { useUrlSync } from '../hooks/useUrlSync';
 import { useAppStore } from './useAppStore';
 import { toDateString } from '../utils';
@@ -45,8 +45,7 @@ const PIPELINES_URL_KEYS = ['pipeline', 'mode', 'date', 'execution'] as const;
 const PIPELINES_URL_DEFAULTS = { mode: 'dag' };
 
 export function useStoreInit({ pipelines }: UseStoreInitOptions) {
-    const router = useRouter();
-    const pathname = usePathname();
+    const { pathname, push } = useClientRoute();
     const onPipelinesRoute = isPipelinesRoute(pathname);
     const store = useAppStore();
     
@@ -223,7 +222,7 @@ export function useStoreInit({ pipelines }: UseStoreInitOptions) {
         }
 
         store.setSelectedPipeline(pipeline);
-        router.push('/pipelines/');
+        push('/pipelines/');
     };
 
     return {

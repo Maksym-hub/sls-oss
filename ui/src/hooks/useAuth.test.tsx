@@ -52,6 +52,7 @@ const renderAuthHook = () => {
 describe('useAuth Hook (Amplify)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        localStorage.clear();
         
         // Default: auth disabled
         mockConfig.AUTH = { enabled: false };
@@ -138,6 +139,58 @@ describe('useAuth Hook (Amplify)', () => {
             expect(result.current.isAuthenticated).toBe(true);
             expect(result.current.user.email).toBe('test@example.com');
             expect(result.current.user.isAdmin).toBe(true);
+        });
+    });
+
+    describe('Optimistic init (cached session)', () => {
+        const CACHE_KEY = 'polyris-auth-user';
+        beforeEach(() => {
+            mockConfig.AUTH = { enabled: true, userPoolId: 'us-east-1_test', clientId: 'testclient123', region: 'us-east-1' };
+        });
+
+        it('starts signed-in immediately when a session is cached (no loading flash)', () => {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({ email: 'test@example.com', name: 'Test User', isAdmin: false }));
+            mockGetCurrentUser.mockReturnValue(new Promise(() => {})); // revalidation stays pending
+            const { result } = renderAuthHook();
+            expect(result.current.authState).toBe(AUTH_STATE.SIGNED_IN);
+            expect(result.current.isLoading).toBe(false);
+            expect(result.current.user.email).toBe('test@example.com');
+        });
+
+        it('starts in loading state when no session is cached', () => {
+            mockGetCurrentUser.mockReturnValue(new Promise(() => {})); // pending
+            const { result } = renderAuthHook();
+            expect(result.current.authState).toBe(AUTH_STATE.LOADING);
+            expect(result.current.isLoading).toBe(true);
+        });
+
+        it('clears the cache and signs out when background revalidation fails', async () => {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({ email: 'stale@example.com' }));
+            mockGetCurrentUser.mockRejectedValue(new Error('No user'));
+            const { result } = renderAuthHook();
+            expect(result.current.authState).toBe(AUTH_STATE.SIGNED_IN); // optimistic
+            await waitFor(() => expect(result.current.authState).toBe(AUTH_STATE.SIGNED_OUT), { timeout: 1000 });
+            expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+        });
+
+        it('caches the session after a successful check', async () => {
+            mockGetCurrentUser.mockResolvedValue({ username: 'test@example.com', userId: 'user-123' });
+            mockFetchUserAttributes.mockResolvedValue({ email: 'test@example.com', name: 'Test User' });
+            mockFetchAuthSession.mockResolvedValue({ tokens: { accessToken: { payload: { 'cognito:groups': ['admins'] }, toString: () => 'mock-token' } } });
+            const { result } = renderAuthHook();
+            await waitFor(() => expect(result.current.authState).toBe(AUTH_STATE.SIGNED_IN), { timeout: 1000 });
+            expect(localStorage.getItem(CACHE_KEY)).toContain('test@example.com');
+        });
+
+        it('clears the cache on sign out', async () => {
+            localStorage.setItem(CACHE_KEY, JSON.stringify({ email: 'test@example.com' }));
+            mockGetCurrentUser.mockResolvedValue({ username: 'test@example.com', userId: 'user-123' });
+            mockFetchUserAttributes.mockResolvedValue({ email: 'test@example.com' });
+            mockFetchAuthSession.mockResolvedValue({ tokens: { accessToken: { payload: {}, toString: () => 't' } } });
+            const { result } = renderAuthHook();
+            await waitFor(() => expect(result.current.authState).toBe(AUTH_STATE.SIGNED_IN), { timeout: 1000 });
+            await act(async () => { await result.current.signOut(); });
+            expect(localStorage.getItem(CACHE_KEY)).toBeNull();
         });
     });
 

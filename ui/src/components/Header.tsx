@@ -1,5 +1,5 @@
 import React from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useClientRoute } from '@/hooks/useClientRoute';
 import Notifications from './Notifications';
 import { viewFromPathname } from '../utils';
 import { useAppStore } from '../stores/useAppStore';
@@ -28,7 +28,7 @@ interface HeaderProps {
  * The theme toggle and account menu live in the left rail's account menu (AppNav). Top-level view is read from the pathname; other state from Zustand.
  */
 export function Header({ apiConnected, onNotificationNavigate, onNotificationNavigateBackfill }: HeaderProps) {
-    const pathname = usePathname();
+    const { pathname } = useClientRoute();
     const mainView = viewFromPathname(pathname);
 
     const {
@@ -98,8 +98,7 @@ const SECTION_LABEL: Record<string, string> = {
 };
 
 function Breadcrumbs() {
-    const router = useRouter();
-    const pathname = usePathname();
+    const { pathname, push } = useClientRoute();
     const mainView = viewFromPathname(pathname);
 
     const { selectedPipeline, selectedExecution, setSelectedPipeline, setSelectedExecution, setDate } = useAppStore(useShallow(s => ({
@@ -110,7 +109,7 @@ function Breadcrumbs() {
 
     const latestRunDate = selectedPipeline?.recent_runs?.find(r => r.date)?.date ?? null;
 
-    const goSection = () => { setSelectedPipeline(null); setSelectedExecution(null); router.push(`/${mainView}/`); };
+    const goSection = () => { setSelectedPipeline(null); setSelectedExecution(null); push(`/${mainView}/`); };
     const goPipeline = () => { setSelectedExecution(null); if (latestRunDate) setDate(latestRunDate); };
 
     const sectionLabel = SECTION_LABEL[mainView] ?? mainView;

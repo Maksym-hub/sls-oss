@@ -28,7 +28,7 @@ import { asStringArray } from '@/utils/formatters';
  * @module hooks/useAuth
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { 
     signIn as amplifySignIn,
     signOut as amplifySignOut,
@@ -93,6 +93,43 @@ const formatUser = (amplifyUser: { username?: string } | null, attributes: Parti
     };
 };
 
+/**
+ * Optimistic-init cache.
+ *
+ * The formatted user from the last successful auth check is cached in localStorage so the
+ * provider can render as signed-in immediately on the next mount (a static export re-mounts
+ * this provider on navigation), instead of flashing a loading screen while Amplify's async
+ * session check runs. The cached value is UI-only and always revalidated in the background —
+ * the server validates every request, so a stale/revoked token simply 401s and signs out.
+ */
+const AUTH_CACHE_KEY = 'polyris-auth-user';
+
+const readCachedAuth = (): AuthUser | null => {
+    try {
+        const raw = localStorage.getItem(AUTH_CACHE_KEY);
+        return raw ? (JSON.parse(raw) as AuthUser) : null;
+    } catch {
+        return null;
+    }
+};
+
+const writeCachedAuth = (user: AuthUser): void => {
+    try { localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify(user)); } catch { /* ignore */ }
+};
+
+const clearCachedAuth = (): void => {
+    try { localStorage.removeItem(AUTH_CACHE_KEY); } catch { /* ignore */ }
+};
+
+/**
+ * useLayoutEffect on the client, useEffect on the server. The optimistic cache read must run
+ * before the first paint (so the loading splash isn't visible when a session is cached), but
+ * it must NOT change the initial render — the static export prerenders the LOADING state, so
+ * reading localStorage in the initial state would cause a hydration mismatch. Running the read
+ * in a layout effect keeps the first render server-identical and upgrades before paint.
+ */
+const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
 // -----------------------------------------------------------------------------
 // Auth Context
 // -----------------------------------------------------------------------------
@@ -135,12 +172,13 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * Uses Amplify Auth for session management and token refresh.
  */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const [authState, setAuthState] = useState(AUTH_STATE.LOADING);
+    const authEnabled = isAuthEnabled();
+    // Server-safe initial state that matches the prerendered LOADING splash. The optimistic
+    // upgrade from the cached session happens in the layout effect below (hydration-safe).
     const [user, setUser] = useState<AuthUser | null>(null);
+    const [authState, setAuthState] = useState(AUTH_STATE.LOADING);
     const [error, setError] = useState<string | null>(null);
     const [challengeUser, setChallengeUser] = useState<unknown>(null);
-    
-    const authEnabled = isAuthEnabled();
     
     // -------------------------------------------------------------------------
     // Check Current Auth State
@@ -169,13 +207,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             
             setUser(formattedUser);
             setAuthState(AUTH_STATE.SIGNED_IN);
+            writeCachedAuth(formattedUser);
         } catch {
-            // Not authenticated
+            // Not authenticated — drop any optimistic cache so we don't render a ghost session.
+            clearCachedAuth();
             setUser(null);
             setAuthState(AUTH_STATE.SIGNED_OUT);
         }
     }, [authEnabled]);
     
+    // Optimistic upgrade from the cached session, before first paint. Kept out of the initial
+    // render (see the server-safe useState above) so hydration stays consistent with the
+    // prerendered LOADING splash; checkAuthState() below then revalidates in the background.
+    useIsoLayoutEffect(() => {
+        if (!authEnabled) return;
+        const cached = readCachedAuth();
+        if (cached) {
+            setUser(cached);
+            setAuthState(AUTH_STATE.SIGNED_IN);
+        }
+    }, [authEnabled]);
+
     // Initialize auth state on mount
     useEffect(() => {
         checkAuthState(); // eslint-disable-line react-hooks/set-state-in-effect -- One-time initialization from external auth system
@@ -358,6 +410,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             logger.warn('auth', 'Sign out error', err);
         }
         
+        clearCachedAuth();
         setUser(null);
         setChallengeUser(null);
         setError(null);

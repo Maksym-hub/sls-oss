@@ -31,9 +31,8 @@ import { useAppStore } from './useAppStore';
 const mockRouterPush = vi.fn();
 let mockPathname = '/pipelines/';
 
-vi.mock('next/navigation', () => ({
-    useRouter: () => ({ push: mockRouterPush, replace: vi.fn() }),
-    usePathname: () => mockPathname,
+vi.mock('@/hooks/useClientRoute', () => ({
+    useClientRoute: () => ({ pathname: mockPathname, push: mockRouterPush, replace: vi.fn() }),
 }));
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

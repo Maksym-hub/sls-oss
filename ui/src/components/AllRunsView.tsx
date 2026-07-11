@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useClientRoute } from '@/hooks/useClientRoute';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './Skeletons';
 import { formatDuration, formatApiErrorMessage } from '../utils';
@@ -39,7 +39,7 @@ const RUNS_URL_KEYS = ['status', 'pipeline'] as const;
 export function AllRunsView({
     onPipelineClick,
 }: AllRunsViewProps) {
-    const router = useRouter();
+    const router = useClientRoute();
     const { date, setDate, runFilter: filter, setRunFilter: onFilterChange } = useAppStore(useShallow(s => ({
         date: s.date, setDate: s.setDate, runFilter: s.runFilter, setRunFilter: s.setRunFilter,
     })));

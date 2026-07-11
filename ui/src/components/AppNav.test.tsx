@@ -4,9 +4,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 // Mock next/navigation — must come before AppNav import
 const pushMock = vi.fn();
 let currentPathname = '/pipelines/';
-vi.mock('next/navigation', () => ({
-    useRouter: () => ({ push: pushMock, replace: vi.fn() }),
-    usePathname: () => currentPathname,
+vi.mock('@/hooks/useClientRoute', () => ({
+    useClientRoute: () => ({ pathname: currentPathname, push: pushMock, replace: vi.fn() }),
 }));
 vi.mock('lucide-react', () => ({ Activity: () => null, AlertCircle: () => null, ArrowLeft: () => null, Check: () => null, CheckCircle: () => null, ChevronDown: () => null, ChevronRight: () => null, ChevronUp: () => null, Circle: () => null, Eye: () => null, EyeOff: () => null, HelpCircle: () => null, History: () => null, KeyRound: () => null, ListTodo: () => null, Loader2: () => null, Lock: () => null, LogOut: () => null, Mail: () => null, Menu: () => null, Moon: () => null, Package: () => null, Pause: () => null, RefreshCw: () => null, Shield: () => null, Sun: () => null, User: () => null, Users: () => null, Workflow: () => null, Rocket: () => null, X: () => null, Zap: () => null }));
 
