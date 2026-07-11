@@ -3,7 +3,11 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { useAppStore } from '../stores/useAppStore';
 
 const mockQueryData = { data: [] as Record<string, unknown>[], isLoading: false, refetch: vi.fn() };
+const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }));
 
+vi.mock('@/hooks/useClientRoute', () => ({
+    useClientRoute: () => ({ pathname: '/tasks/', push: mockPush, replace: vi.fn() }),
+}));
 vi.mock('@/hooks/queries', () => ({
     useAllTasksQuery: () => mockQueryData,
     useAllRunsQuery: () => ({ data: [], isLoading: false, refetch: vi.fn() }),
@@ -20,6 +24,8 @@ vi.mock('@/utils/icons', () => ({
     ArrowDown: () => <span>↓</span>,
     StatusIcon: ({ status }: { status: string }) => <span data-testid={`status-${status}`} />,
     ListTodo: () => <span data-testid="icon-list" />,
+    RefreshCw: () => <span data-testid="icon-refresh" />,
+    AlertTriangle: () => <span data-testid="icon-alert" />,
     X: () => <span data-testid="icon-x" />,
 }));
 vi.mock('../utils/icons', () => ({
@@ -33,6 +39,8 @@ vi.mock('../utils/icons', () => ({
     ArrowDown: () => <span>↓</span>,
     StatusIcon: ({ status }: { status: string }) => <span data-testid={`status-${status}`} />,
     ListTodo: () => <span data-testid="icon-list" />,
+    RefreshCw: () => <span data-testid="icon-refresh" />,
+    AlertTriangle: () => <span data-testid="icon-alert" />,
     X: () => <span data-testid="icon-x" />,
 }));
 vi.mock('@/components/ui/button', () => ({
@@ -120,9 +128,9 @@ describe('AllTasksView', () => {
     });
 
     describe('filtering', () => {
-        it('has task name search input', () => {
+        it('has a search input', () => {
             render(<AllTasksView {...defaultProps} />);
-            expect(screen.getByPlaceholderText(/task name/i)).toBeInTheDocument();
+            expect(screen.getByPlaceholderText(/search/i)).toBeInTheDocument();
         });
 
         it('updates store when status filter changed', () => {
@@ -158,9 +166,9 @@ describe('AllTasksView', () => {
             expect(mockQueryData.refetch).toHaveBeenCalled();
         });
 
-        it('/ focuses the task name search input', () => {
+        it('/ focuses the search input', () => {
             render(<AllTasksView {...defaultProps} />);
-            const searchInput = screen.getByPlaceholderText(/task name/i);
+            const searchInput = screen.getByPlaceholderText(/search/i);
             fireEvent.keyDown(document, { key: '/' });
             expect(document.activeElement).toBe(searchInput);
         });

@@ -3,23 +3,24 @@ import { useClientRoute } from '@/hooks/useClientRoute';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './Skeletons';
 import { formatDuration, formatApiErrorMessage } from '../utils';
-import { 
-    Activity, 
-    RefreshCw, 
+import {
     Search,
     Inbox,
     AlertTriangle,
     ActionIcons,
 } from '../utils/icons';
 import { EmptyState } from './EmptyState';
-import { WorkspaceMetrics, WorkspaceFilterChips, type WorkspaceMetric, type WorkspaceFilterChip } from './WorkspaceMetrics';
+import { WorkspaceFilterChips, type WorkspaceFilterChip } from './WorkspaceMetrics';
+import { HistoryChrome } from './HistoryChrome';
 import { DatePicker } from './DatePicker';
 import { SortableHeader } from './SortableHeader';
 import { useAppStore } from '@/stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useAllRunsQuery, usePipelinesQuery } from '@/hooks/queries';
 import { useUrlSync } from '@/hooks/useUrlSync';
+import { usePagedRows } from '@/hooks/usePagedRows';
 import { useKeyboardShortcuts, SHORTCUTS } from '@/hooks';
+import { paidSurface } from '@/ee-active.generated';
 import type { PipelineWithUI, Execution, RunFeedRow } from '@/types';
 
 interface AllRunsViewProps {
@@ -34,7 +35,9 @@ interface RunsUrlState {
 const RUNS_URL_KEYS = ['status', 'pipeline'] as const;
 
 /**
- * AllRunsView - Global view of all pipeline runs/executions
+ * AllRunsView — the Runs half of the History view (merged with All tasks via HistoryChrome).
+ * Backfill rows/column/statuses are a Team surface, so they render only when the paid surface
+ * provides the Backfills view.
  */
 export function AllRunsView({
     onPipelineClick,
@@ -43,6 +46,8 @@ export function AllRunsView({
     const { date, setDate, runFilter: filter, setRunFilter: onFilterChange } = useAppStore(useShallow(s => ({
         date: s.date, setDate: s.setDate, runFilter: s.runFilter, setRunFilter: s.setRunFilter,
     })));
+
+    const showBackfills = !!paidSurface.BackfillsView;
 
     // ─── URL Sync ─────────────────────────────────────────────────────────
     // Note: `date` is shared with global header, not in URL here (header
@@ -83,19 +88,20 @@ export function AllRunsView({
     const { data: pipelines = [] } = usePipelinesQuery();
     const { data: runs = [], isLoading: loading, isError, error, refetch: refetchAllRuns } = useAllRunsQuery(date, filter, true);
     const [sort, setSort] = useState({ key: '', dir: 'desc' });
+    const [search, setSearch] = useState('');
 
     // List-view shortcuts (ADR #64): refresh.
     useKeyboardShortcuts({
         [SHORTCUTS.REFRESH]: () => refetchAllRuns(),
     });
-    
+
     const handleSort = (key: string) => {
         setSort(prev => ({
             key,
             dir: prev.key === key && prev.dir === 'desc' ? 'asc' : 'desc'
         }));
     };
-    
+
     const sortedRuns = useMemo(() => {
         if (!sort.key) return runs;
         const sorted = [...runs].sort((a, b) => {
@@ -113,8 +119,14 @@ export function AllRunsView({
         });
         return sorted;
     }, [runs, sort]);
-    
-    const hasActiveFilters = filter.pipeline || filter.status;
+
+    const { paged, page, setPage, total, pageCount, pageSize } = usePagedRows(
+        sortedRuns,
+        search,
+        r => `${r.pipeline_name ?? ''} ${r.pipeline_execution ?? ''} ${r.backfill_id ?? ''}`,
+    );
+
+    const hasActiveFilters = !!(filter.pipeline || filter.status);
 
     const clearFilters = () => {
         onFilterChange({ status: '', pipeline: '' });
@@ -131,98 +143,93 @@ export function AllRunsView({
         }
     };
 
-    const runMetrics: WorkspaceMetric[] = useMemo(() => {
-        if (!sortedRuns.length) return [];
-        const norm = (v: unknown) => String(v ?? '').toLowerCase();
-        const running = sortedRuns.filter(r => norm(r.status) === 'running').length;
-        const failed = sortedRuns.filter(r => ['failed', 'upstream_failed'].includes(norm(r.status))).length;
-        const succeeded = sortedRuns.filter(r => ['succeeded', 'success'].includes(norm(r.status))).length;
-        return [
-            { label: 'Total', value: sortedRuns.length },
-            { label: 'Running', value: running, tone: 'running' },
-            { label: 'Succeeded', value: succeeded, tone: 'success' },
-            { label: 'Failed', value: failed, tone: 'failed' },
-        ];
-    }, [sortedRuns]);
+    const filters = (
+        <>
+            <select
+                value={filter.pipeline}
+                onChange={e => onFilterChange({ ...filter, pipeline: e.target.value })}
+                className="input-sm"
+                aria-label="Filter by pipeline"
+            >
+                <option value="">All Pipelines</option>
+                {pipelines.map(p => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                ))}
+            </select>
+
+            <select
+                value={filter.status}
+                onChange={e => onFilterChange({ ...filter, status: e.target.value })}
+                className="input-sm"
+                aria-label="Filter by status"
+            >
+                <option value="">All Statuses</option>
+                <optgroup label="Runs">
+                    <option value="succeeded">Succeeded</option>
+                    <option value="failed">Failed</option>
+                    <option value="running">Running</option>
+                    <option value="aborted">Aborted</option>
+                </optgroup>
+                {showBackfills && (
+                    <optgroup label="Backfills">
+                        <option value="pending">Pending</option>
+                        <option value="completed">Completed</option>
+                        <option value="partial">Partial</option>
+                        <option value="canceled">Canceled</option>
+                    </optgroup>
+                )}
+            </select>
+
+            <DatePicker
+                value={date}
+                onChange={d => setDate(d)}
+                placeholder="All dates"
+                ariaLabel="Filter by date"
+            />
+
+            {hasActiveFilters && (
+                <Button size="sm" variant="secondary" onClick={clearFilters}>
+                    Clear
+                </Button>
+            )}
+        </>
+    );
 
     return (
-        <div className="panel-section">
-            {/* Filter Bar */}
-            <div className="filter-bar">
-                <h2 className="title-lg"><Activity size={20} /> All Pipeline Runs</h2>
-                
-                <div className="filter-controls">
-                    {/* Pipeline Filter */}
-                    <select
-                        value={filter.pipeline}
-                        onChange={e => onFilterChange({ ...filter, pipeline: e.target.value })}
-                        className="input-sm"
-                    >
-                        <option value="">All Pipelines</option>
-                        {pipelines.map(p => (
-                            <option key={p.name} value={p.name}>{p.name}</option>
-                        ))}
-                    </select>
-
-                    {/* Status Filter */}
-                    <select
-                        value={filter.status}
-                        onChange={e => onFilterChange({ ...filter, status: e.target.value })}
-                        className="input-sm"
-                    >
-                        <option value="">All Statuses</option>
-                        <optgroup label="Runs">
-                            <option value="succeeded">Succeeded</option>
-                            <option value="failed">Failed</option>
-                            <option value="running">Running</option>
-                            <option value="aborted">Aborted</option>
-                        </optgroup>
-                        <optgroup label="Backfills">
-                            <option value="pending">Pending</option>
-                            <option value="completed">Completed</option>
-                            <option value="partial">Partial</option>
-                            <option value="canceled">Canceled</option>
-                        </optgroup>
-                    </select>
-
-                    {/* Date Filter (inline, mirrors All Tasks) */}
-                    <DatePicker
-                        value={date}
-                        onChange={d => setDate(d)}
-                        placeholder="All dates"
-                        ariaLabel="Filter by date"
-                    />
-
-                    {/* Clear Button */}
-                    {hasActiveFilters && (
-                        <Button size="sm" variant="secondary" onClick={clearFilters}>
-                            Clear
-                        </Button>
-                    )}
-                </div>
-
-                {/* Run Count */}
-                <span className="text-muted text-md">
-                    {loading ? (
-                        <span className="loading-spinner-sm" />
-                    ) : (
-                        `${runs.length} runs`
-                    )}
-                </span>
-
-                {/* Refresh Button */}
-                <Button size="sm" variant="secondary" onClick={() => refetchAllRuns()}>
-                    <RefreshCw size={14} /> Refresh
-                </Button>
-            </div>
-
-            {!loading && !isError && <WorkspaceMetrics metrics={runMetrics} />}
+        <HistoryChrome
+            mode="runs"
+            search={search}
+            onSearch={setSearch}
+            page={page}
+            setPage={setPage}
+            total={total}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            onRefresh={() => refetchAllRuns()}
+            loading={loading}
+            filters={filters}
+        >
             <WorkspaceFilterChips chips={filterChips} />
 
-            {/* Runs Table */}
             <div className="card">
                 {loading ? (
-                    <TableSkeleton rows={10} cols={7} />
+                    <TableSkeleton rows={10} cols={showBackfills ? 7 : 6} />
+                ) : isError ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        tone="error"
+                        title="Couldn't load runs"
+                        description={formatApiErrorMessage(error instanceof Error ? error.message : String(error ?? ''))}
+                        action={<Button variant="secondary" onClick={() => refetchAllRuns()}>Retry</Button>}
+                    />
+                ) : total === 0 ? (
+                    <EmptyState
+                        icon={hasActiveFilters || search ? Search : Inbox}
+                        title={hasActiveFilters || search ? 'No matching runs' : 'No runs found'}
+                        description={hasActiveFilters || search
+                            ? 'Try adjusting your filters or search'
+                            : 'Pipeline runs will appear here when executions complete'}
+                    />
                 ) : (
                     <table className="table-full" aria-label="Pipeline executions">
                         <thead>
@@ -230,15 +237,14 @@ export function AllRunsView({
                                 <SortableHeader label="Pipeline" sortKey="pipeline_name" currentSort={sort} onSort={handleSort} />
                                 <th className="arv-table-cell">Execution</th>
                                 <SortableHeader label="Status" sortKey="status" currentSort={sort} onSort={handleSort} />
-
                                 <SortableHeader label="Date" sortKey="date" currentSort={sort} onSort={handleSort} />
                                 <SortableHeader label="Duration" sortKey="duration_ms" currentSort={sort} onSort={handleSort} />
                                 <SortableHeader label="Started" sortKey="started_at" currentSort={sort} onSort={handleSort} />
-                                <th className="arv-table-cell">Backfill</th>
+                                {showBackfills && <th className="arv-table-cell">Backfill</th>}
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedRuns.map((run, i: number) => {
+                            {paged.map((run, i: number) => {
                                 const isBackfill = run.kind === 'backfill';
                                 const rowKey = isBackfill
                                     ? `bf-${run.backfill_id}`
@@ -275,7 +281,6 @@ export function AllRunsView({
                                             </span>
                                         )}
                                     </td>
-
                                     <td className="table-cell-mono">{isBackfill ? '—' : run.date}</td>
                                     <td className="table-cell-mono">
                                         {formatDuration(run.duration_ms)}
@@ -283,52 +288,32 @@ export function AllRunsView({
                                     <td className="p-md text-sm text-muted">
                                         {run.started_at ? new Date(run.started_at).toLocaleString() : '-'}
                                     </td>
-                                    <td className="table-cell-mono">
-                                        {run.backfill_id ? (
-                                            <span
-                                                className="text-accent clickable"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    router.push(`/backfills/${run.backfill_id}/`);
-                                                }}
-                                                title={`View backfill ${run.backfill_id}`}
-                                            >
-                                                <ActionIcons.backfill size={12} /> {run.backfill_id}
-                                            </span>
-                                        ) : (
-                                            <span className="text-muted">—</span>
-                                        )}
-                                    </td>
+                                    {showBackfills && (
+                                        <td className="table-cell-mono">
+                                            {run.backfill_id ? (
+                                                <span
+                                                    className="text-accent clickable"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        router.push(`/backfills/${run.backfill_id}/`);
+                                                    }}
+                                                    title={`View backfill ${run.backfill_id}`}
+                                                >
+                                                    <ActionIcons.backfill size={12} /> {run.backfill_id}
+                                                </span>
+                                            ) : (
+                                                <span className="text-muted">—</span>
+                                            )}
+                                        </td>
+                                    )}
                                 </tr>
                                 );
                             })}
                         </tbody>
                     </table>
                 )}
-
-                {/* Error State */}
-                {!loading && isError && (
-                    <EmptyState
-                        icon={AlertTriangle}
-                        tone="error"
-                        title="Couldn't load runs"
-                        description={formatApiErrorMessage(error instanceof Error ? error.message : String(error ?? ''))}
-                        action={<Button variant="secondary" onClick={() => refetchAllRuns()}>Retry</Button>}
-                    />
-                )}
-
-                {/* Empty State */}
-                {!loading && !isError && runs.length === 0 && (
-                    <EmptyState
-                        icon={hasActiveFilters ? Search : Inbox}
-                        title={hasActiveFilters ? 'No matching runs' : 'No runs found'}
-                        description={hasActiveFilters
-                            ? 'Try adjusting your filters'
-                            : 'Pipeline runs will appear here when executions complete'}
-                    />
-                )}
             </div>
-        </div>
+        </HistoryChrome>
     );
 }
 

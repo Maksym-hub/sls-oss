@@ -33,8 +33,7 @@ describe('AppNav', () => {
     it('renders the free nav destinations (Assets/Backfills are paid, hidden in OSS)', () => {
         render(<AppNav />);
         expect(screen.getByText('Pipelines')).toBeInTheDocument();
-        expect(screen.getByText('All Tasks')).toBeInTheDocument();
-        expect(screen.getByText('All Runs')).toBeInTheDocument();
+        expect(screen.getByText('History')).toBeInTheDocument();
         // OSS paidSurface is empty → Assets & Backfills entries are not rendered.
         expect(screen.queryByText('Assets')).not.toBeInTheDocument();
         expect(screen.queryByText('Backfills')).not.toBeInTheDocument();
@@ -51,15 +50,23 @@ describe('AppNav', () => {
         setPathname('/runs/');
         render(<AppNav />);
         const nav = document.querySelector('.app-rail-nav');
-        const runs = Array.from(nav!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('All Runs'));
+        const runs = Array.from(nav!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('History'));
         expect(runs?.classList.contains('active')).toBeTruthy();
+    });
+
+    it('marks History active on the tasks route too (merged view)', () => {
+        setPathname('/tasks/');
+        render(<AppNav />);
+        const nav = document.querySelector('.app-rail-nav');
+        const history = Array.from(nav!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('History'));
+        expect(history?.classList.contains('active')).toBeTruthy();
     });
 
     it('handles trailing slash and no slash equally', () => {
         setPathname('/runs');
         render(<AppNav />);
         const nav = document.querySelector('.app-rail-nav');
-        const runs = Array.from(nav!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('All Runs'));
+        const runs = Array.from(nav!.querySelectorAll('.nav-pill')).find(el => el.textContent?.includes('History'));
         expect(runs?.classList.contains('active')).toBeTruthy();
     });
 

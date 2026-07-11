@@ -4,8 +4,9 @@ import { useAppStore } from '../stores/useAppStore';
 
 const mockRefetch = vi.fn();
 const mockQueryData = { data: [] as Record<string, unknown>[], isLoading: false, refetch: mockRefetch };
-const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }));
+const { mockPush, paidSurfaceMock } = vi.hoisted(() => ({ mockPush: vi.fn(), paidSurfaceMock: {} as Record<string, unknown> }));
 
+vi.mock('@/ee-active.generated', () => ({ paidSurface: paidSurfaceMock }));
 vi.mock('@/hooks/useClientRoute', () => ({
     useClientRoute: () => ({ pathname: '/runs/', push: mockPush, replace: vi.fn() }),
 }));
@@ -19,6 +20,7 @@ vi.mock('@/utils/icons', () => ({
     ChevronRight: () => <span data-testid="icon-chevronright" />,
     X: () => <span data-testid="icon-x" />,
     Activity: () => <span data-testid="icon-activity" />,
+    ListTodo: () => <span data-testid="icon-listtodo" />,
     RefreshCw: () => <span data-testid="icon-refresh" />,
     Search: () => <span data-testid="icon-search" />,
     Inbox: () => <span data-testid="icon-inbox" />,
@@ -61,6 +63,7 @@ function setup(overrides: { runs?: Record<string, unknown>[]; loading?: boolean 
     mockRefetch.mockClear();
     defaultProps.onPipelineClick.mockClear();
     mockPush.mockClear();
+    for (const k of Object.keys(paidSurfaceMock)) delete paidSurfaceMock[k];
 }
 
 describe('AllRunsView', () => {
@@ -194,6 +197,7 @@ describe('AllRunsView', () => {
 
         it('navigates to the backfill detail page when a backfill link is clicked', () => {
             setup({ runs: mixedRuns });
+            paidSurfaceMock.BackfillsView = function BackfillsView() { return null; }; // Team surface enables the backfill column
             const { container } = render(<AllRunsView {...defaultProps} />);
             const bfLink = container.querySelector('[title="View backfill bf-xyz789"]');
             expect(bfLink).toBeTruthy();
@@ -203,11 +207,21 @@ describe('AllRunsView', () => {
 
         it('exposes backfill statuses in the status filter', () => {
             setup({ runs: mixedRuns });
+            paidSurfaceMock.BackfillsView = function BackfillsView() { return null; }; // Team surface enables the backfill optgroup
             const { container } = render(<AllRunsView {...defaultProps} />);
             // Read option values directly (robust to selected-value carryover
             // from prior tests via useUrlSync).
             const values = Array.from(container.querySelectorAll('option')).map(o => o.value);
             expect(values).toEqual(expect.arrayContaining(['completed', 'partial', 'canceled', 'pending']));
+        });
+
+        it('hides the backfill column and statuses in the open-source build (paidSurface absent)', () => {
+            setup({ runs: mixedRuns }); // no paidSurface.BackfillsView
+            const { container } = render(<AllRunsView {...defaultProps} />);
+            expect(screen.queryByText('Backfill')).not.toBeInTheDocument();
+            expect(container.querySelector('[title="View backfill bf-xyz789"]')).toBeNull();
+            const values = Array.from(container.querySelectorAll('option')).map(o => o.value);
+            expect(values).not.toContain('completed');
         });
     });
 

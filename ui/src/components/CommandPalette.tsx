@@ -68,8 +68,8 @@ export function CommandPalette({
         const commands: CommandItem[] = [
             { id: 'cmd-pipelines', type: 'command', icon: <Workflow size={16} />, label: 'Go to Pipelines', shortcut: '1', action: () => onNavigate('pipelines') },
             { id: 'cmd-assets', type: 'command', icon: <Package size={16} />, label: 'Go to Assets', shortcut: '2', action: () => onNavigate('assets') },
-            { id: 'cmd-tasks', type: 'command', icon: <ListTodo size={16} />, label: 'Go to All Tasks', shortcut: '3', action: () => onNavigate('tasks') },
-            { id: 'cmd-runs', type: 'command', icon: <Activity size={16} />, label: 'Go to All Runs', shortcut: '4', action: () => onNavigate('runs') },
+            { id: 'cmd-tasks', type: 'command', icon: <ListTodo size={16} />, label: 'Go to History (Tasks)', shortcut: '3', action: () => onNavigate('tasks') },
+            { id: 'cmd-runs', type: 'command', icon: <Activity size={16} />, label: 'Go to History (Runs)', shortcut: '4', action: () => onNavigate('runs') },
             { id: 'cmd-theme', type: 'command', icon: theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />, label: `Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`, shortcut: 'T', action: onToggleTheme },
             { id: 'cmd-refresh', type: 'command', icon: <RefreshCw size={16} />, label: 'Refresh Data', shortcut: 'R', action: () => { onClose(); } },
             { id: 'cmd-help', type: 'command', icon: <HelpCircle size={16} />, label: 'Show Keyboard Shortcuts', shortcut: '?', action: () => { onClose(); onNavigate('help'); } },

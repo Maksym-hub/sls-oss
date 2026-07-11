@@ -5,7 +5,7 @@ import type { Task, Execution, TaskFilter, RunFilter } from '../types';
 /**
  * useGlobalData - Hook for managing global data (all tasks, all runs)
  * 
- * Used in "All Tasks" and "All Runs" views
+ * Used in the History view (runs + tasks)
  */
 export function useGlobalData(date: string) {
     const [allTasks, setAllTasks] = useState<Task[]>([]);

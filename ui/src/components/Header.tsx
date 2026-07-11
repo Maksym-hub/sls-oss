@@ -92,8 +92,8 @@ export function Header({ apiConnected, onNotificationNavigate, onNotificationNav
  */
 const SECTION_LABEL: Record<string, string> = {
     pipelines: 'Pipelines',
-    tasks: 'All Tasks',
-    runs: 'All Runs',
+    tasks: 'History',
+    runs: 'History',
     assets: 'Assets',
 };
 

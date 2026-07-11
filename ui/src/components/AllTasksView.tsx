@@ -2,15 +2,17 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { TableSkeleton } from './Skeletons';
 import { formatDuration, formatApiErrorMessage } from '../utils';
-import { StatusIcon, ListTodo, Search, X, Inbox, AlertTriangle } from '../utils/icons';
+import { Search, Inbox, AlertTriangle } from '../utils/icons';
 import { EmptyState } from './EmptyState';
-import { WorkspaceMetrics, WorkspaceFilterChips, type WorkspaceMetric, type WorkspaceFilterChip } from './WorkspaceMetrics';
+import { WorkspaceFilterChips, type WorkspaceFilterChip } from './WorkspaceMetrics';
+import { HistoryChrome } from './HistoryChrome';
 import { DatePicker } from './DatePicker';
 import { SortableHeader } from './SortableHeader';
 import { useAppStore } from '@/stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useAllTasksQuery, usePipelinesQuery } from '@/hooks/queries';
 import { useUrlSync } from '@/hooks/useUrlSync';
+import { usePagedRows } from '@/hooks/usePagedRows';
 import { useKeyboardShortcuts, SHORTCUTS } from '@/hooks';
 import type { PipelineWithUI } from '@/types';
 
@@ -28,7 +30,7 @@ interface TasksUrlState {
 const TASKS_URL_KEYS = ['status', 'date', 'pipeline', 'taskName'] as const;
 
 /**
- * AllTasksView - Global view of all task instances across pipelines
+ * AllTasksView — the Tasks half of the History view (merged with All runs via HistoryChrome).
  */
 export function AllTasksView({
     onPipelineClick,
@@ -84,21 +86,22 @@ export function AllTasksView({
     const allTasksQuery = useAllTasksQuery(filter, true);
     const { data: tasks = [], isLoading: loading, isError, error } = allTasksQuery;
     const [sort, setSort] = useState({ key: '', dir: 'desc' });
-    const taskNameInputRef = useRef<HTMLInputElement>(null);
+    const [search, setSearch] = useState('');
+    const searchInputRef = useRef<HTMLInputElement>(null);
 
-    // List-view shortcuts (ADR #64): refresh + focus filter.
+    // List-view shortcuts (ADR #64): refresh + focus search.
     useKeyboardShortcuts({
         [SHORTCUTS.REFRESH]: () => allTasksQuery.refetch(),
-        [SHORTCUTS.FOCUS_FILTER]: () => taskNameInputRef.current?.focus(),
+        [SHORTCUTS.FOCUS_FILTER]: () => searchInputRef.current?.focus(),
     });
-    
+
     const handleSort = (key: string) => {
         setSort(prev => ({
             key,
             dir: prev.key === key && prev.dir === 'desc' ? 'asc' : 'desc'
         }));
     };
-    
+
     const sortedTasks = useMemo(() => {
         if (!sort.key) return tasks;
         const sorted = [...tasks].sort((a, b) => {
@@ -117,8 +120,14 @@ export function AllTasksView({
         });
         return sorted;
     }, [tasks, sort]);
-    
-    const hasActiveFilters = filter.status || filter.date || filter.pipeline || filter.taskName;
+
+    const { paged, page, setPage, total, pageCount, pageSize } = usePagedRows(
+        sortedTasks,
+        search,
+        t => `${t.task_name ?? ''} ${t.pipeline_name ?? ''}`,
+    );
+
+    const hasActiveFilters = !!(filter.status || filter.date || filter.pipeline || filter.taskName);
 
     const clearFilters = () => {
         onFilterChange({ status: '', date: '', pipeline: '', taskName: '' });
@@ -137,95 +146,84 @@ export function AllTasksView({
         }
     };
 
-    const taskMetrics: WorkspaceMetric[] = useMemo(() => {
-        if (!sortedTasks.length) return [];
-        const norm = (v: unknown) => String(v ?? '').toLowerCase();
-        const running = sortedTasks.filter(t => ['running', 'deps_ready', 'waiting_delay'].includes(norm(t.status))).length;
-        const failed = sortedTasks.filter(t => ['failed', 'upstream_failed'].includes(norm(t.status))).length;
-        const succeeded = sortedTasks.filter(t => ['succeeded', 'success', 'skipped'].includes(norm(t.status))).length;
-        return [
-            { label: 'Total', value: sortedTasks.length },
-            { label: 'Running', value: running, tone: 'running' },
-            { label: 'Succeeded', value: succeeded, tone: 'success' },
-            { label: 'Failed', value: failed, tone: 'failed' },
-        ];
-    }, [sortedTasks]);
+    const filters = (
+        <>
+            <select
+                value={filter.pipeline}
+                onChange={e => onFilterChange({ ...filter, pipeline: e.target.value })}
+                className="input-sm"
+                aria-label="Filter by pipeline"
+            >
+                <option value="">All Pipelines</option>
+                {pipelines.map(p => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                ))}
+            </select>
+
+            <select
+                value={filter.status}
+                onChange={e => onFilterChange({ ...filter, status: e.target.value })}
+                className="input-sm"
+                aria-label="Filter by status"
+            >
+                <option value="">All Statuses</option>
+                <option value="success">Success</option>
+                <option value="failed">Failed</option>
+                <option value="running">Running</option>
+                <option value="waiting">Waiting</option>
+            </select>
+
+            <DatePicker
+                value={filter.date}
+                onChange={d => onFilterChange({ ...filter, date: d })}
+                placeholder="All dates"
+                ariaLabel="Filter by date"
+            />
+
+            {hasActiveFilters && (
+                <Button size="sm" variant="secondary" onClick={clearFilters}>
+                    Clear
+                </Button>
+            )}
+        </>
+    );
 
     return (
-        <div className="panel-section">
-            {/* Filter Bar */}
-            <div className="filter-bar">
-                <h2 className="title-lg"><ListTodo size={20} /> All Task Instances</h2>
-                
-                <div className="filter-controls">
-                    {/* Pipeline Filter */}
-                    <select
-                        value={filter.pipeline}
-                        onChange={e => onFilterChange({ ...filter, pipeline: e.target.value })}
-                        className="input-sm"
-                    >
-                        <option value="">All Pipelines</option>
-                        {pipelines.map(p => (
-                            <option key={p.name} value={p.name}>{p.name}</option>
-                        ))}
-                    </select>
-
-                    {/* Task Name Search */}
-                    <input
-                        ref={taskNameInputRef}
-                        type="text"
-                        placeholder="Task name..."
-                        value={filter.taskName}
-                        onChange={e => onFilterChange({ ...filter, taskName: e.target.value })}
-                        className="input-sm w-[150px]"
-                    />
-
-                    {/* Status Filter */}
-                    <select
-                        value={filter.status}
-                        onChange={e => onFilterChange({ ...filter, status: e.target.value })}
-                        className="input-sm"
-                    >
-                        <option value="">All Statuses</option>
-                        <option value="success">Success</option>
-                        <option value="failed">Failed</option>
-                        <option value="running">Running</option>
-                        <option value="waiting">Waiting</option>
-                    </select>
-
-                    {/* Date Filter */}
-                    <DatePicker
-                        value={filter.date}
-                        onChange={d => onFilterChange({ ...filter, date: d })}
-                        placeholder="All dates"
-                        ariaLabel="Filter by date"
-                    />
-
-                    {/* Clear Button */}
-                    {hasActiveFilters && (
-                        <Button size="sm" variant="secondary" onClick={clearFilters}>
-                            <X size={14} className="mr-1" /> Clear
-                        </Button>
-                    )}
-                </div>
-
-                {/* Task Count */}
-                <span className="text-muted text-md">
-                    {loading ? (
-                        <span className="loading-spinner-sm" />
-                    ) : (
-                        `${tasks.length} tasks`
-                    )}
-                </span>
-            </div>
-
-            {!loading && !isError && <WorkspaceMetrics metrics={taskMetrics} />}
+        <HistoryChrome
+            mode="tasks"
+            search={search}
+            onSearch={setSearch}
+            page={page}
+            setPage={setPage}
+            total={total}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            onRefresh={() => allTasksQuery.refetch()}
+            loading={loading}
+            filters={filters}
+            searchRef={searchInputRef}
+        >
             <WorkspaceFilterChips chips={filterChips} />
 
-            {/* Tasks Table */}
             <div className="card">
                 {loading ? (
                     <TableSkeleton rows={10} cols={6} />
+                ) : isError ? (
+                    <EmptyState
+                        icon={AlertTriangle}
+                        tone="error"
+                        title="Couldn't load tasks"
+                        description={formatApiErrorMessage(error instanceof Error ? error.message : String(error ?? ''))}
+                        action={<Button variant="secondary" onClick={() => allTasksQuery.refetch()}>Retry</Button>}
+                    />
+                ) : total === 0 ? (
+                    <EmptyState
+                        icon={hasActiveFilters || search ? Search : Inbox}
+                        title={hasActiveFilters || search ? 'No matching tasks' : 'No tasks found'}
+                        description={hasActiveFilters || search
+                            ? 'Try adjusting your filters or search'
+                            : 'Task instances will appear here when pipelines run'}
+                    />
                 ) : (
                     <table className="table-full" aria-label="Task executions">
                         <thead>
@@ -239,7 +237,7 @@ export function AllTasksView({
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedTasks.map((task, i: number) => (
+                            {paged.map((task, i: number) => (
                                 <tr key={i} className="border-b">
                                     <td className="p-md">
                                         <span className="text-mono">{task.task_name}</span>
@@ -254,7 +252,7 @@ export function AllTasksView({
                                     </td>
                                     <td className="p-md">
                                         <span className={`task-status-badge ${task.status}`}>
-                                            <StatusIcon status={task.status} size={14} /> {task.status}
+                                            {task.status}
                                         </span>
                                     </td>
                                     <td className="table-cell-mono">{task.date}</td>
@@ -269,30 +267,8 @@ export function AllTasksView({
                         </tbody>
                     </table>
                 )}
-
-                {/* Error State */}
-                {!loading && isError && (
-                    <EmptyState
-                        icon={AlertTriangle}
-                        tone="error"
-                        title="Couldn't load tasks"
-                        description={formatApiErrorMessage(error instanceof Error ? error.message : String(error ?? ''))}
-                        action={<Button variant="secondary" onClick={() => allTasksQuery.refetch()}>Retry</Button>}
-                    />
-                )}
-
-                {/* Empty State */}
-                {!loading && !isError && tasks.length === 0 && (
-                    <EmptyState
-                        icon={hasActiveFilters ? Search : Inbox}
-                        title={hasActiveFilters ? 'No matching tasks' : 'No tasks found'}
-                        description={hasActiveFilters
-                            ? 'Try adjusting your filters'
-                            : 'Task instances will appear here when pipelines run'}
-                    />
-                )}
             </div>
-        </div>
+        </HistoryChrome>
     );
 }
 

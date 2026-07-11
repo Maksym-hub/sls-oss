@@ -44,6 +44,7 @@
 /* Login: Authentication UI */
 @import './modules/login.css';
 @import './modules/_user-menu.css';
+@import './modules/_history.css';
 
 /* Mobile responsive (must be last to override) */
 @import './modules/_mobile.css';

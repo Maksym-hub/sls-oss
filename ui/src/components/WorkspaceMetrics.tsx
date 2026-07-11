@@ -11,10 +11,11 @@ export interface WorkspaceMetric {
 }
 
 /**
- * A compact row of at-a-glance metrics for a workspace header (All Runs, All Tasks).
- * Purely presentational: the caller derives the numbers and tones. Styled via
- * `.ws-metrics` / `.ws-metric` design tokens, so it themes light/dark automatically.
- * Renders nothing when there are no metrics.
+ * A compact row of at-a-glance metrics for a workspace header. Used by the Team overlay
+ * (Assets, Backfills list); the free History view dropped its metric cards. Purely
+ * presentational: the caller derives the numbers and tones. Styled via `.ws-metrics` /
+ * `.ws-metric` design tokens, so it themes light/dark automatically. Renders nothing when
+ * there are no metrics.
  */
 export function WorkspaceMetrics({ metrics }: { metrics: WorkspaceMetric[] }) {
     if (!metrics.length) return null;
@@ -31,7 +32,6 @@ export function WorkspaceMetrics({ metrics }: { metrics: WorkspaceMetric[] }) {
 }
 
 export default WorkspaceMetrics;
-
 
 export interface WorkspaceFilterChip {
     /** What the filter is on, e.g. 'Status'. */

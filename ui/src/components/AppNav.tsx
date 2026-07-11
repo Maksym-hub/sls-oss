@@ -3,7 +3,7 @@ import { viewFromPathname } from '../utils';
 import { paidSurface } from '@/ee-active.generated';
 import { ViewTab } from './ViewTab';
 import { UserMenu } from './UserMenu';
-import { Workflow, Package, ListTodo, Activity } from 'lucide-react';
+import { Workflow, Package, Activity } from 'lucide-react';
 
 /**
  * AppNav — the left rail of the app shell: brand mark plus primary navigation.
@@ -40,16 +40,10 @@ export function AppNav() {
                     />
                 )}
                 <ViewTab
-                    active={mainView === 'tasks'}
-                    onClick={() => switchView('tasks')}
-                    icon={<ListTodo size={20} />}
-                    label="All Tasks"
-                />
-                <ViewTab
-                    active={mainView === 'runs'}
+                    active={mainView === 'runs' || mainView === 'tasks'}
                     onClick={() => switchView('runs')}
                     icon={<Activity size={20} />}
-                    label="All Runs"
+                    label="History"
                 />
                 {BackfillNavTab && (
                     <BackfillNavTab

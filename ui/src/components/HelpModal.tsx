@@ -127,8 +127,8 @@ function KeyboardShortcutsTab() {
             items: [
                 { key: '1', action: 'Pipelines view' },
                 { key: '2', action: 'Assets view' },
-                { key: '3', action: 'All Tasks view' },
-                { key: '4', action: 'All Runs view' },
+                { key: '3', action: 'History (Tasks)' },
+                { key: '4', action: 'History (Runs)' },
                 { key: '5', action: 'Backfills view' },
             ],
         },
@@ -136,7 +136,7 @@ function KeyboardShortcutsTab() {
             title: 'List views',
             items: [
                 { key: '⌘R', action: 'Refresh data (all list views)' },
-                { key: '/', action: 'Focus the filter input (Backfills, All Tasks)' },
+                { key: '/', action: 'Focus the search input (Backfills, History)' },
                 { key: 'J', action: 'Highlight next row (Backfills list)' },
                 { key: 'K', action: 'Highlight previous row (Backfills list)' },
                 { key: 'Enter', action: 'Open highlighted row (Backfills list)' },
