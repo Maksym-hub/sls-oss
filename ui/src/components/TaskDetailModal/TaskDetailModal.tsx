@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { TASK_SETTLED_STATUSES } from '@/generated/enums';
 import { formatDate, buildAwsConsoleUrl, getUpstreamCount, getDownstreamCount } from '../../utils';
 import { logger } from '../../utils/logger';
 import { useKeyboardShortcuts } from '../../hooks';
@@ -697,7 +698,7 @@ function ActionsTab({ task, upstreamCount, downstreamCount, onAction, onRunActio
                             </span>
                         </button>
                     )}
-                    {['success', 'succeeded', 'failed', 'upstream_failed', 'skipped', 'stopped', 'aborted'].includes(task.status) && (
+                    {TASK_SETTLED_STATUSES.includes(task.status) && (
                         <button className="action-btn primary" onClick={() => onAction?.('restart')}>
                             <span className="action-btn-icon"><RotateCcw size={18} /></span>
                             <span className="action-btn-text">

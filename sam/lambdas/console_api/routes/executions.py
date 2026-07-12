@@ -19,8 +19,9 @@ from botocore.exceptions import ClientError, BotoCoreError
 
 from config import sfn
 from dal import executions_repo, pipelines_repo, backfills_repo
+from .pipelines_list import reconcile_sfn_status
 from dal.subscriptions_repo import dep_subscriptions_repo
-from constants import TaskStatus, TASK_TERMINAL_STATUSES
+from constants import TASK_SETTLED_STATUSES, derive_execution_status
 from response import cors_response
 from logger import log
 from utils import safe_param_int, should_skip_token_row
@@ -155,12 +156,7 @@ def get_all_runs(event: Dict) -> Dict:
                 except Exception as e:
                     log.error("get_all_runs", "Error querying date", error=str(e), date_str=date_str)
         
-        # Group by pipeline_execution and aggregate status
-        resolved_statuses = {'success', 'succeeded', 'skipped'}
-        bad_statuses = {'failed'}
-        stopped_statuses = {'stopped', 'aborted', 'upstream_failed'}
-        terminal_statuses = resolved_statuses | bad_statuses | stopped_statuses
-        
+        # Group by pipeline_execution and aggregate task statuses.
         exec_map = {}
         for item in all_items:
             # Skip internal/special records (_pause_, _notify_warn_, etc.)
@@ -194,30 +190,9 @@ def get_all_runs(event: Dict) -> Dict:
         
         all_runs = []
         for pe, data in exec_map.items():
-            statuses = data['statuses']
-            is_completed = statuses.issubset(terminal_statuses) and len(statuses) > 0
-            has_failure = bool(statuses & bad_statuses)
-            all_resolved = statuses.issubset(resolved_statuses) and len(statuses) > 0
-            
-            has_stopped = bool(statuses & stopped_statuses)
-            if is_completed:
-                if has_stopped and not has_failure:
-                    status = 'aborted'
-                else:
-                    status = 'failed' if has_failure else 'succeeded'
-            elif has_failure:
-                status = 'failed'
-            elif has_stopped:
-                status = 'aborted'
-            elif all_resolved:
-                status = 'succeeded'
-            else:
-                status = 'running'
-            
-            # Apply status filter
-            if status_filter and status != status_filter:
-                continue
-            
+            # Canonical derivation (ADR #112) — one source shared with all surfaces.
+            status = derive_execution_status(data['statuses'])
+
             # Calculate duration
             duration_ms = None
             if data['started_at'] and data['finished_at']:
@@ -231,7 +206,7 @@ def get_all_runs(event: Dict) -> Dict:
                              started_at=data.get('started_at'),
                              finished_at=data.get('finished_at'),
                              error=str(e))
-            
+
             all_runs.append({
                 'kind': 'execution',
                 'pipeline_name': data['pipeline_name'],
@@ -243,6 +218,29 @@ def get_all_runs(event: Dict) -> Dict:
                 'date': data['date'],
                 'duration_ms': duration_ms
             })
+
+        # Reconcile 'running' executions against SFN (ADR #112, decision b) so /runs and
+        # the execution dropdown agree on stuck-running / timed_out / recovered. ARNs are
+        # resolved once per pipeline; only running rows incur an SFN call. Runs BEFORE the
+        # status filter so a reconciled status filters correctly.
+        arn_cache = {}
+        for r in all_runs:
+            if r['status'] != 'running':
+                continue
+            pname = r['pipeline_name']
+            if pname not in arn_cache:
+                try:
+                    item = pipelines_repo.get(pname)
+                    arn_cache[pname] = item.get('sfn_arn', '') if item else ''
+                except (ClientError, BotoCoreError):
+                    arn_cache[pname] = ''
+            new_status = reconcile_sfn_status(r['pipeline_execution'], arn_cache[pname])
+            if new_status is not None:
+                r['status'] = new_status
+
+        if status_filter:
+            all_runs = [r for r in all_runs if r['status'] == status_filter]
+
         
         # Merge Backfills as first-class 'backfill' rows (ADR #95). Backfills
         # are excluded from the execution rows above by should_skip_token_row,
@@ -473,9 +471,6 @@ def _mark_pending_tasks_stopped(pipeline_execution: str, items: list = None) -> 
         items: Pre-fetched task items (avoids duplicate DynamoDB query when called from stop_execution)
     """
     stopped_at = datetime.now(timezone.utc).isoformat()
-    # Use centralized terminal status definition
-    # Note: STOPPED is intentionally NOT in TERMINAL - it can be restarted
-    terminal_statuses = TASK_TERMINAL_STATUSES | {TaskStatus.STOPPED}
     updated_count = 0
 
     # Use pre-fetched items or query DynamoDB
@@ -488,8 +483,9 @@ def _mark_pending_tasks_stopped(pipeline_execution: str, items: list = None) -> 
         status = item.get('status', '')
         execution_name = item.get('execution_name', '')
 
-        # Skip terminal statuses, internal (_pause_), and Backfill records.
-        if status in terminal_statuses or should_skip_token_row(item):
+        # Skip tasks already settled — terminal or deliberately stopped — plus
+        # internal (_pause_) and Backfill records.
+        if status in TASK_SETTLED_STATUSES or should_skip_token_row(item):
             continue
 
         # Stop active run_task SFN execution if present

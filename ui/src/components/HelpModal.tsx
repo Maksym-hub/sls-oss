@@ -631,7 +631,7 @@ function ApiReferenceTab() {
                 <div className="hm-api-endpoints">
                     <ApiEndpointDetail method="GET" path="/api/pipelines" desc="List all pipelines with status"
                         example={`curl ${BASE}/api/pipelines`}
-                        response={`[{"name": "acme-daily", "status": "succeeded", "group": "acme", ...}]`}
+                        response={`[{"name": "acme-daily", "status": "success", "group": "acme", ...}]`}
                     />
                     <ApiEndpointDetail method="GET" path="/api/pipeline-status?name=X&date=Y" desc="Get tasks and status for a pipeline"
                         example={`curl "${BASE}/api/pipeline-status?name=acme-daily&date=2026-02-17"`}

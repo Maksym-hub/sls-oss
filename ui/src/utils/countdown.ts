@@ -11,6 +11,8 @@
  * 3. deps_ready - show full wait_before (countdown not started yet, isPending=true)
  */
 
+import { TASK_SETTLED_STATUSES } from '@/generated/enums';
+
 /**
  * Compute countdown state for a task's wait_before delay.
  * 
@@ -61,7 +63,7 @@ export function computeWaitCountdown({
     
     const isWaitingDelay = status === 'waiting_delay';
     const isDepsReady = status === 'deps_ready';
-    const isTerminal = ['success', 'succeeded', 'running', 'failed', 'upstream_failed', 'skipped', 'aborted', 'stopped'].includes(status);
+    const isTerminal = TASK_SETTLED_STATUSES.includes(status) || status === 'running';
     
     if (isWaitingDelay) {
         // Priority 1: Use deadline if available

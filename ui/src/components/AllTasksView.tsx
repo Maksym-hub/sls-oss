@@ -84,7 +84,7 @@ export function AllTasksView({
 
     const { data: pipelines = [] } = usePipelinesQuery();
     const allTasksQuery = useAllTasksQuery(filter, true);
-    const { data: tasks = [], isLoading: loading, isError, error } = allTasksQuery;
+    const { data: tasks = [], isLoading: loading, isFetching, isError, error } = allTasksQuery;
     const [sort, setSort] = useState({ key: '', dir: 'desc' });
     const [search, setSearch] = useState('');
     const searchInputRef = useRef<HTMLInputElement>(null);
@@ -167,10 +167,16 @@ export function AllTasksView({
                 aria-label="Filter by status"
             >
                 <option value="">All Statuses</option>
-                <option value="success">Success</option>
-                <option value="failed">Failed</option>
+                {/* Mirrors the common TaskStatus values (generated/enums.ts) — keep in sync. */}
                 <option value="running">Running</option>
                 <option value="waiting">Waiting</option>
+                <option value="pending">Pending</option>
+                <option value="success">Success</option>
+                <option value="failed">Failed</option>
+                <option value="upstream_failed">Upstream failed</option>
+                <option value="aborted">Aborted</option>
+                <option value="stopped">Stopped</option>
+                <option value="skipped">Skipped</option>
             </select>
 
             <DatePicker
@@ -200,6 +206,7 @@ export function AllTasksView({
             pageSize={pageSize}
             onRefresh={() => allTasksQuery.refetch()}
             loading={loading}
+            isFetching={isFetching}
             filters={filters}
             searchRef={searchInputRef}
         >

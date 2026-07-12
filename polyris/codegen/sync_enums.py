@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import inspect
 import sys
 from pathlib import Path
 from typing import Iterable
@@ -97,6 +98,7 @@ def _render_python_body() -> str:
     ))
     parts.append("\n")
     parts.append(_set_py("TASK_TERMINAL_STATUSES", sorted(src.TERMINAL_STATUSES)))
+    parts.append(_set_py("TASK_SETTLED_STATUSES", sorted(src.SETTLED_STATUSES)))
     parts.append(_set_py("TASK_SUCCESS_STATUSES", sorted(src.SUCCESS_STATUSES)))
     parts.append(_set_py("TASK_FAILURE_STATUSES", sorted(src.FAILURE_STATUSES)))
     parts.append(_set_py("TASK_ACTIVE_STATUSES", sorted(src.ACTIVE_STATUSES)))
@@ -140,7 +142,33 @@ def _render_python_body() -> str:
     # normalize_execution_status function — verbatim source
     parts.append(_normalize_helper_py())
 
+    # derive_execution_status + reconcile_execution_status — verbatim SDK source
+    # (ADR #112). Rendered via inspect so the canonical logic lives in exactly one
+    # place (polyris.constants) and the generated copies cannot drift.
+    parts.append(_derive_helper_py())
+
     return "".join(parts)
+
+
+def _derive_helper_py() -> str:
+    """Render the execution-status derivation + reconciliation helpers (ADR #112).
+
+    The status groupings are emitted from the canonical set values; the two
+    functions are emitted verbatim from ``polyris.constants`` via ``inspect`` so
+    there is a single source of truth for the logic.
+    """
+    set_lines = "".join(
+        f"{name} = {{{', '.join(repr(v) for v in sorted(getattr(src, name)))}}}\n"
+        for name in ("_DERIVE_RESOLVED", "_DERIVE_FAILURE", "_DERIVE_STOPPED", "_DERIVE_TERMINAL")
+    )
+    return (
+        "\n"
+        + set_lines
+        + "\n"
+        + inspect.getsource(src.derive_execution_status)
+        + "\n"
+        + inspect.getsource(src.reconcile_execution_status)
+    )
 
 
 def _normalize_helper_py() -> str:
@@ -257,6 +285,22 @@ def _render_ts_body() -> str:
         "TASK_TERMINAL_STATUSES",
         "Task statuses that are terminal.",
         sorted(src.TERMINAL_STATUSES),
+    ))
+    parts.append("\n")
+    parts.append(_ts_array(
+        "TASK_SETTLED_STATUSES",
+        "Task statuses that are 'settled' — terminal, or deliberately stopped "
+        "(restartable). A settled task will not change on its own. Single source of "
+        "truth for 'is this task done?' checks in the UI.",
+        sorted(src.SETTLED_STATUSES),
+    ))
+    parts.append("\n")
+    parts.append(_ts_array(
+        "TASK_SUCCESS_STATUSES",
+        "Task statuses that count as a successful/resolved outcome "
+        "(success, succeeded alias, skipped). Single source of truth for "
+        "'done successfully' counts in the UI.",
+        sorted(src.SUCCESS_STATUSES),
     ))
     parts.append("\n")
     parts.append(_ts_array(

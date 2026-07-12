@@ -16,11 +16,11 @@ from constants import (
 class TestNormalizeExecutionStatus:
     @pytest.mark.parametrize("uppercase,canonical", [
         ('RUNNING', 'running'),
-        ('SUCCEEDED', 'succeeded'),
+        ('SUCCEEDED', 'success'),   # SFN uppercase → canonical 'success' (ADR #112)
         ('FAILED', 'failed'),
         ('TIMED_OUT', 'timed_out'),
         ('ABORTED', 'aborted'),
-        ('STOPPED', 'stopped'),
+        ('STOPPED', 'aborted'),     # SFN never emits STOPPED for an execution → aborted
     ])
     def test_maps_uppercase_to_canonical(self, uppercase, canonical):
         assert normalize_execution_status(uppercase) == canonical
@@ -29,11 +29,12 @@ class TestNormalizeExecutionStatus:
     def test_canonical_is_idempotent(self, canonical):
         assert normalize_execution_status(canonical) == canonical
 
-    def test_legacy_success_maps_to_succeeded(self):
-        # Some legacy code wrote 'success' (TaskStatus form) instead of
-        # 'succeeded' (ExecutionStatus form). Normalize to canonical.
-        assert normalize_execution_status('success') == 'succeeded'
-        assert normalize_execution_status('SUCCESS') == 'succeeded'
+    def test_success_aliases_map_to_canonical_success(self):
+        # 'succeeded' (legacy ExecutionStatus form) and the task-form 'success'
+        # both normalize to the canonical 'success' (ADR #112).
+        assert normalize_execution_status('success') == 'success'
+        assert normalize_execution_status('SUCCESS') == 'success'
+        assert normalize_execution_status('succeeded') == 'success'
 
     def test_none_returns_none(self):
         assert normalize_execution_status(None) is None
@@ -70,5 +71,5 @@ class TestNormalizeExecutionStatus:
         # Lock the canonical set so accidental additions/removals are caught
         # by tests, not by runtime drift.
         assert EXECUTION_STATUS_CANONICAL == {
-            'running', 'succeeded', 'failed', 'timed_out', 'aborted', 'stopped',
+            'running', 'success', 'failed', 'timed_out', 'aborted', 'recovered',
         }

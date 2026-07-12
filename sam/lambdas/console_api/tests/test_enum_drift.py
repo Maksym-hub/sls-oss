@@ -41,6 +41,15 @@ class TestEnumDrift:
             f"Add them to polyris/constants.py or remove from backend."
         )
 
+    def test_settled_statuses_is_terminal_plus_stopped(self):
+        # SETTLED = terminal, or deliberately stopped (restartable). Single source of
+        # truth (ADR #112 audit) — used for task-feed skipping and abort reconciliation
+        # instead of a re-listed literal.
+        assert backend.TASK_SETTLED_STATUSES == canonical.SETTLED_STATUSES
+        assert backend.TASK_SETTLED_STATUSES == backend.TASK_TERMINAL_STATUSES | {'stopped'}
+        # 'stopped' is the only non-terminal member.
+        assert backend.TASK_SETTLED_STATUSES - backend.TASK_TERMINAL_STATUSES == {'stopped'}
+
     def test_trigger_rule_values_match_canonical(self):
         backend_values = {
             getattr(backend.TriggerRule, n)
@@ -98,14 +107,15 @@ class TestEnumDrift:
         # match canonical behavior.
         cases = [
             ('RUNNING', 'running'),
-            ('SUCCEEDED', 'succeeded'),
+            ('SUCCEEDED', 'success'),   # SFN uppercase → canonical 'success' (ADR #112)
             ('FAILED', 'failed'),
             ('TIMED_OUT', 'timed_out'),
             ('ABORTED', 'aborted'),
-            ('STOPPED', 'stopped'),
-            ('SUCCESS', 'succeeded'),  # legacy
-            ('success', 'succeeded'),  # legacy
-            ('running', 'running'),    # idempotent
+            ('STOPPED', 'aborted'),     # SFN never emits STOPPED; defensive → aborted
+            ('SUCCESS', 'success'),
+            ('success', 'success'),     # idempotent
+            ('succeeded', 'success'),   # legacy alias
+            ('running', 'running'),     # idempotent
             (None, None),
         ]
         for input_val, expected in cases:

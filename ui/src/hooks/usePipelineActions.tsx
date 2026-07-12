@@ -1,4 +1,5 @@
 import { logger } from '@/utils/logger';
+import { TASK_SETTLED_STATUSES } from '@/generated/enums';
 import { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api, getUpstreamTasks, getDownstreamTasks, getApiErrorMessage } from '@/utils';
@@ -351,7 +352,7 @@ export function usePipelineActions({
         
         if (action === 'stopPipeline') {
             const incompleteTasks = tasks.filter(t => 
-                !['success', 'failed', 'upstream_failed', 'skipped', 'stopped', 'aborted'].includes(t.status)
+                !TASK_SETTLED_STATUSES.includes(t.status)
             );
             
             for (const task of incompleteTasks) {

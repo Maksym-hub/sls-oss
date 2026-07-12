@@ -65,7 +65,14 @@ export function DatePicker({
         if (!open) {
             setViewMonth(parseYMD(value) || new Date());
             const r = triggerRef.current?.getBoundingClientRect();
-            if (r) setPos({ top: r.bottom + 4, left: r.left });
+            if (r) {
+                // Keep the 260px popup inside the viewport. The picker is the
+                // right-most control in some toolbars, so anchoring at r.left would
+                // push the calendar off the right edge — clamp instead.
+                const POPUP_W = 260;  // matches .dp-popup width in CSS
+                const left = Math.min(r.left, window.innerWidth - POPUP_W - 8);
+                setPos({ top: r.bottom + 4, left: Math.max(8, left) });
+            }
         }
         setOpen(o => !o);
     };

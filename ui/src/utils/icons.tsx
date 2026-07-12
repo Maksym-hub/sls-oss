@@ -155,6 +155,10 @@ export function StatusIcon({ status, size = 16, className = '' }: { status: stri
         stopped: <StopCircle size={size} className={`${baseClass} text-amber-500`} />,
         skipped: <SkipForward size={size} className={`${baseClass} text-slate-500`} />,
         aborted: <Ban size={size} className={`${baseClass} text-orange-500`} />,
+
+        // Execution-level terminal states (ADR #112)
+        timed_out: <Clock size={size} className={`${baseClass} text-red-500`} />,
+        recovered: <CheckCircle2 size={size} className={`${baseClass} text-amber-500`} />,
         
         // Asset states
         updated: <CheckCircle2 size={size} className={`${baseClass} text-green-500`} />,
@@ -169,34 +173,6 @@ export function StatusIcon({ status, size = 16, className = '' }: { status: stri
     
     return iconMap[status as keyof typeof iconMap] || <Circle size={size} className={`${baseClass} text-gray-300`} />;
 }
-
-/**
- * Legacy STATUS_ICONS mapping for backward compatibility
- * Returns React elements instead of emoji strings
- */
-export const STATUS_ICONS_COMPONENTS = {
-    waiting: (size = 16) => <Clock size={size} className="text-gray-400" />,
-    waiting_paused: (size = 16) => <Pause size={size} className="text-amber-500" />,
-    deps_ready: (size = 16) => <PlayCircle size={size} className="text-indigo-500" />,
-    running: (size = 16) => <Loader2 size={size} className="text-blue-500 animate-spin" />,
-    pending: (size = 16) => <Loader2 size={size} className="text-blue-400 animate-spin" />,
-    success: (size = 16) => <CheckCircle2 size={size} className="text-green-500" />,
-    succeeded: (size = 16) => <CheckCircle2 size={size} className="text-green-500" />,
-    failed: (size = 16) => <XCircle size={size} className="text-red-500" />,
-    upstream_failed: (size = 16) => <XCircle size={size} className="text-red-400" />,
-    skipped: (size = 16) => <SkipForward size={size} className="text-slate-500" />,
-    stopped: (size = 16) => <StopCircle size={size} className="text-amber-500" />,
-    waiting_delay: (size = 16) => <Clock size={size} className="text-amber-500" />,
-    waiting_decision: (size = 16) => <HelpCircle size={size} className="text-amber-500" />,
-    partial: (size = 16) => <AlertTriangle size={size} className="text-amber-500" />,
-    aborted: (size = 16) => <Ban size={size} className="text-orange-500" />,
-    updated: (size = 16) => <CheckCircle2 size={size} className="text-green-500" />,
-    ready: (size = 16) => <CheckCircle2 size={size} className="text-green-500" />,
-    listening: (size = 16) => <Eye size={size} className="text-blue-400" />,
-    watching: (size = 16) => <Eye size={size} className="text-blue-400" />,
-    queued: (size = 16) => <Clock size={size} className="text-gray-400" />,
-    up_failed: (size = 16) => <XCircle size={size} className="text-red-400" />,
-};
 
 // ============================================================================
 // STALENESS ICONS - For asset freshness indicators

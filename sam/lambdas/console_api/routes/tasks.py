@@ -22,7 +22,7 @@ from botocore.exceptions import ClientError, BotoCoreError
 from config import sfn, dynamodb, TABLE_NAME
 from dal import executions_repo, pipelines_repo
 from dal.task_events_repo import task_events_repo
-from constants import Limits, TaskStatus, TASK_WAITING_STATUSES
+from constants import Limits, TaskStatus, TASK_WAITING_STATUSES, TASK_SETTLED_STATUSES, TASK_SUCCESS_STATUSES
 from response import cors_response, safe_parse_body
 from logger import log
 from utils import (
@@ -123,9 +123,8 @@ def resolve_task_item(
     return None, None
 
 
-TERMINAL_TASK_STATUSES = {'success', 'succeeded', 'failed', 'upstream_failed', 'skipped', 'stopped', 'aborted'}
-# Resolved = already in a "good" terminal state, no recovery needed
-RESOLVED_TASK_STATUSES = {'success', 'succeeded', 'skipped'}
+# Task-status groupings are canonical (polyris → TASK_SETTLED_STATUSES /
+# TASK_SUCCESS_STATUSES); never re-list them inline.
 
 
 def _reconcile_orphaned_tasks(tasks):
@@ -138,7 +137,7 @@ def _reconcile_orphaned_tasks(tasks):
     # Find non-terminal tasks grouped by (pipeline_name, pipeline_execution)
     pending_execs = {}  # {(pipeline_name, pipeline_execution): [task_indices]}
     for i, task in enumerate(tasks):
-        if task['status'] not in TERMINAL_TASK_STATUSES and task.get('pipeline_execution'):
+        if task['status'] not in TASK_SETTLED_STATUSES and task.get('pipeline_execution'):
             key = (task.get('pipeline_name', ''), task['pipeline_execution'])
             pending_execs.setdefault(key, []).append(i)
     
@@ -560,7 +559,7 @@ def _execute_task_action(
 
     # Check if action is blocked by current status
     if use_resolved_check:
-        if current_status in RESOLVED_TASK_STATUSES:
+        if current_status in TASK_SUCCESS_STATUSES:
             return cors_response(
                 409,
                 {

@@ -25,6 +25,8 @@ export const STATUS_COLORS = {
     waiting_delay: 'warning',
     partial: 'warning',
     aborted: 'aborted',
+    timed_out: 'error',
+    recovered: 'warning',
     // Asset statuses
     updated: 'success',
     ready: 'success',
@@ -40,12 +42,6 @@ export const STALENESS_COLORS = {
     warning: 'warning',
     stale: 'error',
     unknown: 'muted'
-};
-
-// Normalize status for consistent handling
-export const normalizeStatus = (status: string): string => {
-    if (status === 'succeeded') return 'success';
-    return status || 'waiting';
 };
 
 // Asset groups for UI organization

@@ -89,6 +89,14 @@ TERMINAL_STATUSES: Set[str] = {
     TaskStatus.UPSTREAM_FAILED.value,
 }
 
+# Terminal statuses plus 'stopped'. A "settled" task is one that will not change on
+# its own — either it reached a terminal state, or it was deliberately stopped via the
+# UI (restartable, non-terminal). Used wherever a stopped task must be preserved rather
+# than treated as orphaned: task-feed row skipping and execution-abort reconciliation
+# (so a deliberately-stopped task is not re-marked 'aborted'). Single source of truth —
+# do not re-list these statuses inline.
+SETTLED_STATUSES: Set[str] = TERMINAL_STATUSES | {TaskStatus.STOPPED.value}
+
 SUCCESS_STATUSES: Set[str] = {
     TaskStatus.SUCCESS.value,
     TaskStatus.SUCCEEDED.value,
@@ -202,12 +210,15 @@ class TriggerRule:
 # =============================================================================
 
 class PipelineStatus:
-    """Aggregate pipeline status — derived from task counts for "today's"
-    view in the pipelines sidebar."""
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
+    """A pipeline card's status: its LAST run's canonical status, or 'idle' when the
+    pipeline has no runs in the recent window (ADR #112, option c). The value set is
+    ExecutionStatus plus 'idle' — kept in sync with ExecutionStatus."""
     RUNNING = "running"
-    WAITING = "waiting"
+    SUCCESS = "success"
+    FAILED = "failed"
+    TIMED_OUT = "timed_out"
+    ABORTED = "aborted"
+    RECOVERED = "recovered"
     IDLE = "idle"
 
 
@@ -220,37 +231,40 @@ class ExecutionStatus:
     """Pipeline-execution status. Canonical lowercase form.
 
     AWS Step Functions returns these statuses in UPPERCASE; normalize at
-    the boundary using `normalize_execution_status` before use.
+    the boundary using `normalize_execution_status` before use. Canonical
+    "success" (not "succeeded") system-wide per ADR #112 — supersedes ADR #71's
+    value choice. `stopped` is a task-only status (restartable UI-stop) and is
+    intentionally absent here: a stopped execution derives/reconciles to `aborted`.
     """
     RUNNING = "running"
-    SUCCEEDED = "succeeded"
+    SUCCESS = "success"
     FAILED = "failed"
     TIMED_OUT = "timed_out"
     ABORTED = "aborted"
-    STOPPED = "stopped"
-    RECOVERED = "recovered"  # Derived: SFN reports failed but all tasks resolved
+    RECOVERED = "recovered"  # Derived: SFN reports failed/timed_out but all tasks resolved
 
 
 EXECUTION_STATUS_CANONICAL: Set[str] = {
     ExecutionStatus.RUNNING,
-    ExecutionStatus.SUCCEEDED,
+    ExecutionStatus.SUCCESS,
     ExecutionStatus.FAILED,
     ExecutionStatus.TIMED_OUT,
     ExecutionStatus.ABORTED,
-    ExecutionStatus.STOPPED,
     ExecutionStatus.RECOVERED,
 }
 
 _EXECUTION_STATUS_UPPERCASE_MAP = {
     'RUNNING': ExecutionStatus.RUNNING,
-    'SUCCEEDED': ExecutionStatus.SUCCEEDED,
+    'SUCCEEDED': ExecutionStatus.SUCCESS,   # SFN uppercase → canonical 'success' (ADR #112)
     'FAILED': ExecutionStatus.FAILED,
     'TIMED_OUT': ExecutionStatus.TIMED_OUT,
     'ABORTED': ExecutionStatus.ABORTED,
-    'STOPPED': ExecutionStatus.STOPPED,
-    # Legacy: some code wrote 'success' (TaskStatus form) for executions
-    'SUCCESS': ExecutionStatus.SUCCEEDED,
-    'success': ExecutionStatus.SUCCEEDED,
+    # SFN never emits STOPPED for an execution; map defensively to aborted.
+    'STOPPED': ExecutionStatus.ABORTED,
+    # Legacy / task-form aliases for the success state → canonical 'success'.
+    'SUCCESS': ExecutionStatus.SUCCESS,
+    'success': ExecutionStatus.SUCCESS,
+    'succeeded': ExecutionStatus.SUCCESS,
 }
 
 
@@ -270,6 +284,56 @@ def normalize_execution_status(status, log_warn=None):
         log_warn("Unexpected execution status; cannot normalize",
                  status=status)
     return status
+
+
+# Task-status groupings used to derive a pipeline-execution status (ADR #112).
+# 'succeeded' is accepted as an input alias for the canonical 'success'.
+_DERIVE_RESOLVED = {'success', 'succeeded', 'skipped'}
+_DERIVE_FAILURE = {'failed'}
+_DERIVE_STOPPED = {'stopped', 'aborted', 'upstream_failed'}
+_DERIVE_TERMINAL = _DERIVE_RESOLVED | _DERIVE_FAILURE | _DERIVE_STOPPED
+
+
+def derive_execution_status(task_statuses):
+    """Derive a pipeline-execution status from its task statuses (DynamoDB only).
+
+    The single source of this derivation (ADR #112). Returns one of the
+    DynamoDB-derivable canonical values: 'running', 'success', 'failed', 'aborted'.
+    ('timed_out' and 'recovered' are reconciliation-only — see
+    ``reconcile_execution_status``.) A genuine task failure outranks an interruption;
+    an interruption (stopped/aborted/upstream_failed) without a failure is 'aborted'.
+    """
+    statuses = set(task_statuses)
+    if not statuses:
+        return ExecutionStatus.RUNNING
+    is_completed = statuses.issubset(_DERIVE_TERMINAL)
+    has_failure = bool(statuses & _DERIVE_FAILURE)
+    has_stopped = bool(statuses & _DERIVE_STOPPED)
+    if is_completed:
+        if has_stopped and not has_failure:
+            return ExecutionStatus.ABORTED
+        return ExecutionStatus.FAILED if has_failure else ExecutionStatus.SUCCESS
+    if has_failure:
+        return ExecutionStatus.FAILED
+    if has_stopped:
+        return ExecutionStatus.ABORTED
+    return ExecutionStatus.RUNNING
+
+
+def reconcile_execution_status(base, sfn_status, all_tasks_resolved):
+    """Refine a derived 'running' status against the authoritative SFN status (ADR #112).
+
+    Only a 'running' base is reconciled — terminal derivations are trusted. ``sfn_status``
+    must already be canonical (see ``normalize_execution_status``). When SFN reports a
+    failure/timeout but every task resolved, the execution is 'recovered'.
+    """
+    if base != ExecutionStatus.RUNNING:
+        return base
+    if not sfn_status or sfn_status == ExecutionStatus.RUNNING:
+        return base
+    if sfn_status in (ExecutionStatus.FAILED, ExecutionStatus.TIMED_OUT) and all_tasks_resolved:
+        return ExecutionStatus.RECOVERED
+    return sfn_status
 
 
 # =============================================================================

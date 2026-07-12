@@ -409,6 +409,44 @@ Frontend mirror: vitest coverage on logic/hooks/reducers follows the same ratche
 philosophy; purely presentational components are exempt. (The frontend gate is wired on
 once a baseline is measured — until then the rule stands as policy.)
 
+**23. Completeness = whole-codebase impact, verified and reported — not feature-local green**
+
+Work is never "done" after verifying only within the feature/fix boundary. #17 says to
+*evaluate* system impact; #23 makes it a **required gate with a written report**. A change
+is complete only once its blast radius across **both repos (CE + EE)** has been swept and
+the sweep is shown. Repeatedly, real issues surface only "at the edge" — the missing step
+was always a systematic radius sweep, not effort in the moment.
+
+Before declaring any change done, run and record all five:
+
+1. **Consumers sweep.** For every symbol you touched (function, constant, type, enum,
+   enum *member*, field, CSS class, component, prop), `grep -rn` all references across
+   **CE and EE**, prod and tests — not just the file you edited. A changed symbol with an
+   unswept consumer is an unfinished change.
+2. **Pattern sweep.** If you unified / canonicalized / renamed anything, find **every**
+   other site of the same pattern — array form *and* OR-comparison form, backend *and*
+   frontend, both repos. Migrate them, or list each one explicitly with the reason it is
+   intentionally left (custom grouping, different styling, genuinely out of scope).
+3. **Producer↔consumer contract.** If the change crosses an API / DDB / codegen boundary,
+   verify **both** sides agree (backend emits X ⇒ every enum / type / UI consumer accepts
+   X, and vice-versa). Regenerate and re-check drift.
+4. **Dead-after-change.** After editing, confirm nothing became dead: unused imports,
+   now-unreachable branches, orphaned CSS rules, enum members no value can produce. Remove
+   them in the same change.
+5. **Full suite, never isolated.** Run **all** test locations (discover them with `find`
+   for `pytest.ini` / `conftest.py`; CE + EE vitest; the merged EE overlay), not just the
+   feature's own tests. Mock and contract regressions are invisible in an isolated run and
+   surface only in the full suite.
+
+Then end with a **completeness report** — mandatory, not optional:
+> Changed: A, B, C. Blast radius: swept N consumers of each (CE + EE + tests); M sites of
+> the pattern — migrated P, left Q because R. Contract: both sides checked. Dead code: none
+> (or: removed X). Suites: all green (list them). Not touched: Z — because R.
+
+No report ⇒ not done. The maintainer may reject any "done" that lacks it, or simply ask
+**"show me the blast radius."** This gate reduces misses; it does not promise zero — which
+is exactly why the explicit report exists: so verification is auditable, not trusted blindly.
+
 ---
 
 

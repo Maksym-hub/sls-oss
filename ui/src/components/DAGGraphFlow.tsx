@@ -12,7 +12,8 @@ import ReactFlow, {
     Panel
 } from 'reactflow';
 import dagre from 'dagre';
-import { normalizeStatus, formatCountdown, formatWaitBadge, formatDuration } from '../utils';
+import { formatCountdown, formatWaitBadge, formatDuration } from '../utils';
+import { TASK_SUCCESS_STATUSES, TASK_SETTLED_STATUSES } from '@/generated/enums';
 import { taskTypeBadge } from '../utils/taskTypeBadge';
 import { StatusIcon, CheckCircle2, XCircle, Loader2, Clock, Settings, BarChart3, Hourglass, Check, AlertTriangle } from '../utils/icons';
 import { 
@@ -322,7 +323,7 @@ export function DAGGraphFlow({
                 };
             }
             const sourceTask = tasks?.find(t => t.task_name === edge.source);
-            const sourceStatus = normalizeStatus(sourceTask?.status || '');
+            const sourceStatus = sourceTask?.status || 'waiting';
             const isActive = sourceStatus === 'success';
             
             return {
@@ -389,9 +390,9 @@ export function DAGGraphFlow({
     // Stats
     const stats = useMemo(() => {
         const total = dag?.nodes?.length || 0;
-        const success = tasks?.filter(t => t.status === 'success' || t.status === 'succeeded' || t.status === 'skipped').length || 0;
+        const success = tasks?.filter(t => TASK_SUCCESS_STATUSES.includes(t.status)).length || 0;
         const running = tasks?.filter(t => t.status === 'running' || t.status === 'deps_ready' || t.status === 'waiting_delay').length || 0;
-        const failed = tasks?.filter(t => t.status === 'failed' || t.status === 'upstream_failed' || t.status === 'aborted' || t.status === 'stopped').length || 0;
+        const failed = tasks?.filter(t => TASK_SETTLED_STATUSES.includes(t.status) && !TASK_SUCCESS_STATUSES.includes(t.status)).length || 0;
         return { total, success, running, failed };
     }, [dag, tasks]);
     

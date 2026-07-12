@@ -23,6 +23,7 @@ from constants_generated import (
     BackfillUpstream,
     BACKFILL_ERROR_CODES,
     TASK_TERMINAL_STATUSES,
+    TASK_SETTLED_STATUSES,
     TASK_SUCCESS_STATUSES,
     TASK_FAILURE_STATUSES,
     TASK_ACTIVE_STATUSES,
@@ -30,6 +31,11 @@ from constants_generated import (
     TASK_STOPPABLE_STATUSES,
     BACKFILL_TERMINAL_STATUSES,
     BACKFILL_ACTIVE_STATUSES,
+    EXECUTION_STATUS_CANONICAL,
+    _EXECUTION_STATUS_UPPERCASE_MAP,
+    normalize_execution_status,
+    derive_execution_status,
+    reconcile_execution_status,
 )
 
 
@@ -118,45 +124,4 @@ class BackfillLimits:
 # Backfill records share the table with executions; this sentinel + record_type
 # discriminator (per ADR #51) keeps them filtered out of execution queries.
 BACKFILL_SENTINEL_PIPELINE_NAME = '_polyris_bulk_backfill'
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# ExecutionStatus normalization (ADR #71, v0.78.14)
-# Mirrors _shared/constants.py (kept in sync via `make sync-constants`).
-# ──────────────────────────────────────────────────────────────────────────────
-
-EXECUTION_STATUS_CANONICAL = {
-    'running', 'succeeded', 'failed', 'timed_out', 'aborted', 'stopped',
-}
-
-_EXECUTION_STATUS_UPPERCASE_MAP = {
-    'RUNNING': 'running',
-    'SUCCEEDED': 'succeeded',
-    'FAILED': 'failed',
-    'TIMED_OUT': 'timed_out',
-    'ABORTED': 'aborted',
-    'STOPPED': 'stopped',
-    'SUCCESS': 'succeeded',
-    'success': 'succeeded',
-}
-
-
-def normalize_execution_status(status, log_warn=None):
-    """Normalize a pipeline-execution status to canonical lowercase.
-
-    See _shared/constants.py for full docstring. This is the console_api
-    copy (the Lambda has its own deploy package, can't share Python files
-    natively).
-    """
-    if status is None:
-        return None
-    if status in EXECUTION_STATUS_CANONICAL:
-        return status
-    mapped = _EXECUTION_STATUS_UPPERCASE_MAP.get(status)
-    if mapped is not None:
-        return mapped
-    if log_warn is not None:
-        log_warn("Unexpected execution status; cannot normalize",
-                 status=status)
-    return status
 

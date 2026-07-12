@@ -1,6 +1,209 @@
+## Unreleased
+
+### Changed — pipeline card status now reflects the last run
+
+- The sidebar pipeline card status (icon, label, glow) now reflects the **most recent run's**
+  canonical status, not a same-day aggregate. Previously a pipeline that failed yesterday but had
+  no run today showed `idle`, hiding the failure; now `idle` means only "no runs in the recent
+  window". This matches the sparkline and the industry-standard "is this pipeline healthy?" signal.
+  Today's task counts still drive the progress bar. New value set for a card: the canonical
+  ExecutionStatus (`running`/`success`/`failed`/`timed_out`/`aborted`/`recovered`) or `idle`.
+
+### Fixed — sidebar and date-picker rendering
+
+- The History refresh button now spins its icon and disables while a fetch is in flight,
+  matching the pipeline canvas. Both surfaces now share one `RefreshButton` component
+  instead of each re-implementing the affordance.
+- Sidebar run sparkline and pipeline status icon now have colours/icons for `aborted`, `timed_out`,
+  and `recovered` runs. These previously rendered as an empty gap / generic grey circle because the
+  canonical statuses (ADR #112) were never given styles. `StatusIcon` gained `timed_out` and
+  `recovered` glyphs (also used on the History and execution views).
+- The History date picker no longer overflows the right edge of the window — the 260px popup is
+  clamped to the viewport instead of anchoring at the trigger's left edge.
+
+### Fixed — canonical execution-status derivation and reconciliation (ADR #112)
+
+- The same stopped execution showed **aborted** on the History `/runs` feed but **failed** in
+  the execution-history dropdown (`/pipeline-executions`). A pipeline-execution has no status of
+  its own — it is derived from its task statuses — and that derivation had been hand-written in
+  three places that drifted apart. All three now use one canonical
+  `derive_execution_status`, and the SFN reconciliation for still-running executions uses one
+  canonical `reconcile_execution_status`, both defined in `polyris` and codegen-synced into the
+  lambdas (mirroring `normalize_execution_status`). A cross-endpoint test now locks that identical
+  task rows yield an identical status from both endpoints.
+- **`success` is the one canonical success value** system-wide (task and execution). `succeeded`
+  becomes an input alias only; the frontend `normalizeStatus` band-aid is removed. This supersedes
+  the value choice of ADR #71 — `normalize_execution_status` now returns `success` for SFN
+  `SUCCEEDED`.
+- **`stopped` is a task-only status** (a stopped, restartable task). It is removed from
+  `ExecutionStatus`; a stopped run derives to `aborted`. The Runs filter drops `stopped`; the
+  Tasks filter keeps it.
+- **`/runs` now reconciles running executions with Step Functions**, like the dropdown already
+  did, so both surfaces agree on stuck-running / `timed_out` / `recovered` runs. Reconciliation
+  touches only running rows, so terminal rows cost no SFN calls.
+- **SLA excludes `aborted` runs** — a user-initiated stop is not a system failure.
+
+
+
+- `timed_out` and `recovered` (valid ExecutionStatus values) had no status-pill colour and no
+  STATUS_COLORS tone, so those runs rendered as an uncoloured pill. Both now map to a tone
+  (timed out → error, recovered → warning).
+- The Runs and Tasks status filters now cover the statuses that actually occur (the Runs filter
+  mirrors ExecutionStatus; the Tasks filter adds the terminal states — aborted, stopped,
+  upstream_failed, skipped, pending — that previously appeared in the table but weren't
+  filterable). Added a drift-guard test asserting every Task/Execution status has a tone.
+
+## Unreleased
+
+### Changed — merged All runs + All tasks into a single "History" view
+
+- The two list views are now one **History** destination in the nav rail, with a Runs/Tasks
+  segmented toggle (client-side route switch between `/runs` and `/tasks`, which are both kept
+  as deep-linkable URLs). Default is Runs.
+- Restyled after the reference: the per-view metric cards were removed, status is shown as a
+  pill in the table, and the toolbar carries the toggle, a search box, and the view's filters.
+- Added client-side **search** (over pipeline/execution/backfill id for runs, task/pipeline for
+  tasks) and **pagination** (10 per page), composed sort → filter → search → paginate with the
+  page resetting on a new search. Shared via `HistoryChrome` + the `usePagedRows` hook.
+
+### Fixed — backfill surface is Team-only in the History view (contract drift)
+
+- The Runs table's Backfill column, backfill status filters, and backfill detail links now render
+  only when the paid surface provides the Backfills view, so the open-source build no longer
+  advertises a backfill surface it doesn't ship.
+
 # Changelog
 
 ## Unreleased
+
+### Fixed — spacing between icon and label in buttons
+
+- The base Button had no gap between a leading icon and its label (the icon sat flush against
+  the text, e.g. the Run button). Added `gap-2`, matching the nav pills' icon/label spacing.
+
+
+### Changed — instant client-side view routing (ADR #111)
+- The Team backfill drill-into-pipeline navigation (partition/child click, ADR #63/#68) now
+  sets store state directly via a new `onNavigateToExecution` prop instead of pushing a
+  `/pipelines/?pipeline=&date=` URL — the URL-param path relied on a full reload to apply, which
+  client routing removes. `BackfillsView`/`BackfillModalHost` were switched to the client router.
+
+- Navigation between the top-level views (Pipelines, Tasks, Runs, …) is now driven by the
+  History API via a small RouteProvider/useClientRoute instead of the Next.js router. In the
+  static-export + CloudFront setup the Next.js router did a full document reload on every view
+  switch (~1.5s, provider re-mount, auth re-check, data re-fetch). Since Next.js no longer sees
+  a route change, the app stays mounted and just re-renders the new view — switches are instant.
+  Deep links, direct loads, and browser back/forward are preserved.
+
+
+### Changed — optimistic auth initialization (no loading flash on navigation)
+
+- AuthProvider now initializes optimistically from a cached session. On a successful auth
+  check the formatted user is cached in localStorage; on the next mount (a static export
+  re-mounts the provider on navigation) the app renders as signed-in immediately instead of
+  showing the loading splash, and Amplify revalidates the session in the background. The
+  cache is UI-only and always revalidated — the server validates every request, so a stale
+  or revoked token still 401s and signs out. The cache is cleared on sign-out and whenever
+  revalidation fails.
+
+
+### Fixed — auth-loading splash now respects dark mode
+
+- The auth-loading splash used shadcn tokens (hsl(var(--background)), --muted-foreground)
+  whose dark variants never activated, so it flashed light in dark mode. It now uses the
+  app's adaptive tokens. An inline theme-init script in the document head applies the
+  persisted [data-theme] before first paint, removing the light flash on load.
+
+
+### Fixed — full CSS design-token audit
+
+- Swept every stylesheet for references to undefined CSS custom properties. 29 undefined
+  tokens (e.g. --border-primary, --text-tertiary, --space-*, --warning-bg) were resolving to
+  hardcoded fallbacks or nothing, breaking borders, spacing, and dark-mode backgrounds. All
+  now map to the app's defined tokens, and the spacing scale (--space-*) and --font-inter are
+  defined in _base.css. The stylesheets now reference zero undefined tokens, contain zero
+  invalid hsl(var(--hex)) expressions, and no hardcoded light backgrounds outside dark overrides.
+
+
+### Fixed — dark-mode fixes for undefined design tokens
+
+- Several styles referenced undefined tokens (--surface-2, --bg-muted, --color-success-bg,
+  --color-warning-bg, --bg-warning) with hardcoded light fallbacks, so they stayed light in
+  dark mode. The task Input/Output code block in particular rendered as a light box with
+  invisible text. These now use the app's adaptive tokens (--bg-tertiary, --success-light,
+  --warning-light, etc.) and read correctly in both themes.
+
+
+### Changed — account menu styles migrated to the app design tokens
+
+- The account menu (UserMenu) styles moved out of login.css into a dedicated
+  ui/src/styles/modules/_user-menu.css and now use the app's hex design tokens
+  (var(--*)) instead of shadcn HSL tokens. This fixes invalid `hsl(var(--border))`
+  borders/dividers and, importantly, makes the menu theme correctly in dark mode —
+  the previous shadcn `.dark` variants never activated because the app toggles
+  `[data-theme="dark"]`.
+
+
+### Changed — account menu moved to the left rail
+
+- The account menu moved from the top-right of the header to the bottom of the left rail.
+  The trigger is an avatar; the menu opens upward with the user's name, email, and role,
+  a dark-mode toggle, Settings, Help, admin user management, and log out.
+- The theme (dark-mode) toggle moved out of the header and into this account menu. The
+  header now carries only API status, auto-refresh, and notifications.
+
+
+### Changed — state-driven pipeline action buttons
+
+- The pipeline action buttons are now state-driven: running shows Pause and Stop, paused
+  shows Resume and Stop, and idle/failed/completed shows Run. Run/Resume are primary,
+  Pause is neutral, and Stop is a separated danger action.
+- Refresh is now an icon-only button (spinning while refreshing) instead of showing a label.
+- Run, Pause, Resume, and Stop show loading labels ("Starting…", "Pausing…", "Resuming…",
+  "Stopping…") while the action is in flight, and are disabled until it completes.
+
+
+### Changed
+
+- The pipeline execution-history trigger button now uses a book icon and the shorter label
+  "History (N)" instead of a file icon with "Execution history (N)".
+
+
+### Fixed — execution breadcrumb for the default latest run
+
+- The auto-selected latest now shows its execution crumb (e.g. `Pipelines > hello-world >
+  Run ...`), matching a manually-picked run. The short id for the auto-selected execution
+  is taken from the backend (pipeline_execution_short) so it matches the history list
+  instead of being a naive prefix of the full id (which could look like "Run hello-wo").
+
+
+### Fixed — header/execution navigation (live-test fixes)
+
+- The polyris logo is no longer clickable (it is a plain brand mark) and sits with more
+  separation to the left of the breadcrumb trail.
+- The execution breadcrumb ("Run ...") now shows only for a manually-selected execution.
+  An auto-selected latest run no longer renders a phantom crumb built from its internal id
+  (e.g. "Run hello-wo..."). Clicking the pipeline crumb returns to the latest run.
+- The "Latest" button now also appears when viewing a non-latest date, not only after a
+  manual execution pick, so there is always a way back to the latest run.
+
+
+### Changed — header: separate logo + clickable section-first breadcrumbs
+
+- The polyris logo is now a separate brand element (with a divider), not the first
+  breadcrumb. The breadcrumb trail starts with the section name and reads e.g.
+  `Pipelines › hello-world › Run 77634ffd`. Ancestor crumbs are clickable (section →
+  its list, pipeline → clears the execution selection); the current crumb is not. The
+  execution crumb is prefixed with "Run".
+
+
+### Changed
+
+- The pipeline execution-scope "x" (next to Execution history) is replaced by a "Latest"
+  button inside the Execution history dropdown, to the right of the date picker. It returns
+  to the latest run and only appears when a specific, manually-selected execution is being
+  viewed — not when you are already on the auto-selected latest run.
+
 
 ### Fixed
 

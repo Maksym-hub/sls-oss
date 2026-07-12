@@ -86,7 +86,6 @@ vi.mock('dagre', () => {
 });
 
 vi.mock('../utils', () => ({
-    normalizeStatus: (s: string) => s,
     formatCountdown: (s: number) => `${s}s`,
     formatWaitBadge: () => null,
     formatDuration: (ms: number) => `${Math.round(ms / 1000)}s`,

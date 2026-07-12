@@ -201,6 +201,9 @@
 .sb-pipeline-icon.failed { background: var(--error-light); color: var(--error); }
 .sb-pipeline-icon.waiting { background: var(--waiting-light); color: var(--waiting); }
 .sb-pipeline-icon.idle { background: var(--bg-tertiary); color: var(--text-muted); }
+.sb-pipeline-icon.aborted { background: var(--aborted-light); color: var(--aborted); }
+.sb-pipeline-icon.timed_out { background: var(--error-light); color: var(--error); }
+.sb-pipeline-icon.recovered { background: var(--warning-light); color: var(--warning); }
 
 .sb-pipeline-info { flex: 1; min-width: 0; }
 .sb-pipeline-name { font-weight: 600; font-size: 0.875rem; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -245,6 +248,10 @@
 .sb-run-spark.success, .sb-run-spark.succeeded { background: var(--success); opacity: 0.7; }
 .sb-run-spark.failed { background: var(--error); opacity: 0.85; }
 .sb-run-spark.running { background: var(--running); opacity: 0.7; animation: spark-pulse 1.5s ease-in-out infinite; }
+.sb-run-spark.aborted { background: var(--aborted); opacity: 0.75; }
+.sb-run-spark.timed_out { background: var(--error); opacity: 0.6; }
+.sb-run-spark.recovered { background: var(--warning); opacity: 0.75; }
+.sb-run-spark.skipped { background: var(--skipped); opacity: 0.6; }
 @keyframes spark-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 
 /* Pipeline Progress Bar — removed in v67 (replaced by run sparkline) */

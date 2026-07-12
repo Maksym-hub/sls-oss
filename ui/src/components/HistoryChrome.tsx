@@ -1,7 +1,7 @@
 import React from 'react';
-import { Button } from '@/components/ui/button';
 import { useClientRoute } from '@/hooks/useClientRoute';
-import { Activity, ListTodo, RefreshCw, Search, ChevronLeft, ChevronRight } from '../utils/icons';
+import { Activity, ListTodo, Search, ChevronLeft, ChevronRight } from '../utils/icons';
+import { RefreshButton } from './RefreshButton';
 
 interface HistoryChromeProps {
     /** Which sub-view is active — drives the toggle and the client-side route it pushes. */
@@ -17,6 +17,8 @@ interface HistoryChromeProps {
     filters?: React.ReactNode;
     onRefresh: () => void;
     loading?: boolean;
+    /** Spins the refresh icon and disables it while a fetch is in flight. */
+    isFetching?: boolean;
     /** Optional ref to the search input, so a view can wire a focus-filter shortcut to it. */
     searchRef?: React.Ref<HTMLInputElement>;
     children: React.ReactNode;
@@ -29,7 +31,7 @@ interface HistoryChromeProps {
  * filtering and sorting and passes the sorted-then-searched-then-paged rows as children.
  */
 export function HistoryChrome({
-    mode, search, onSearch, page, setPage, total, pageCount, pageSize, filters, onRefresh, loading, searchRef, children,
+    mode, search, onSearch, page, setPage, total, pageCount, pageSize, filters, onRefresh, loading, isFetching, searchRef, children,
 }: HistoryChromeProps) {
     const { push } = useClientRoute();
     const from = total === 0 ? 0 : page * pageSize + 1;
@@ -39,9 +41,7 @@ export function HistoryChrome({
         <div className="panel-section">
             <div className="hc-header">
                 <h2 className="title-lg">History</h2>
-                <Button size="sm" variant="secondary" onClick={onRefresh} aria-label="Refresh">
-                    <RefreshCw size={14} /> Refresh
-                </Button>
+                <RefreshButton onRefresh={onRefresh} isFetching={isFetching} label="Refresh" size="sm" iconSize={14} />
             </div>
 
             <div className="hc-toolbar">

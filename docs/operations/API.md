@@ -234,7 +234,7 @@ list of pipeline executions **and** Backfills, discriminated by `kind`:
       "pipeline_name": "acme-daily",
       "pipeline_execution": "acme-daily-2026-05-31-ab12cd34",
       "pipeline_execution_short": "ab12cd34",
-      "status": "succeeded",          // running | succeeded | failed | aborted
+      "status": "success",           // running | success | failed | timed_out | aborted | recovered
       "started_at": "...", "finished_at": "...",
       "date": "2026-05-31",
       "duration_ms": 42000,

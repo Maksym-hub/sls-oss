@@ -72,7 +72,7 @@ export function PipelinesSidebar() {
                 continue;
             }
             // Auto-expand if: ≤12 total pipelines, or group has failing/running, or group has selected pipeline
-            const hasFailing = items.some(p => p.status === 'failed' || p.status === 'running');
+            const hasFailing = items.some(p => p.status === 'failed' || p.status === 'timed_out' || p.status === 'running');
             const hasSelected = items.some(p => selectedPipeline?.name === p.name);
             auto[group] = totalPipelines <= 12 || hasFailing || hasSelected || !!search;
         }

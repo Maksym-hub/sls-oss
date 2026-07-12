@@ -13,7 +13,7 @@ Covers:
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 # pytest-mock: mocker fixture used instead of unittest.mock
 from botocore.exceptions import ClientError
 
@@ -155,20 +155,20 @@ def test_list_pipelines_stats_succeeded(mocker):
     resp = _parse_response(list_pipelines(_make_event({'stats': 'true'})))
 
     p = resp['pipelines'][0]
-    assert p['status'] == 'succeeded'
+    assert p['status'] == 'success'
     assert p['progress'] == 100
     assert p['today_stats']['success'] == 2
     assert p['today_stats']['skipped'] == 1
 
 
 def test_list_pipelines_stats_failed(mocker):
-    """Stats show failed when any task is failed/aborted/stopped."""
+    """Card status is 'failed' when the (last) run failed (ADR #112 / option c)."""
     mock_pipelines = MockRepo([
         {'pipeline_name': 'daily', 'sfn_arn': 'arn:...', 'description': ''},
     ])
     mock_execs = MockRepo([
         {'pipeline_name': 'daily', 'pipeline_execution': 'exec-1', 'status': 'success', 'date': TODAY},
-        {'pipeline_name': 'daily', 'pipeline_execution': 'exec-1', 'status': 'aborted', 'date': TODAY},
+        {'pipeline_name': 'daily', 'pipeline_execution': 'exec-1', 'status': 'failed', 'date': TODAY},
         {'pipeline_name': 'daily', 'pipeline_execution': 'exec-1', 'status': 'waiting', 'date': TODAY},
     ])
 
@@ -182,6 +182,35 @@ def test_list_pipelines_stats_failed(mocker):
     assert p['status'] == 'failed'
     assert p['today_stats']['failed'] == 1
     assert p['today_stats']['waiting'] == 1
+
+
+def test_list_pipelines_status_is_last_run(mocker):
+    """Card status reflects the MOST RECENT run, not a per-day aggregate (ADR #112 / c).
+
+    An older run failed, but the latest run (a later date) succeeded — the card is
+    'success'. today_stats/progress stay day-scoped and are unaffected.
+    """
+    yesterday = (datetime.fromisoformat(TODAY) - timedelta(days=1)).strftime('%Y-%m-%d')
+    mock_pipelines = MockRepo([
+        {'pipeline_name': 'daily', 'sfn_arn': 'arn:...', 'description': ''},
+    ])
+    mock_execs = MockRepo([
+        # Older run (yesterday) — failed
+        {'pipeline_name': 'daily', 'pipeline_execution': 'exec-old', 'status': 'failed', 'date': yesterday},
+        # Latest run (today) — success
+        {'pipeline_name': 'daily', 'pipeline_execution': 'exec-new', 'status': 'success', 'date': TODAY},
+    ])
+
+    mocker.patch('routes.pipelines_list.executions_repo', mock_execs)
+    mocker.patch('routes.pipelines_list.pipelines_repo', mock_pipelines)
+    mocker.patch('routes.pipelines_list.sfn', mocker.MagicMock())
+    from routes.pipelines_list import list_pipelines
+    resp = _parse_response(list_pipelines(_make_event({'stats': 'true'})))
+
+    p = resp['pipelines'][0]
+    assert p['status'] == 'success', "card should reflect the latest run, not the older failed one"
+    # Both runs appear in the sparkline, newest first.
+    assert p['recent_runs'][0]['status'] == 'success'
 
 
 def test_list_pipelines_stats_running(mocker):
@@ -207,7 +236,11 @@ def test_list_pipelines_stats_running(mocker):
 
 
 def test_list_pipelines_sla_excludes_aborted(mocker):
-    """SLA calculation: aborted runs count as failed."""
+    """SLA excludes aborted (user-stopped) runs from the denominator (ADR #112).
+
+    Runs: success, aborted, failed. Aborted is not a system failure, so it is
+    excluded entirely — SLA = successes / (completed non-aborted) = 1/2 = 50%.
+    """
     mock_pipelines = MockRepo([
         {'pipeline_name': 'daily', 'sfn_arn': 'arn:...', 'description': ''},
     ])
@@ -224,7 +257,7 @@ def test_list_pipelines_sla_excludes_aborted(mocker):
     resp = _parse_response(list_pipelines(_make_event({'stats': 'true'})))
 
     p = resp['pipelines'][0]
-    assert p['sla'] == 33
+    assert p['sla'] == 50
 
 
 def test_list_pipelines_progress_includes_skipped(mocker):

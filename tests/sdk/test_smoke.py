@@ -500,18 +500,20 @@ def test_pipelines_api_returns_group():
 
 
 def test_sla_excludes_in_progress_runs():
-    """Test that SLA calculation excludes in-progress runs (only counts completed runs)."""
+    """SLA counts only completed runs and excludes aborted (user-stopped) runs (ADR #112)."""
     api_path = os.path.join(REPO_ROOT,
                             'sam/lambdas/console_api/routes/pipelines_list.py')
     with open(api_path) as f:
         content = f.read()
-    
-    # Must check that runs are terminal before counting them for SLA
-    assert 'issubset(terminal_statuses)' in content, "SLA should check runs are fully terminal"
+
+    # SLA status is the canonical derivation, not a hand-rolled terminal check.
+    assert 'derive_execution_status' in content, "SLA should derive status via the canonical helper"
+    # In-progress (running) and aborted runs are excluded from the SLA denominator.
+    assert "in ('running', 'aborted')" in content, "SLA should exclude running and aborted runs"
     # Must NOT count all runs indiscriminately
     assert 'total_completed_runs' in content, "SLA should count only completed runs"
-    
-    print("✅ SLA excludes in-progress runs")
+
+    print("✅ SLA excludes in-progress and aborted runs")
 
 
 def test_task_completed_contract():

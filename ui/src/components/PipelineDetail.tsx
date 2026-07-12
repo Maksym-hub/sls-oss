@@ -1,13 +1,15 @@
 import React, { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from './DatePicker';
+import { RefreshButton } from './RefreshButton';
 import { 
     DAGGraph, 
     DAGSkeleton, 
     GanttSkeleton,
     ErrorBoundary,
 } from './index';
-import { normalizeStatus, POLLING } from '../utils';
+import { POLLING } from '../utils';
+import { TASK_SUCCESS_STATUSES } from '@/generated/enums';
 import { useAppStore } from '../stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useToast, useKeyboardShortcuts, SHORTCUTS } from '../hooks';
@@ -26,7 +28,6 @@ import {
     GitBranch, 
     BarChart3, 
     Calendar, 
-    RefreshCw, 
     Play, 
     Pause, 
     Square, 
@@ -193,7 +194,7 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
     const [showHistory, setShowHistory] = useState(false);
 
     const stats = useMemo(() => ({
-        done: filteredTasks.filter(t => t.status === 'success' || t.status === 'succeeded' || t.status === 'skipped').length,
+        done: filteredTasks.filter(t => TASK_SUCCESS_STATUSES.includes(t.status)).length,
         active: filteredTasks.filter(t => t.status === 'running' || t.status === 'deps_ready' || t.status === 'waiting_delay').length,
         failed: filteredTasks.filter(t => t.status === 'failed' || t.status === 'upstream_failed').length,
         wait: filteredTasks.filter(t => t.status === 'waiting').length,
@@ -305,9 +306,7 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                             the run/pause/resume/stop set switches on pipeline state. */}
                         <div className="pd-canvas-actions">
                             <div className="pd-action-group pd-action-group--utility">
-                                <Button variant="secondary" onClick={handleRefresh} disabled={isFetching} title="Refresh" aria-label="Refresh">
-                                    <RefreshCw size={16} className={isFetching ? 'animate-spin' : ''} />
-                                </Button>
+                                <RefreshButton onRefresh={handleRefresh} isFetching={isFetching} iconSize={16} />
                             </div>
 
                             {actions && (
@@ -589,7 +588,7 @@ function ExecutionDropdown({
                             {executions.map((ex, i: number) => {
                                 const isSelected = selectedExecution?.execution_id === ex.execution_id ||
                                                   (!selectedExecution && ex.date === date);
-                                const statusClass = normalizeStatus(ex.status);
+                                const statusClass = ex.status || 'waiting';
 
                                 return (
                                     <div

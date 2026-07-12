@@ -19,7 +19,7 @@ from botocore.exceptions import ClientError, BotoCoreError
 
 from config import sfn
 from dal import executions_repo, pipelines_repo
-from constants import Limits, normalize_execution_status
+from constants import Limits, normalize_execution_status, derive_execution_status, reconcile_execution_status, TASK_SETTLED_STATUSES, TASK_SUCCESS_STATUSES
 from response import cors_response
 from logger import log
 from utils import safe_int, retrieve_result, parse_wait_before, should_skip_token_row
@@ -155,39 +155,39 @@ def list_pipelines(event: Dict) -> Dict:
             # In-progress runs are excluded from SLA calculation
             if name in pipeline_runs and pipeline_runs[name]:
                 runs = pipeline_runs[name]
-                terminal_statuses = {'success', 'succeeded', 'failed', 'upstream_failed', 'aborted', 'stopped', 'skipped'}
-                bad_statuses = {'failed', 'upstream_failed', 'aborted', 'stopped'}
+                # SLA: % of completed runs that succeeded. In-progress runs are
+                # excluded; aborted (user-stopped) runs are excluded too — a stop is
+                # not a system failure (ADR #112). Status is the canonical derivation,
+                # shared with /runs and the execution dropdown.
                 succeeded_runs = 0
                 total_completed_runs = 0
-                for exec_id, data in runs.items():
-                    # Skip runs that are still in progress
-                    if not data['statuses'].issubset(terminal_statuses):
-                        continue
-                    total_completed_runs += 1
-                    if not data['statuses'].intersection(bad_statuses):
-                        succeeded_runs += 1
-                if total_completed_runs > 0:
-                    pipelines[name]['sla'] = round(succeeded_runs / total_completed_runs * 100)
-                
-                # Recent runs sparkline (last 10 runs, newest first)
                 run_results = []
                 for exec_id, data in runs.items():
-                    is_completed = data['statuses'].issubset(terminal_statuses)
-                    has_failure = bool(data['statuses'].intersection(bad_statuses))
-                    if is_completed:
-                        status = 'failed' if has_failure else 'success'
-                    else:
-                        status = 'failed' if has_failure else 'running'
+                    run_status = derive_execution_status(data['statuses'])
                     run_results.append({
                         'date': data.get('date', ''),
                         'exec': exec_id[-8:] if len(exec_id) > 8 else exec_id,
-                        'status': status
+                        'status': run_status,
                     })
-                # Sort by date desc (newest first), take last 10
+                    if run_status in ('running', 'aborted'):
+                        continue
+                    total_completed_runs += 1
+                    if run_status == 'success':
+                        succeeded_runs += 1
+                if total_completed_runs > 0:
+                    pipelines[name]['sla'] = round(succeeded_runs / total_completed_runs * 100)
+
+                # Recent runs (newest first): sparkline + the card's status.
                 run_results.sort(key=lambda r: r['date'], reverse=True)
                 pipelines[name]['recent_runs'] = run_results[:10]
-            
-            # Today's progress and stats
+                # Card status reflects the LAST run's canonical status (ADR #112) — the
+                # "is this pipeline healthy?" signal, consistent with the sparkline. The
+                # 'idle' default remains when there are no runs in the recent window.
+                if run_results:
+                    pipelines[name]['status'] = run_results[0]['status']
+
+            # Today's task stats — for the progress bar only. (The card status is the
+            # last run's status, set above, not a per-day aggregate.)
             if name in pipeline_today:
                 stats = pipeline_today[name]
                 pipelines[name]['today_stats'] = stats
@@ -195,16 +195,6 @@ def list_pipelines(event: Dict) -> Dict:
                     # Progress = terminal tasks / total tasks
                     completed = stats['success'] + stats['failed'] + stats['skipped']
                     pipelines[name]['progress'] = round(completed / stats['total'] * 100)
-                    
-                    # Determine current status based on today's tasks
-                    if stats['failed'] > 0:
-                        pipelines[name]['status'] = 'failed'
-                    elif stats['running'] > 0:
-                        pipelines[name]['status'] = 'running'
-                    elif stats['success'] + stats['skipped'] == stats['total']:
-                        pipelines[name]['status'] = 'succeeded'
-                    elif stats['waiting'] > 0:
-                        pipelines[name]['status'] = 'waiting'
     
     # 3. Get ARNs from Step Functions API (only if not already from registry)
     pipelines_without_arn = [name for name, data in pipelines.items() if not data.get('arn')]
@@ -339,9 +329,9 @@ def get_pipeline_status(pipeline_name: str, event: Dict) -> Dict:
             'date': item.get('date', date),
         })
     
-    # Reconcile: if execution is failed/aborted, mark non-terminal tasks as 'aborted'
-    # BUT skip tasks whose wrapper is still running (e.g. restarted tasks)
-    terminal_statuses = {'success', 'succeeded', 'failed', 'upstream_failed', 'skipped', 'stopped', 'aborted'}
+    # Reconcile: if the execution is failed/aborted, mark not-yet-settled tasks as
+    # 'aborted' — but skip tasks whose wrapper is still running (e.g. restarted tasks).
+    # "Settled" = terminal or deliberately stopped (TASK_SETTLED_STATUSES, single source).
     if selected_execution:
         try:
             reg_item = pipelines_repo.get(pipeline_name)
@@ -353,7 +343,7 @@ def get_pipeline_status(pipeline_name: str, event: Dict) -> Dict:
                 if exec_status in ('FAILED', 'TIMED_OUT', 'ABORTED'):
                     reconciled = []
                     for t in tasks:
-                        if t['status'] not in terminal_statuses:
+                        if t['status'] not in TASK_SETTLED_STATUSES:
                             # Check if wrapper is still running before marking aborted
                             w_arn = t.get('wrapper_execution_arn', '')
                             if w_arn:
@@ -396,12 +386,8 @@ def _aggregate_executions(items):
     
     DATA SOURCE: DynamoDB (see DESIGN_DECISIONS.md #22).
     DynamoDB is the system of record for all UI reads.
-    Status is derived from task statuses, same logic as sidebar sparkline.
+    Status is derived from task statuses via the canonical helper (ADR #112).
     """
-    resolved_statuses = {'success', 'succeeded', 'skipped'}
-    bad_statuses = {'failed'}
-    terminal_statuses = resolved_statuses | bad_statuses
-    
     exec_map = {}
     for item in items:
         # Skip internal/special records (_pause_, _notify_warn_, etc.)
@@ -437,19 +423,8 @@ def _aggregate_executions(items):
     
     executions = []
     for pe, data in exec_map.items():
-        statuses = data['statuses']
-        is_completed = statuses.issubset(terminal_statuses) and len(statuses) > 0
-        has_failure = bool(statuses & bad_statuses)
-        all_resolved = statuses.issubset(resolved_statuses) and len(statuses) > 0
-        
-        if is_completed:
-            status = 'failed' if has_failure else 'succeeded'
-        elif has_failure:
-            status = 'failed'
-        elif all_resolved:
-            status = 'succeeded'
-        else:
-            status = 'running'
+        # Canonical derivation (ADR #112) — shared with /runs and the sidebar.
+        status = derive_execution_status(data['statuses'])
         
         # Calculate duration for completed executions
         duration_ms = None
@@ -532,33 +507,41 @@ def _reconcile_running(executions, pipeline_name: str):
     if not pipeline_arn:
         return
     
-    resolved_statuses = {'success', 'succeeded', 'skipped'}
-    
     for ex in running_execs:
-        try:
-            exec_arn = pipeline_arn.replace(':stateMachine:', ':execution:') + ':' + ex['execution_id']
-            desc = sfn.describe_execution(executionArn=exec_arn)
-            sfn_status = normalize_execution_status(
-                desc.get('status', ''),
-                log_warn=lambda m, **ctx: log.warn("_reconcile_running", m, **ctx),
-            )
-            # Treat any non-running canonical status as terminal
-            if sfn_status and sfn_status != 'running':
-                ex['status'] = sfn_status
-                # Check if recovered (SFN failed/timed_out but all tasks resolved)
-                if sfn_status in {'failed', 'timed_out'}:
-                    try:
-                        task_items = executions_repo.query_by_pipeline_execution(
-                            ex['execution_id'],
-                            projection='#s',
-                            expr_names={'#s': 'status'}
-                        )
-                        if task_items and all(i.get('status') in resolved_statuses for i in task_items):
-                            ex['status'] = 'recovered'
-                    except (ClientError, BotoCoreError):
-                        pass  # Can't verify recovery — keep 'failed' status
-        except (ClientError, BotoCoreError):
-            pass  # Keep DDB status on SFN error
+        new_status = reconcile_sfn_status(ex['execution_id'], pipeline_arn)
+        if new_status is not None:
+            ex['status'] = new_status
+
+
+def reconcile_sfn_status(execution_name, sfn_arn):
+    """Query SFN for one execution and return its canonical status (ADR #112).
+
+    Applies the recovered rule (SFN failed/timed_out but every task resolved) via the
+    canonical ``reconcile_execution_status``. Returns None when the status can't be
+    determined, so callers keep the DynamoDB-derived value. Shared by the pipeline
+    execution list and the ``/runs`` feed so both surfaces reconcile identically.
+    """
+    if not sfn_arn:
+        return None
+    try:
+        exec_arn = sfn_arn.replace(':stateMachine:', ':execution:') + ':' + execution_name
+        desc = sfn.describe_execution(executionArn=exec_arn)
+        sfn_status = normalize_execution_status(
+            desc.get('status', ''),
+            log_warn=lambda m, **ctx: log.warn("reconcile_sfn_status", m, **ctx),
+        )
+        all_resolved = False
+        if sfn_status in ('failed', 'timed_out'):
+            try:
+                task_items = executions_repo.query_by_pipeline_execution(
+                    execution_name, projection='#s', expr_names={'#s': 'status'})
+                all_resolved = bool(task_items) and all(
+                    i.get('status') in TASK_SUCCESS_STATUSES for i in task_items)
+            except (ClientError, BotoCoreError):
+                pass  # Can't verify recovery — treat as not resolved
+        return reconcile_execution_status('running', sfn_status, all_resolved)
+    except (ClientError, BotoCoreError):
+        return None
 
 
 def get_pipeline_executions(pipeline_name: str, event: Dict) -> Dict:

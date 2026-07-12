@@ -54,16 +54,17 @@ try:
         TASK_STOPPABLE_STATUSES,
     )
 except ImportError:
-    # Fallback (mostly for direct unit tests of _shared/constants.py):
-    # these match the canonical values in polyris/constants.py.
-    TASK_TERMINAL_STATUSES = {'success', 'succeeded', 'failed', 'skipped',
-                              'aborted', 'upstream_failed'}
-    TASK_SUCCESS_STATUSES = {'success', 'succeeded', 'skipped'}
-    TASK_FAILURE_STATUSES = {'failed', 'upstream_failed', 'aborted'}
-    TASK_ACTIVE_STATUSES = {'running', 'pending'}
-    TASK_WAITING_STATUSES = {'waiting', 'waiting_paused', 'waiting_delay',
-                             'deps_ready', 'waiting_decision'}
-    TASK_STOPPABLE_STATUSES = (TASK_ACTIVE_STATUSES | TASK_WAITING_STATUSES)
+    # Single source of truth: when the generated file is absent (e.g. a direct
+    # unit test run against the repo), fall back to the SDK canonical sets rather
+    # than re-listing values here. No hand-maintained duplicates.
+    from polyris.constants import (
+        TERMINAL_STATUSES as TASK_TERMINAL_STATUSES,
+        SUCCESS_STATUSES as TASK_SUCCESS_STATUSES,
+        FAILURE_STATUSES as TASK_FAILURE_STATUSES,
+        ACTIVE_STATUSES as TASK_ACTIVE_STATUSES,
+        WAITING_STATUSES as TASK_WAITING_STATUSES,
+        STOPPABLE_STATUSES as TASK_STOPPABLE_STATUSES,
+    )
 
 
 class TriggerRule:
@@ -85,63 +86,3 @@ class AssetOperator:
     """Asset dependency operators."""
     AND = 'AND'  # All assets required
     OR = 'OR'    # Any asset triggers
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# ExecutionStatus normalization (ADR #71, v0.78.14)
-# ──────────────────────────────────────────────────────────────────────────────
-# SFN's DescribeExecution API returns statuses in UPPERCASE
-# ('RUNNING', 'SUCCEEDED', 'FAILED', 'TIMED_OUT', 'ABORTED'). Internal code
-# and DDB write lowercase. Without a single normalization point, raw SFN
-# values can leak through API responses to the UI, which historically had to
-# accept BOTH cases in its TypeScript union type (mess). This helper
-# centralizes the mapping; call it at every boundary where SFN status enters
-# our system (read path) AND before writing status to DDB (write path).
-#
-# Canonical lowercase values (SFN-aligned):
-#   'running' / 'succeeded' / 'failed' / 'timed_out' / 'aborted' / 'stopped'
-
-EXECUTION_STATUS_CANONICAL = {
-    'running', 'succeeded', 'failed', 'timed_out', 'aborted', 'stopped',
-}
-
-_EXECUTION_STATUS_UPPERCASE_MAP = {
-    'RUNNING': 'running',
-    'SUCCEEDED': 'succeeded',
-    'FAILED': 'failed',
-    'TIMED_OUT': 'timed_out',
-    'ABORTED': 'aborted',
-    'STOPPED': 'stopped',
-    # Common variant — some legacy code wrote 'success' (TaskStatus form)
-    # instead of 'succeeded' (ExecutionStatus form). Normalize to canonical.
-    'SUCCESS': 'succeeded',
-    'success': 'succeeded',
-}
-
-
-def normalize_execution_status(status, log_warn=None):
-    """Normalize a pipeline-execution status to the canonical lowercase form.
-
-    Args:
-        status: input status string (may be UPPERCASE from SFN, lowercase
-                from DDB, or already canonical).
-        log_warn: optional callable accepting (message, **context) to emit
-                  a warning when an unexpected value is seen. Pass a
-                  logger.warn-like function. Pass None to skip logging.
-
-    Returns:
-        Canonical lowercase status if mappable; original input otherwise
-        (callers decide how strict to be).
-    """
-    if status is None:
-        return None
-    if status in EXECUTION_STATUS_CANONICAL:
-        return status  # already canonical
-    mapped = _EXECUTION_STATUS_UPPERCASE_MAP.get(status)
-    if mapped is not None:
-        return mapped
-    # Unknown — log diagnostically and return as-is (don't drop the value)
-    if log_warn is not None:
-        log_warn("Unexpected execution status; cannot normalize",
-                 status=status)
-    return status

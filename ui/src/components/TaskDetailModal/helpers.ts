@@ -2,7 +2,12 @@
  * TaskDetailModal helpers — trigger rule evaluation and status constants
  */
 
-export const TERMINAL_STATUSES = ['success', 'succeeded', 'failed', 'skipped', 'upstream_failed', 'stopped', 'aborted'];
+import { TASK_SETTLED_STATUSES } from '@/generated/enums';
+
+// A dependency is "terminal" for trigger-rule evaluation once it is settled —
+// already terminal, or deliberately stopped. Canonical source (generated from
+// polyris); never re-list these statuses inline.
+export const TERMINAL_STATUSES = TASK_SETTLED_STATUSES;
 
 export function evaluateDepStatus(depStatus: string, triggerRule: string) {
     const isTerminal = TERMINAL_STATUSES.includes(depStatus);

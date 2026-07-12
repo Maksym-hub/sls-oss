@@ -86,7 +86,7 @@ export function AllRunsView({
     }, [filter.status, filter.pipeline]);
 
     const { data: pipelines = [] } = usePipelinesQuery();
-    const { data: runs = [], isLoading: loading, isError, error, refetch: refetchAllRuns } = useAllRunsQuery(date, filter, true);
+    const { data: runs = [], isLoading: loading, isFetching, isError, error, refetch: refetchAllRuns } = useAllRunsQuery(date, filter, true);
     const [sort, setSort] = useState({ key: '', dir: 'desc' });
     const [search, setSearch] = useState('');
 
@@ -164,11 +164,14 @@ export function AllRunsView({
                 aria-label="Filter by status"
             >
                 <option value="">All Statuses</option>
+                {/* Mirrors ExecutionStatus (generated/enums.ts, ADR #112) — keep in sync. */}
                 <optgroup label="Runs">
-                    <option value="succeeded">Succeeded</option>
-                    <option value="failed">Failed</option>
                     <option value="running">Running</option>
+                    <option value="success">Succeeded</option>
+                    <option value="failed">Failed</option>
+                    <option value="timed_out">Timed out</option>
                     <option value="aborted">Aborted</option>
+                    <option value="recovered">Recovered</option>
                 </optgroup>
                 {showBackfills && (
                     <optgroup label="Backfills">
@@ -207,6 +210,7 @@ export function AllRunsView({
             pageSize={pageSize}
             onRefresh={() => refetchAllRuns()}
             loading={loading}
+            isFetching={isFetching}
             filters={filters}
         >
             <WorkspaceFilterChips chips={filterChips} />
