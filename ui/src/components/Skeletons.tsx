@@ -49,25 +49,6 @@ export function DAGSkeleton() {
     );
 }
 
-export function TaskDetailsSkeleton() {
-    return (
-        <div className="sk-skeleton-details" role="status" aria-label="Loading task details">
-            <div className="sk-skeleton-details-header">
-                <div className="sk-skeleton sk-skeleton-details-icon" />
-                <div className="sk-skeleton-details-title">
-                    <div className="sk-skeleton sk-skeleton-text lg" />
-                    <div className="sk-skeleton sk-skeleton-text sm" />
-                </div>
-            </div>
-            <div className="sk-skeleton-details-section">
-                <div className="sk-skeleton sk-skeleton-text" />
-                <div className="sk-skeleton sk-skeleton-text sm" />
-                <div className="sk-skeleton sk-skeleton-text" />
-            </div>
-        </div>
-    );
-}
-
 export function GanttSkeleton({ count = 6 }) {
     return (
         <div className="sk-skeleton-gantt" role="status" aria-label="Loading Gantt chart">
@@ -100,82 +81,6 @@ export function TableSkeleton({ rows = 5, cols = 4 }) {
                             <div key={colIdx} className="sk-skeleton sk-skeleton-table-cell" />
                         ))}
                     </div>
-                ))}
-            </div>
-        </div>
-    );
-}
-
-export function CardSkeleton({ showImage = false }) {
-    return (
-        <div className="sk-skeleton-card" role="status" aria-label="Loading card">
-            {showImage && <div className="sk-skeleton sk-skeleton-card-image" />}
-            <div className="sk-skeleton-card-content">
-                <div className="sk-skeleton sk-skeleton-text lg" />
-                <div className="sk-skeleton sk-skeleton-text" />
-                <div className="sk-skeleton sk-skeleton-text sm" />
-            </div>
-        </div>
-    );
-}
-
-export function AssetListSkeleton({ count = 8 }) {
-    return (
-        <div className="sk-skeleton-asset-list" role="status" aria-label="Loading assets">
-            {[...Array(count)].map((_, i) => (
-                <div key={i} className="sk-skeleton-asset-item" style={{ animationDelay: `${i * 40}ms` }}>
-                    <div className="sk-skeleton sk-skeleton-asset-icon" />
-                    <div className="sk-skeleton-asset-info">
-                        <div className="sk-skeleton sk-skeleton-text" />
-                        <div className="sk-skeleton sk-skeleton-text xs" />
-                    </div>
-                    <div className="sk-skeleton sk-skeleton-asset-badge" />
-                </div>
-            ))}
-        </div>
-    );
-}
-
-export function EventListSkeleton({ count = 10 }) {
-    return (
-        <div className="sk-skeleton-event-list" role="status" aria-label="Loading events">
-            {[...Array(count)].map((_, i) => (
-                <div key={i} className="sk-skeleton-event-item" style={{ animationDelay: `${i * 30}ms` }}>
-                    <div className="sk-skeleton sk-skeleton-event-time" />
-                    <div className="sk-skeleton sk-skeleton-event-content" />
-                </div>
-            ))}
-        </div>
-    );
-}
-
-export function MetricsSkeleton() {
-    return (
-        <div className="sk-skeleton-metrics" role="status" aria-label="Loading metrics">
-            {[...Array(4)].map((_, i) => (
-                <div key={i} className="sk-skeleton-metric-card" style={{ animationDelay: `${i * 100}ms` }}>
-                    <div className="sk-skeleton sk-skeleton-metric-value" />
-                    <div className="sk-skeleton sk-skeleton-text sm" />
-                </div>
-            ))}
-        </div>
-    );
-}
-
-export function LineageSkeleton() {
-    return (
-        <div className="sk-skeleton-lineage" role="status" aria-label="Loading lineage graph">
-            <div className="sk-skeleton-lineage-nodes">
-                {[...Array(7)].map((_, i) => (
-                    <div 
-                        key={i} 
-                        className="sk-skeleton sk-skeleton-lineage-node" 
-                        style={{ 
-                            animationDelay: `${i * 80}ms`,
-                            left: `${10 + (i % 3) * 30}%`,
-                            top: `${20 + Math.floor(i / 3) * 35}%`
-                        }} 
-                    />
                 ))}
             </div>
         </div>

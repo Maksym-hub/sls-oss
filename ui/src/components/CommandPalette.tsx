@@ -14,6 +14,7 @@ import {
     CheckCircle2,
     Search
 } from '@/utils/icons';
+import { formatSchedule } from '@/utils/formatters';
 import type { PipelineWithUI } from '@/types';
 
 interface CommandItem {
@@ -103,7 +104,7 @@ export function CommandPalette({
                         type: 'pipeline',
                         icon: statusIcon,
                         label: p.name,
-                        sublabel: p.schedule || 'No schedule',
+                        sublabel: formatSchedule(p.schedule),
                         action: () => onSelectPipeline(p)
                     });
                 });

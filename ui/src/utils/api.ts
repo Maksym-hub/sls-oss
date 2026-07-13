@@ -170,9 +170,6 @@ export const api = {
 
 export const isOk = <T = unknown>(result: ApiResult<T>): result is { ok: true; data: T } => result.ok === true;
 
-export const getData = <T = unknown>(result: ApiResult<T>, defaultValue: T | null = null): T | null => 
-    result.ok ? result.data : defaultValue;
-
 /**
  * Turn a raw API error string into a short, human-readable message for an error
  * surface (e.g. an EmptyState). Recognizes the common console failure modes —

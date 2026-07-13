@@ -235,23 +235,7 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                     <div className="pd-canvas-title">{pipeline?.name || 'Select a pipeline'}</div>
                     <div className="pd-canvas-subtitle flex items-center gap-md">
                         {pipeline ? (
-                            <>
-                                <span>
-                                    Execution scope: {selectedExecution
-                                        ? `${selectedExecution.execution_short || selectedExecution.execution_id?.substring(0, 8)}... (${selectedExecution.date || date})`
-                                        : date}
-                                </span>
-                                {/* Always render — the drawer owns the date picker,
-                                    so it must be reachable even when the current date
-                                    has no executions (otherwise the page deadlocks). */}
-                                <ExecutionDropdown
-                                    executions={executions}
-                                    latestRunDate={latestRunDate}
-                                    showHistory={showHistory}
-                                    onToggleHistory={() => setShowHistory(!showHistory)}
-                                    onCloseHistory={() => setShowHistory(false)}
-                                />
-                            </>
+                            <span>{selectedExecution?.date || date}</span>
                         ) : (
                             'Choose from the sidebar'
                         )}
@@ -305,6 +289,19 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                         {/* Action buttons — state-driven. Refresh is icon-only utility;
                             the run/pause/resume/stop set switches on pipeline state. */}
                         <div className="pd-canvas-actions">
+                            {/* History dropdown — leftmost action. Always rendered so the
+                                date-picker drawer it owns stays reachable even when the
+                                current date has no executions (otherwise the page deadlocks).
+                                The panel is right-aligned so it never overflows the right
+                                screen edge. */}
+                            <ExecutionDropdown
+                                executions={executions}
+                                latestRunDate={latestRunDate}
+                                showHistory={showHistory}
+                                onToggleHistory={() => setShowHistory(!showHistory)}
+                                onCloseHistory={() => setShowHistory(false)}
+                            />
+
                             <div className="pd-action-group pd-action-group--utility">
                                 <RefreshButton onRefresh={handleRefresh} isFetching={isFetching} iconSize={16} />
                             </div>
@@ -550,8 +547,9 @@ function ExecutionDropdown({
 
     return (
         <div className="pd-dropdown-container">
-            <Button variant="secondary" size="sm" onClick={onToggleHistory}>
-                <BookOpen size={16} /> History ({executions.length})
+            <span className="pd-history-count" aria-hidden="true">({executions.length})</span>
+            <Button variant="secondary" onClick={onToggleHistory} title="History" aria-label={`History (${executions.length})`}>
+                <BookOpen size={16} />
             </Button>
 
             {showHistory && (

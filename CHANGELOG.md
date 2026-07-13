@@ -1,5 +1,36 @@
 ## Unreleased
 
+### Removed — user role badge (CE)
+
+- The Admin/User role badge no longer shows in the user menu. Human roles are cosmetic in
+  CE (the backend grants every signed-in user full access and ignores Cognito groups; role-
+  based access is a planned Enterprise feature). Removed the badge, its dead `Shield`/`User`
+  icon imports and orphaned `.um-user-menu-role` CSS. The `isAdmin` field and the (dormant,
+  EE-wired) "Manage Users" hook are kept as plumbing; the API token scope system (read/write/
+  admin) is unchanged — that is token authorization, not human roles.
+
+
+### Changed — schedule display
+
+- Pipelines without a schedule now show **"Manual"** consistently (sidebar and command
+  palette) instead of a blank suffix / "No schedule". Schedule formatting is now a single
+  shared `formatSchedule` helper in `utils/formatters.ts` (empty → "Manual").
+
+
+### Changed / Removed — dead-code and dependency cleanup
+
+- History refresh button is now icon-only (tooltip + aria-label retained), matching the
+  pipeline canvas.
+- Removed 7 unused shadcn/ui primitives (`badge`, `checkbox`, `dialog`, `dropdown-menu`,
+  `select`, `tabs`, `alert-dialog`) and their 7 unused dependencies (`@aws-amplify/ui-react`
+  + 6 `@radix-ui/*`) — no importers in either repo (−80 transitive packages).
+- Removed dead, duplicate task-status Sets and `is*Status` helpers from `ui/src/utils/constants.ts`
+  (`SUCCESS/FAILURE/WAITING/ACTIVE/COUNTDOWN_STATUSES` + 4 helpers) — 0 usages; the canonical
+  groupings live in `generated/enums.ts`. `TERMINAL_STATUSES`/`isTerminalStatus` (used) kept.
+- Removed 10 orphaned CSS classes (`hdr-logo*`, `hdr-date-picker`, `bf-info-*`, `bl-filter-search`,
+  `ml-lg`, `abm-alert-warning`, …); added the previously-unlisted `@vitest/coverage-v8` devDependency.
+
+
 ### Changed — pipeline card status now reflects the last run
 
 - The sidebar pipeline card status (icon, label, glow) now reflects the **most recent run's**

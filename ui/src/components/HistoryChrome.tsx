@@ -41,7 +41,7 @@ export function HistoryChrome({
         <div className="panel-section">
             <div className="hc-header">
                 <h2 className="title-lg">History</h2>
-                <RefreshButton onRefresh={onRefresh} isFetching={isFetching} label="Refresh" size="sm" iconSize={14} />
+                <RefreshButton onRefresh={onRefresh} isFetching={isFetching} size="sm" iconSize={14} />
             </div>
 
             <div className="hc-toolbar">

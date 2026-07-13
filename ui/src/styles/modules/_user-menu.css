@@ -144,21 +144,6 @@
     white-space: nowrap;
 }
 
-.um-user-menu-role {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    align-self: flex-start;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--text-muted);
-    margin-top: 6px;
-    padding: 2px 8px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-}
-
 .um-user-menu-content {
     padding: 6px;
 }

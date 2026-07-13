@@ -68,22 +68,7 @@
     z-index: 10;
 }
 
-.hdr-logo { display: flex; align-items: center; gap: 0.75rem; font-size: 1.125rem; font-weight: 700; color: var(--text-primary); }
-.hdr-logo-icon {
-    width: 32px; height: 32px;
-    background: linear-gradient(135deg, var(--accent) 0%, var(--running) 100%);
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    color: white; font-size: 1rem;
-}
-
 .hdr-header-controls { display: flex; align-items: center; gap: 1rem; margin-left: auto; }
-.hdr-date-picker { display: flex; align-items: center; gap: 0.5rem; }
-.hdr-date-picker input {
-    background: var(--bg-tertiary); border: 1px solid var(--border);
-    color: var(--text-primary); padding: 0.5rem 0.75rem; border-radius: 6px;
-    font-family: inherit; font-size: 0.875rem;
-}
 
 /* DAG zoom container */
 .dag-zoom-container {

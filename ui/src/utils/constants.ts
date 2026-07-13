@@ -36,25 +36,6 @@ export const STATUS_COLORS = {
     up_failed: 'error'
 };
 
-// Staleness colors
-export const STALENESS_COLORS = {
-    fresh: 'success',
-    warning: 'warning',
-    stale: 'error',
-    unknown: 'muted'
-};
-
-// Asset groups for UI organization
-export const ASSET_GROUPS = ['raw', 'processed', 'aggregated', 'external'];
-
-// Main navigation views
-export const VIEWS = {
-    PIPELINES: 'pipelines',
-    ASSETS: 'assets',
-    TASKS: 'tasks',
-    RUNS: 'runs'
-};
-
 // View modes for pipeline detail
 export const VIEW_MODES = {
     DAG: 'dag',
@@ -75,47 +56,11 @@ export { TASK_STATUS };
 // Note: STOPPED is NOT terminal - task can be restarted
 export const TERMINAL_STATUSES = new Set<string>(TASK_TERMINAL_STATUSES);
 
-// Success statuses - OK to continue downstream
-export const SUCCESS_STATUSES = new Set<string>([
-    TASK_STATUS.SUCCESS,
-    TASK_STATUS.SUCCEEDED,
-    TASK_STATUS.SKIPPED
-]);
-
-// Failure statuses - will block downstream (depending on trigger rule)
-export const FAILURE_STATUSES = new Set<string>([
-    TASK_STATUS.FAILED,
-    TASK_STATUS.UPSTREAM_FAILED,
-    TASK_STATUS.ABORTED
-]);
-
-// Waiting statuses - task is waiting for something
-export const WAITING_STATUSES = new Set<string>([
-    TASK_STATUS.WAITING,
-    TASK_STATUS.DEPS_READY,
-    TASK_STATUS.WAITING_DELAY,
-    TASK_STATUS.WAITING_PAUSED,
-    TASK_STATUS.WAITING_DECISION
-]);
-
-// Active statuses - task is running
-export const ACTIVE_STATUSES = new Set<string>([
-    TASK_STATUS.RUNNING,
-    TASK_STATUS.PENDING
-]);
-
-// Countdown statuses - show countdown timer
-export const COUNTDOWN_STATUSES = new Set<string>([
-    TASK_STATUS.DEPS_READY,
-    TASK_STATUS.WAITING_DELAY
-]);
+// Note: success/failure/waiting/active/countdown status groupings are canonical in
+// src/generated/enums.ts (TASK_*_STATUSES). Do not re-declare them here.
 
 // Helper functions
 export const isTerminalStatus = (status: string) => TERMINAL_STATUSES.has(status);
-export const isSuccessStatus = (status: string) => SUCCESS_STATUSES.has(status);
-export const isFailureStatus = (status: string) => FAILURE_STATUSES.has(status);
-export const isWaitingStatus = (status: string) => WAITING_STATUSES.has(status);
-export const isActiveStatus = (status: string) => ACTIVE_STATUSES.has(status);
 
 // "Why waiting" reasons for tooltip
 export const getWaitingReason = (task: { status?: string; dependencies?: string[]; wait_for?: string | Array<{ asset_name?: string; name?: string }>; wait_before?: number } | null): string | null => {

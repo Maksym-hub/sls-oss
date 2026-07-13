@@ -2,7 +2,7 @@
  * UserMenu Component
  * 
  * Dropdown menu for authenticated users showing:
- * - User info (email, role)
+ * - User info (email)
  * - Sign out action
  * - Admin-only: User management link
  * 
@@ -15,10 +15,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useAppStore } from '@/stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
 import { 
-    User, 
     LogOut, 
     ChevronUp,
-    Shield,
     Users,
     Settings,
     HelpCircle,
@@ -138,19 +136,6 @@ export function UserMenu({ onManageUsers }: UserMenuProps) {
                             <div className="um-user-menu-identity">
                                 <div className="um-user-menu-name">{displayName}</div>
                                 <div className="um-user-menu-email">{user!.email}</div>
-                                <div className="um-user-menu-role">
-                                    {user!.isAdmin ? (
-                                        <>
-                                            <Shield size={12} />
-                                            Admin
-                                        </>
-                                    ) : (
-                                        <>
-                                            <User size={12} />
-                                            User
-                                        </>
-                                    )}
-                                </div>
                             </div>
                         </div>
                     )}

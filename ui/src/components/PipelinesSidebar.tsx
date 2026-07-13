@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { PipelineListSkeleton } from './Skeletons';
 import { StatusIcon, Workflow, Search, Inbox, ChevronDown, ChevronRight } from '../utils/icons';
+import { formatSchedule } from '../utils/formatters';
 import config from '../lib/config';
 import { useAppStore } from '../stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -198,11 +199,9 @@ function PipelineItem({ pipeline, selected, onClick }: PipelineItemProps) {
                 <div className="sb-pipeline-name" title={p.name}>{p.name}</div>
                 <div className="sb-pipeline-meta">
                     <span>{p.status || 'idle'}</span>
-                    {p.schedule && (
-                        <span className="sb-pipeline-schedule" title={p.schedule}>
-                            {' · '}{formatSchedule(p.schedule)}
-                        </span>
-                    )}
+                    <span className="sb-pipeline-schedule" title={formatSchedule(p.schedule)}>
+                        {' · '}{formatSchedule(p.schedule)}
+                    </span>
                 </div>
                 {p.recent_runs && p.recent_runs.length > 0 && (
                     <RunSparkline runs={p.recent_runs} />
@@ -237,36 +236,5 @@ function RunSparkline({ runs }: RunSparklineProps) {
  *      "cron(0 10 ? * MON *)" → "Mon @ 10:00"
  *      "rate(6 hours)" → "every 6h"
  */
-function formatSchedule(schedule: string | undefined) {
-    if (!schedule) return '';
-    
-    // Rate expressions: rate(1 hour), rate(6 hours)
-    const rateMatch = schedule.match(/rate\((\d+)\s*(minute|hour|day)s?\)/i);
-    if (rateMatch) {
-        const [, val, unit] = rateMatch;
-        const abbr: Record<string, string> = { minute: 'min', hour: 'h', day: 'd' };
-        return `every ${val}${abbr[unit.toLowerCase()] || unit}`;
-    }
-    
-    // Cron: cron(min hour dom month dow year)
-    const cronMatch = schedule.match(/cron\((\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\)/);
-    if (cronMatch) {
-        const [, min, hour, _dom, , dow] = cronMatch;
-        const time = `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
-        
-        const dayNames: Record<string, string> = { MON: 'Mon', TUE: 'Tue', WED: 'Wed', THU: 'Thu', FRI: 'Fri', SAT: 'Sat', SUN: 'Sun' };
-        
-        if (dow === '*' || dow === '?') {
-            return `daily @ ${time}`;
-        }
-        if (dayNames[dow]) {
-            return `${dayNames[dow]} @ ${time}`;
-        }
-        return `@ ${time}`;
-    }
-    
-    // Fallback: show raw but truncated
-    return schedule.length > 20 ? schedule.substring(0, 20) + '…' : schedule;
-}
 
 export default PipelinesSidebar;

@@ -31,7 +31,7 @@ vi.mock('@/utils/icons', () => ({
     ActionIcons: { backfill: () => <span data-testid="icon-backfill" /> },
 }));
 vi.mock('@/components/ui/button', () => ({
-    Button: (props: Record<string, unknown>) => <button onClick={props.onClick as () => void} disabled={props.disabled as boolean}>{props.children as React.ReactNode}</button>,
+    Button: (props: Record<string, unknown>) => <button onClick={props.onClick as () => void} disabled={props.disabled as boolean} aria-label={props['aria-label'] as string} title={props.title as string}>{props.children as React.ReactNode}</button>,
 }));
 vi.mock('./Skeletons', () => ({
     TableSkeleton: () => <div data-testid="skeleton" />,
@@ -134,7 +134,7 @@ describe('AllRunsView', () => {
 
         it('calls refetch when refresh clicked', () => {
             render(<AllRunsView {...defaultProps} />);
-            const refreshBtn = screen.getByText('Refresh');
+            const refreshBtn = screen.getByRole('button', { name: 'Refresh' });
             fireEvent.click(refreshBtn);
             expect(mockRefetch).toHaveBeenCalled();
         });

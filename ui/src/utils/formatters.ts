@@ -107,9 +107,6 @@ export const toDateString = (date: Date): string => {
     return `${y}-${m}-${d}`;
 };
 
-// Get today's date as string
-export const getTodayString = (): string => toDateString(new Date());
-
 // Format ISO date for display
 export const formatDate = (iso: string | null | undefined): string => {
     if (!iso) return '-';
@@ -231,3 +228,33 @@ export const formatRelativeTime = (iso: string | null | undefined): string => {
     // ≥ 7d: fall back to ISO date (YYYY-MM-DD) for unambiguous reference.
     return iso.slice(0, 10);
 };
+
+// Human-readable schedule label for a pipeline. Empty / no schedule → "Manual"
+// (on-demand: the pipeline only runs on manual trigger, no EventBridge rule).
+// Single source of truth for schedule display — used by the sidebar, command
+// palette, and anywhere else a schedule is shown.
+export function formatSchedule(schedule: string | undefined | null): string {
+    if (!schedule) return 'Manual';
+
+    // Rate expressions: rate(1 hour), rate(6 hours)
+    const rateMatch = schedule.match(/rate\((\d+)\s*(minute|hour|day)s?\)/i);
+    if (rateMatch) {
+        const [, val, unit] = rateMatch;
+        const abbr: Record<string, string> = { minute: 'min', hour: 'h', day: 'd' };
+        return `every ${val}${abbr[unit.toLowerCase()] || unit}`;
+    }
+
+    // Cron: cron(min hour dom month dow year)
+    const cronMatch = schedule.match(/cron\((\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\)/);
+    if (cronMatch) {
+        const [, min, hour, , , dow] = cronMatch;
+        const time = `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
+        const dayNames: Record<string, string> = { MON: 'Mon', TUE: 'Tue', WED: 'Wed', THU: 'Thu', FRI: 'Fri', SAT: 'Sat', SUN: 'Sun' };
+        if (dow === '*' || dow === '?') return `daily @ ${time}`;
+        if (dayNames[dow]) return `${dayNames[dow]} @ ${time}`;
+        return `@ ${time}`;
+    }
+
+    // Fallback: show raw but truncated
+    return schedule.length > 20 ? schedule.substring(0, 20) + '…' : schedule;
+}

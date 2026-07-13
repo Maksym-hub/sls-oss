@@ -152,3 +152,27 @@ describe('formatRelativeTime', () => {
         expect(formatRelativeTime('2026-05-28T12:00:00Z')).toBe('just now');
     });
 });
+
+import { formatSchedule } from './formatters';
+
+describe('formatSchedule', () => {
+    it('returns "Manual" for empty / missing schedule (on-demand pipelines)', () => {
+        expect(formatSchedule('')).toBe('Manual');
+        expect(formatSchedule(undefined)).toBe('Manual');
+        expect(formatSchedule(null)).toBe('Manual');
+    });
+
+    it('formats rate expressions', () => {
+        expect(formatSchedule('rate(6 hours)')).toBe('every 6h');
+        expect(formatSchedule('rate(1 minute)')).toBe('every 1min');
+    });
+
+    it('formats cron expressions', () => {
+        expect(formatSchedule('cron(0 9 * * ? *)')).toBe('daily @ 09:00');
+        expect(formatSchedule('cron(30 14 ? * MON *)')).toBe('Mon @ 14:30');
+    });
+
+    it('truncates unrecognized long schedules', () => {
+        expect(formatSchedule('some-very-long-custom-expression-here')).toBe('some-very-long-custo…');
+    });
+});

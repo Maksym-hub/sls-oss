@@ -4,7 +4,7 @@ const nextConfig = {
   output: 'export',
   trailingSlash: true,
 
-  transpilePackages: ['aws-amplify', '@aws-amplify/ui-react'],
+  transpilePackages: ['aws-amplify'],
   reactStrictMode: true,
 
   env: {
