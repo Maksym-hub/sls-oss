@@ -14,7 +14,7 @@ import { useAllTasksQuery, usePipelinesQuery } from '@/hooks/queries';
 import { useUrlSync } from '@/hooks/useUrlSync';
 import { usePagedRows } from '@/hooks/usePagedRows';
 import { useKeyboardShortcuts, SHORTCUTS } from '@/hooks';
-import type { PipelineWithUI } from '@/types';
+import type { PipelineWithUI, Task } from '@/types';
 
 interface AllTasksViewProps {
     onPipelineClick: (pipeline: PipelineWithUI, date?: string) => void;
@@ -84,7 +84,15 @@ export function AllTasksView({
 
     const { data: pipelines = [] } = usePipelinesQuery();
     const allTasksQuery = useAllTasksQuery(filter, true);
-    const { data: tasks = [], isLoading: loading, isFetching, isError, error } = allTasksQuery;
+    const {
+        data: taskPages, isLoading: loading, isFetching, isError, error,
+        fetchNextPage, hasNextPage, isFetchingNextPage,
+    } = allTasksQuery;
+    // Every page loaded so far, newest first — the API already ordered them.
+    const tasks = useMemo(
+        () => (taskPages?.pages ?? []).flatMap((p: { tasks: Task[] }) => p.tasks),
+        [taskPages],
+    );
     const [sort, setSort] = useState({ key: '', dir: 'desc' });
     const [search, setSearch] = useState('');
     const searchInputRef = useRef<HTMLInputElement>(null);
@@ -207,6 +215,9 @@ export function AllTasksView({
             onRefresh={() => allTasksQuery.refetch()}
             loading={loading}
             isFetching={isFetching}
+            hasMore={hasNextPage}
+            onLoadMore={() => fetchNextPage()}
+            isLoadingMore={isFetchingNextPage}
             filters={filters}
             searchRef={searchInputRef}
         >

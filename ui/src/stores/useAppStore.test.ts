@@ -166,8 +166,20 @@ describe('useAppStore', () => {
 
         it('sets run filter', () => {
             const { result } = renderHook(() => useAppStore());
-            act(() => result.current.setRunFilter({ status: 'running', pipeline: '' }));
+            act(() => result.current.setRunFilter({ status: 'running', pipeline: '', date: '2024-01-15' }));
             expect(result.current.runFilter.status).toBe('running');
+        });
+
+        it('run filter owns its own date, separate from the pipeline page scope', () => {
+            // Two ideas, two values (ADR #106): the feed's '' means "every date", the
+            // page's date scopes a page. Sharing one value stranded the pipeline page
+            // on a day called '' whenever this filter was cleared.
+            const { result } = renderHook(() => useAppStore());
+            act(() => result.current.setDate('2024-01-15'));
+            act(() => result.current.setRunFilter({ status: '', pipeline: '', date: '' }));
+
+            expect(result.current.runFilter.date).toBe('');
+            expect(result.current.date).toBe('2024-01-15');
         });
     });
 

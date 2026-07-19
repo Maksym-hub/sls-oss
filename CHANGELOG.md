@@ -1,5 +1,305 @@
 ## Unreleased
 
+### Changed — the History feed pages instead of lying (ADR #113)
+
+- `GET /api/runs` and `GET /api/tasks` take a `before` cursor (a `started_at`) and answer
+  with `next` — the cursor for the older page, or `null` when nothing older exists. Both
+  feeds ended in an unconditional `[:limit]` slice, so the UI's "50 runs" was the page size
+  wearing a count's clothes: nothing in the response told it whether there were 50 runs or
+  5,000, and there was no way to ask for the 51st. `next: null` is the missing signal — a
+  full page never was one.
+- The History count is now honest and says which it is: **50+ runs** while older rows exist,
+  **73 runs** once the feed is exhausted, with a **Show older runs / tasks** button next to
+  the pager. The pager still walks the loaded rows; the button extends the feed. Both feeds
+  are `useInfiniteQuery` now, following `usePipelineRunsQuery`.
+- One cursor covers the merged Run/Activity feed: executions and Backfills both carry
+  `started_at` and the feed already sorted on it (ADR #95), so no composite cursor is needed.
+- `backfills_repo.list_recent` gained `before`, applied **before** its `limit` slice — after
+  it, the only records left to filter are the newest ones any cursor has already served, so
+  Backfills would have vanished from the feed on page two.
+- The cross-pipeline fan-out now starts at the cursor's date rather than at today, so paging
+  deeper costs fewer queries, not more. `date` stays the shard key and the walk stays the
+  window — that part of ADR #108 is unchanged.
+- Both bounded reads (the `pipeline-date-index` read and `list_recent`) fetch one row past
+  the page. `next` is inferred from overshooting, so a source returning exactly `limit` made
+  a full page look like an exhausted feed — the same silent truncation, one layer down.
+
+### Removed — `/api/tasks` no longer Scans the tokens table
+
+- The tasks feed's no-date path was a full-table Scan capped at 10,000 items: unbounded cost,
+  and its arbitrary row order made "the newest 100" the newest 100 of whichever rows the Scan
+  read first — a cap no cursor could page honestly. It now uses the same two indexed reads
+  `/api/runs` uses: `pipeline-date-index` when filtered to one pipeline (no window — the
+  tasks half of History now reaches as far back as the runs half), and the `Limits.SLA_DAYS`
+  per-date fan-out otherwise.
+- Removed `useGlobalData` — a dead hook (no importers but its own test) that was a third,
+  unpaged copy of both feeds' fetch logic plus filter state that now lives in `useAppStore`.
+- `Limits.RUNS_MAX_ITEMS_PER_DAY` → `FEED_MIN_ROWS_PER_DAY`: both feeds fan out now, so the
+  per-day budget is no longer runs-only — and it is a floor rather than a cap (see above).
+  Value unchanged.
+
+### Fixed — `/api/pipeline-status` reported the pipeline you asked for, not the one it read
+
+- `?pipeline_execution=` looks rows up by execution id alone, so it can return another
+  pipeline's tasks. The route echoed the **requested** name back regardless, which made the
+  response agree with the question no matter what it returned — and the console's
+  stale-response guard checks exactly that (`statusData.pipeline_name !== pipelineName`),
+  so the guard could never fire. It now reports the pipeline the returned rows belong to,
+  falling back to the request only when there are no rows to read it off. Nothing bites
+  today (the console clears its selected execution when you switch pipeline), which is the
+  point: the net was already torn before anything fell into it.
+
+### Fixed — pre-existing gaps found auditing beyond this session's own diff
+
+Asked explicitly to check further than the session's changes; swept every test file in
+both repos for internal-logic mocks (Principle #14) rather than trusting the pattern held
+elsewhere. Two real, pre-existing gaps surfaced:
+
+- **`reconcile_sfn_status` had never been exercised for real.** Every reference to it in
+  the test suite mocked it directly — a legitimate isolation in those tests (they're about
+  feed paging, not reconciliation), but nowhere did any test call it against a real SFN
+  backend. Its own decision logic (`reconcile_execution_status`) is well covered in
+  isolation; the I/O wrapper around it — ARN construction, the describe call, the
+  task-resolution query, both `except` branches — was not. Added the first moto-backed
+  Step Functions test in this codebase (`tests/routes/test_reconcile_sfn_status.py`, 6
+  cases: running, failed, recovered, no-arn short-circuit, execution-not-found, and
+  task-lookup failure).
+- **Both `except (ClientError, BotoCoreError)` blocks inside it swallowed silently** —
+  no `log.warn`, contrary to ADR #38's explicit "every except must log `error=str(e)` with
+  function context." An SFN throttle or a vanished execution during reconciliation was
+  invisible to an operator. Both now log with context; behaviour (return `None` / degrade
+  `all_resolved` to `False`) is unchanged.
+- **`extract_pipeline_execution_short` (`task_actions.py`) had no test file at all** —
+  the module itself was untested; its only references were mocks in EE's Slack-action
+  tests, isolating a different surface. Its three-tier fallback (stored value → computed
+  from `pipeline_execution` → parsed from the execution name's suffix) is pure logic with
+  no boundary to mock; added `tests/test_task_actions.py` covering all three tiers, their
+  priority order, and the "empty string is falsy" edge that a naive `if 'key' in item`
+  check would miss.
+
+Also consolidated, while in the area: `list_pipelines`'s SLA-window rollup reimplemented
+`feed.feed_dates('')` inline (Principle #1) — see below.
+
+### Fixed — the sidebar's SLA window reimplemented `feed_dates('')`
+
+- `list_pipelines`'s 14-day stats rollup derived the same date sequence the History feed
+  walks via its own inline `[... for i in range(Limits.SLA_DAYS)]`, byte-identical to
+  `feed.feed_dates('')` — found auditing the session's changes against Principle #1 (one
+  source of truth). Two implementations of the same sequence drift silently the day one of
+  them changes and the other doesn't; consolidated onto the shared helper. Covered by a
+  behavioural test (frozen clock, the real DDB reads compared against the real
+  `feed_dates('')` output) and a structural one (the reinvented list-comprehension shape
+  must not reappear) — not a mock on `feed_dates` itself, which would only prove the
+  function got called, not that the two sequences stayed in sync (Principle #14).
+
+### Fixed — the History pagination footer visibly jumped once "Show older" ran out
+
+`.hc-pagination` laid out its up-to-three children (row count, the client-side "N–M of
+total" pager, the "Show older" button) with `justify-content: space-between`. Stable
+while all three were present; the button only renders while `hasMore` is true, so once a
+feed was exhausted (the ADR #113 cursor pagination reaching its end) the button
+disappeared, leaving two children — `space-between` redistributes *those* to the row's
+two edges, so the pager visibly jumped from wherever it sat to the far edge the button
+used to occupy. The count and pager are now one `.hc-pagination-info` unit, always the
+row's first child; the button (the one element whose presence varies) pushes itself
+right via `margin-left: auto` instead of participating in a distribution across however
+many siblings happen to exist. Nothing to its left ever has to move to compensate for it
+appearing or disappearing.
+
+Also answered, since they came up investigating this: the two paginations are
+deliberately not the same mechanism. Cursor pagination (`ADR #113`, this session) walks
+the feed by day rather than fetching the whole SLA window (14 days × up to 500 rows/day
+minimum) up front — "Show older" asks the API for the next day's worth; the "N–M of
+total" pager only ever walks rows already loaded into the browser. Showing every page at
+once would mean that first, avoided fetch.
+
+### Fixed — dragged node positions reset on every status poll; centering raced React Flow's own measurement
+
+Both bugs share one root: rebuilding a graph's node list on a data refresh (a poll, an
+asset-catalog refresh) was treated as "start over" rather than "the same graph, new
+data" — no distinction between the graph's *structure* and a node's *current position*.
+
+- **Positions.** `DAGGraphFlow` and EE's `AssetLineageFlow` both recomputed every node's
+  position from the layout (dagre) on every data change, in an effect that replaced the
+  whole node list — silently overwriting a manually-dragged position on the next poll
+  (15–30s later, depending on the surface). New shared helper,
+  `ui/src/utils/reactFlowHelpers.ts::mergeNodePositions` — the one implementation both
+  components call, not two forks of the same rule — carries a node's current position
+  forward whenever it already existed, and uses the fresh (layout) position only for a
+  node that's genuinely new. Pure and idempotent: merging the same inputs twice, or
+  re-merging already-merged output against itself, produces the same result (see its own
+  exhaustive, unmocked tests in `reactFlowHelpers.test.ts`).
+- **`DAGGraphFlow` additionally needed an identity guard** that `AssetLineageFlow` does
+  not: a node's `id` is just its task name (`routes/pipelines_info.py`: `'id': task_name`),
+  not scoped to a pipeline, so two different pipelines can each have an "extract" task.
+  Merging by id across a *pipeline switch* would silently carry pipeline A's dragged
+  position onto pipeline B's unrelated node of the same name. A `dag`-reference guard
+  (`lastDagRef`) makes the merge apply only within the same graph; switching pipelines
+  discards all positions in favour of the fresh layout, same as opening the page cold.
+  `AssetLineageFlow` has no equivalent concept of "switching to an unrelated graph" — it's
+  always the one asset universe — so no guard is needed there.
+- **Centering raced this same rebuild.** The previous fix (below) refit the viewport
+  keyed on a memoised layout reference (`layoutPositions`) and React Flow's generic
+  `useNodesInitialized()` boolean — which can already read `true` for the *previous*
+  graph's (still-measured) nodes at the exact render a new graph's `signal` arrives, since
+  this component's own layout recomputes synchronously on a `dag` change while the actual
+  `nodes` state reaching `<ReactFlow>` updates one render later via its own effect.
+  Trusting that stale `true` fit against nodes about to be replaced and marked the new
+  signal "already handled" before the real ones ever arrived — intermittent by
+  construction: fine when the old and new graphs happened to occupy similar bounds, wrong
+  when they didn't (a 1-node pipeline followed by a 6-node one). `ViewportFitController`
+  now checks the *live* store (`useNodes()`) for the *specific* ids the new signal expects,
+  with a measured size, before fitting — a check that cannot say "ready" against the wrong
+  generation of nodes regardless of render or effect ordering. A structural fit is now
+  instant (no animation): panning the camera across a genuinely different graph implies a
+  spatial relationship between "before" and "after" that isn't there. The resize-triggered
+  refit is unaffected and stays animated (`duration: 200`) — same graph settling into new
+  bounds, not a jump to an unrelated one. The manual "fit view" button in the zoom controls
+  now gets the same `padding: 0.2` the automatic paths use (`<Controls fitViewOptions=…>`
+  was unset before, falling back to React Flow's own `0.1`) — one visual result regardless
+  of which of the three paths triggered it.
+- Both mechanisms are mutation-tested: reverting the identity guard, reverting the
+  `useNodes()`-based readiness check back to a generic `useNodesInitialized()`-style
+  check, and reverting the animation duration on the structural path each fail a
+  specific, dedicated test — not asserted from a shared, coarser one.
+- `DAGGraphFlow`'s identity guard (`lastDagRef`) starts at a sentinel rather than at
+  `dag` itself: seeding it with `dag` made the very first effect run see `sameDag` as
+  true and attempt a merge against the initial render's own nodes — value-identical, but
+  `mergeNodePositions` always returns a new array, so the `setState` this feeds does not
+  bail out the way an unchanged reference would. That extra `setNodes` forces React
+  Flow's own internal rebuild (`ki()`), which does not carry a node's measured
+  `width`/`height` forward, so freshly-mounted nodes briefly "unmeasured" and
+  re-observed for no reason — self-correcting, not a correctness bug, but avoidable
+  waste on every mount. EE's `AssetLineageFlow` doesn't share this: it seeds
+  `useNodesState([])`, which lands on `mergeNodePositions`'s own empty-`prevNodes` early
+  return (same reference, no allocation) — already optimal without a guard.
+
+### Fixed — the DAG's refit fired before React Flow had measured the new nodes
+
+- The previous fix (below) refit the viewport on every graph change, gated only on a
+  memoised layout reference. It looked right in a test that waited on a fixed delay, and
+  was wrong on a real screen: switching pipelines through a full page navigation (History
+  → Pipelines) re-centred, because that remounts the component and React Flow's own
+  `fitView` prop had time to settle; clicking directly between pipelines in the sidebar —
+  no remount — did not, because the effect called `fitView` in the same tick the new
+  nodes were handed to React Flow, before it had measured their size, and a fit against
+  unmeasured (zero-size) bounds is a silent no-op.
+- The refit is now driven by React Flow's own `useNodesInitialized`, not a memo reference:
+  a small `<ViewportFitController>` renders as a *child* of `<ReactFlow>` (the hooks read
+  React Flow's internal store, which exists only for that subtree — calling them from the
+  component that returns `<ReactFlow>` as JSX sees no store at all) and fits once nodes are
+  actually measured, tracking the last graph it fit by identity so it does not repeat itself
+  on every render. React Flow keeps a node's measured size across an update that reuses its
+  id, so a tasks-only poll (same ids, new statuses) never re-triggers a fit — panning or
+  zooming during a running pipeline survives its own status polls, same as before; only a
+  structural change (different pipeline, date, or execution) does.
+- The same controller also took over the container-resize refit, which used to reach
+  `fitView` through a second path (an `onInit`-captured instance ref) for what is the same
+  concept — reframe the graph — just on a different trigger. One way to reach `fitView` now,
+  not two; `onInit` and the instance ref are gone along with it. Untested before this change
+  (there was no way to fire a `ResizeObserver` callback in the existing test setup); covered
+  now.
+- Replaced React Flow's own `fitView`/`fitViewOptions` props (which raced against the same
+  measurement gap under the old design) and the `onInit`-based `setTimeout(100)` guess with
+  the controller. `onInit` now exists only to hand the instance to the resize-triggered
+  refit, which was already correct and untouched.
+
+### Fixed — the DAG kept the previous pipeline's viewport
+
+- Switching pipelines left the graph framed where the last one sat, so every switch needed a
+  manual "fit view". `fitView` only ran on mount and on container resize — and neither can
+  happen here: switching is client-side routing (ADR #111) and the detail query keeps the
+  previous DAG on screen (`placeholderData`) so nothing flashes, which together mean the
+  component never unmounts and its container never resizes. It now refits whenever the graph
+  itself changes — pipeline, date or execution — keyed on the layout rather than on tasks, so
+  a status poll never yanks the view away from someone who has panned or zoomed.
+
+### Fixed — clearing the History date left the pipeline page on an empty graph
+
+- The Runs workspace drove `useAppStore.date` — which is the **pipeline page's scope**, not a
+  filter. Clearing the date meant "every date" to the feed and "a day called `''`" to that
+  page, so opening a pipeline afterwards showed a bare graph: no tasks, no banner, and the
+  run it should have shown sitting right there. Runs now owns `runFilter.date`, in its own
+  URL, exactly as Tasks and the pipeline page's own history drawer already did — the last
+  step ADR #106 asked for. `useAppStore.date` is the pipeline page's scope and nothing else.
+  The date also became a proper filter here: it counts as active, gets a removable chip, and
+  is deep-linkable (`/runs/?date=…`) — all three of which Tasks already had.
+- The banner that explains an empty graph was gated on `executions.length === 0` — the run
+  count, from a different endpoint than the one that fills the graph. It now asks the tasks,
+  which is what the graph draws. That mismatch is *why* the bare graph had no explanation and
+  no way out; the two endpoints agree again after the fix below, which is exactly why the
+  gate must not go back to trusting that they always will.
+- Every route defaulted its date with `params.get('date', <today>)`, which only fires when
+  the param is **absent** — a cleared picker sends it present and empty, so the default never
+  ran and `date=''` was matched literally against DynamoDB. Four routes; two of them
+  (`/pipeline-status`, `/pipeline-dag`) on the pipeline page's critical path. That is also
+  why the "no runs on this date" banner never appeared: `/pipeline-executions` read the same
+  empty date as "no filter" and returned every run, so the guard that renders the banner
+  (`executions.length === 0`) never fired. One idiom now (`params.get('date') or …`), pinned
+  by a guard test that walks every route.
+
+### Fixed — three ways the feed still lost data silently (ADR #113)
+
+- **A busy day made failed runs render green.** `date-pipeline-index` is ordered by
+  `pipeline_name`, so the per-day row cap cut *inside* a pipeline — and a run's status is
+  derived from the task rows the reader got (ADR #112), so a run whose failing task fell
+  past the cut showed as `success`. Measured at three hourly 8-task pipelines (576 rows in
+  one day): **23 of 72 failed runs green**. New `ExecutionsRepo.query_runs_by_date` reads
+  whole pipelines and drops the one it stopped inside — the mirror of
+  `query_runs_by_pipeline`, which has always read whole dates for exactly this reason. The
+  day budgets are floors now, not caps (`RUNS_MIN_ROWS_PER_DATE`, `TASKS_MIN_ROWS_PER_DATE`,
+  `FEED_MIN_ROWS_PER_DAY`); a date that fits one DynamoDB page comes back whole.
+  The same read was doing the same thing on three more surfaces that nobody had thought to
+  look at, and they are fixed with it: the **sidebar pipeline card** status (the worst of
+  the three — it reads every pipeline of a day, so the cut falls between them), the
+  **calendar** month view, and the **execution-history dropdown**. A guard test now walks
+  `routes/` and fails any module that derives a run status while reading with the
+  row-capped `query_by_date`, so this cannot be reintroduced by forgetting.
+- **`?status=completed` answered "No runs found" while completed backfills existed.**
+  `list_recent` sliced to `limit` before the feed's filters ran, so a run of recent
+  `partial` backfills consumed the page, the filter emptied it — and an empty page has no
+  last row, so no cursor, so the feed stopped there for good. Filters now run before the
+  cut; `list_recent(limit=None)` returns every match (its scan was unconditional anyway,
+  so the limit only ever truncated an already-materialised list).
+- **The Backfills page hid statuses behind its own page (EE).** `GET /api/backfills?status=`
+  sliced to `limit` before filtering, exactly like the feed did — `?status=completed` behind
+  a run of recent `partial` backfills answered "none". Same fix: filter, then slice.
+- **A page could end mid-timestamp and drop the twins.** The cursor is a strict `<` on
+  `started_at`, so a run sharing the boundary's timestamp was filtered out by the very
+  cursor meant to fetch it. Pages absorb their twins instead. This is what makes the plain
+  timestamp cursor sufficient rather than a compromise needing a composite key.
+
+### Fixed — dead import
+
+- `tests/dal/test_executions_repo_runs.py` imported `pytest` without using it, which made
+  `make lint` (and `make check`) fail on a clean tree.
+
+### Changed — execution history without a date window
+
+- History filtered to a single pipeline now reads `pipeline-date-index` too, so that view
+  is no longer capped at the 14-day SLA window either. The unfiltered feed keeps its
+  per-date fan-out by design (ADR #108). The feed's row caps moved out of the route into
+  `Limits.RUNS_FEED_LIMIT` / `Limits.TASKS_FEED_LIMIT`.
+
+- The pipeline's execution-history dropdown now lists **every run it can still see**,
+  newest first, instead of only the selected date's. Today's runs are highlighted, the
+  date picker became an optional filter rather than the page scope, and the run count
+  moved into the History button (following the filter). "Show older runs" pages further
+  back; how far back is governed by the row TTL alone.
+- New `pipeline-date-index` GSI (`pipeline_name` → `date`) — the inverse of
+  `date-pipeline-index`. Both key attributes were already written on every task row, so
+  this needs no write-path change and AWS backfills it from existing rows; reading a
+  pipeline's runs is now one indexed query instead of a day-by-day loop.
+- Removed the dropdown's "Latest" escape hatch: with every run listed, jumping back to the
+  newest one is just clicking the top entry. The page-level "No executions for {date}" /
+  "View latest run" state remains — the page still scopes the DAG to a date — but it is no
+  longer a dead end, since the drawer can now reach any run regardless of that date.
+- Removed two magic numbers: `sla_days = 14` hardcoded in `get_all_runs` (now
+  `Limits.SLA_DAYS`) and the `executions[:50]` cap (now cursor pagination,
+  `Limits.RUNS_PAGE_SIZE`). The cross-pipeline feed keeps its per-date fan-out — `date` is
+  the natural shard key for a time-ordered feed across all pipelines, not a workaround.
+
+
 ### Removed — user role badge (CE)
 
 - The Admin/User role badge no longer shows in the user menu. Human roles are cosmetic in

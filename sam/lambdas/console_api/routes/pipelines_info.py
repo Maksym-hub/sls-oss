@@ -24,7 +24,7 @@ def get_pipeline_dag(pipeline_name: str, event: Dict) -> Dict:
     3. Inferred from execution data (fallback)
     """
     params = event.get('queryStringParameters') or {}
-    date = params.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    date = params.get('date') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
     pipeline_execution = params.get('pipeline_execution', '')
     
     # Get execution data to supplement DAG with wait_before info

@@ -6,6 +6,7 @@ Deploy Polyris to your AWS account in ~10 minutes.
 
 - [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html)
 - [Node.js 18.18+](https://nodejs.org/) (22 LTS recommended)
+- [Python 3.11+](https://www.python.org/) with `pip` — for the Polyris CLI (`polyris-deploy`)
 - AWS credentials configured (`aws configure`)
 
 ## 1. Clone
@@ -100,10 +101,21 @@ aws cognito-idp admin-create-user \
 
 ## 6. Deploy your first pipeline
 
+Install the Polyris CLI, then deploy one of the bundled examples:
+
 ```bash
-cd pipelines/my-pipeline
-polyris-deploy
+# From the repo root, once — installs the polyris-* commands:
+pip install -e .
+
+cd examples/01_hello_world
+polyris-validate      # check the DAG is valid
+polyris-deploy        # build + deploy via CloudFormation
 ```
+
+> The example tasks reference existing Step Functions state machines via **placeholder
+> ARNs** — replace them in `dag.py` with your own before deploying for real. See
+> [examples/README.md](../../examples/README.md) for all the examples and the local
+> validation commands (`polyris-output --graph` / `--mermaid` / `--json`).
 
 ---
 

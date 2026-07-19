@@ -182,10 +182,33 @@ Body: `{"pipeline_name": "...", "sfn_arn": "...", "dag": {...}}`
 ### List All Tasks
 
 ```http
-GET /api/tasks?pipeline={name}&status={status}&date={YYYY-MM-DD}
+GET /api/tasks?pipeline={name}&status={status}&date={YYYY-MM-DD}&limit=100&before={cursor}
 ```
 
-All query params optional. Returns tasks matching filters.
+All query params optional. Returns tasks matching filters, `started_at`-descending,
+one page at a time:
+
+```jsonc
+{
+  "tasks": [ /* … */ ],
+  "count": 100,
+  "next": "2026-07-14T09:12:03.114Z",   // cursor for the older page; null = nothing older
+  "filters": { "status": "", "date": "", "pipeline": "" }
+}
+```
+
+Paging (same contract as `/api/runs` and `/api/pipeline-executions`): pass the previous
+response's `next` back as `before` to get the rows older than it. **`next` is opaque** —
+don't build one; endpoints encode it differently (this feed uses a `started_at`, the
+execution list a date) and the encoding is not part of the contract. `next: null` means
+the feed is exhausted — it is the only honest end-of-feed signal, since a full page is
+not one.
+
+How far back a page can reach depends on the filters:
+- `pipeline` (no date) — `pipeline-date-index`, no window; bounded by the row TTL.
+- `date` — that one logical date.
+- neither — the last 14 days (`Limits.SLA_DAYS`); `date` is the shard key for a
+  cross-pipeline feed, so it is read one day at a time (ADR #108).
 
 ### Get/Update Task Config
 
@@ -220,7 +243,7 @@ POST /api/task-retry?name={execution_name}      # Retry with same params
 ### List All Runs
 
 ```http
-GET /api/runs?pipeline={name}&status={status}&date={YYYY-MM-DD}&limit=50
+GET /api/runs?pipeline={name}&status={status}&date={YYYY-MM-DD}&limit=50&before={cursor}
 ```
 
 Unified Run/Activity feed (ADR #95). Returns a mixed, `started_at`-descending
@@ -256,9 +279,15 @@ list of pipeline executions **and** Backfills, discriminated by `kind`:
     }
   ],
   "count": 2,
+  "next": "2026-05-31T08:41:07.552Z",  // cursor for the older page; null = nothing older
   "filters": { "pipeline": "", "status": "", "date": "" }
 }
 ```
+
+Paging: pass the previous response's `next` back as `before` to get the rows older
+than it; `next` is opaque (see `/api/tasks`). Both kinds carry `started_at` and the feed
+already sorts on it, so one cursor pages the merged list — no composite key. `next: null`
+means the feed is exhausted; a full page does not.
 
 Filter semantics (ADR #95):
 - `status` — literal match against whichever vocabulary a row uses (`kind`
@@ -267,8 +296,11 @@ Filter semantics (ADR #95):
   `target_pipeline` (a cross-pipeline backfill surfaces under its target only).
 - `date` — executions match their logical date; a backfill matches when the
   date is within its `partition_keys` range (daily-oriented).
-- Default window is the last 14 days for executions; backfills come from
-  `list_recent` and may include one older than 14 days.
+- Reach depends on the filters: `pipeline` (no date) reads `pipeline-date-index`
+  and has no window (bounded by the row TTL); `date` is that one logical date;
+  neither is the last 14 days (`Limits.SLA_DAYS`), fanned out one query per day
+  because `date` is the shard key for a cross-pipeline feed (ADR #108). Backfills
+  come from `list_recent` and may include one older than the window.
 
 Expand a row on demand via `GET /api/execution-children?id=` (execution);
 children are not embedded.

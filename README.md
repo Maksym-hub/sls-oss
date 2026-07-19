@@ -30,7 +30,7 @@ polyris is not managed Airflow. There's nothing to operate.
 - 🎯 **11 trigger rules** — `all_success`, `one_failed`, `all_done`, etc. ([details](docs/features/DSL.md#trigger-rules))
 - 🔗 **Automatic data passing** — outputs flow to downstream **lambda & SFN** tasks via a DynamoDB output store (up to 350KB); service tasks (glue/ecs/…) exchange data via S3
 - 📊 **Web Console** — pipelines and DAG views for every run
-- 🧬 **Asset dependencies** — declare cross-pipeline asset inlets/outlets; inspect lineage from the CLI with `polyris-output --graph` (the visual asset & lineage console is a Team feature)
+- 🧬 **Asset dependencies** — declare cross-pipeline asset inlets/outlets; inspect lineage from the CLI with `polyris-output --graph`
 - 🔗 **Pull-based deps** — `wait_for` with freshness and consecutive checks
 - ⏭️ **Skip/Restart tasks** — partial pipeline runs via UI or API (free — live-run intervention)
 - 🔄 **Auto-refresh UI** — polling-based updates (3s active, 30s idle)
@@ -300,7 +300,7 @@ DAG(schedule=None)
 ## Asset-Based Orchestration
 
 > **⚠️ Experimental (v0.93.0).** Assets are experimental — the API may change and
-> there's no visual asset console in the OSS build yet (`polyris-output --graph` shows lineage). Not
+> there's no visual asset console yet (`polyris-output --graph` shows lineage). Not
 > recommended for production yet. See [docs/features/ASSETS.md](docs/features/ASSETS.md).
 > <!-- EXPERIMENTAL-ASSETS: remove when assets graduate to stable. -->
 

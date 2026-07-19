@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from polyris import DAG, task
 
 # NOTE: ARN hardcoded to the testing-infra CloudFormation stack.
-ARN = "arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn"
+ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:polyris-test-sfn"
 
 with DAG(
     dag_id="operational-demo",

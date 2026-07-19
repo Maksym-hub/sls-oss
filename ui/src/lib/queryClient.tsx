@@ -30,6 +30,7 @@ export const queryKeys = {
     pipelines: ['pipelines'] as const,
     pipelineDetail: (name: string, date: string, execution: string | null) => ['pipeline', name, date, execution] as const,
     pipelineExecutions: (name: string, date: string) => ['pipeline', name, 'executions', date] as const,
+    pipelineRuns: (name: string) => ['pipeline', name, 'runs'] as const,
     calendarExecutions: (name: string, yearMonth: string) => ['pipeline', name, 'calendar', yearMonth] as const,
     
     allTasks: (filters: Record<string, unknown>) => ['tasks', filters] as const,

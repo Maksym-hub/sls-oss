@@ -80,8 +80,21 @@ class Limits:
     MAX_PIPELINES_TO_QUERY = 30
     MAX_STATS_ITEMS = 10000
     
+    # Pagination
+    RUNS_PAGE_SIZE = 15             # runs per page in the execution history dropdown
+    RUNS_FEED_LIMIT = 50            # rows per page of the History runs feed
+    TASKS_FEED_LIMIT = 100          # rows per page of the History tasks feed
+    # Read budgets for a History feed's day. Floors, not caps: the read rounds up to
+    # the next pipeline boundary, because the index is ordered by pipeline_name and
+    # cutting mid-pipeline splits a run's task set — which /runs then derives a wrong
+    # status from (ADR #113). A date that fits one DynamoDB page comes back whole.
+    RUNS_MIN_ROWS_PER_DATE = 2000    # runs feed, one explicit date
+    TASKS_MIN_ROWS_PER_DATE = 10000  # tasks feed, one explicit date
+    FEED_MIN_ROWS_PER_DAY = 500      # either feed, per day of the fan-out
+
     # Time limits
     SLA_DAYS = 14
+    PARALLEL_DATE_QUERIES = 14      # Worker cap when fanning date queries out one-per-day
     TTL_DAYS = 30
     TTL_QUEUED_DAYS = 7             # TTL for queued_asset_events
     MAX_NOTIFICATION_HOURS = 168    # Max 7 days for notifications

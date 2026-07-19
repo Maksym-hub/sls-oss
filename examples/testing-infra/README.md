@@ -39,7 +39,7 @@ For ECS, the test container is named **`main`** — matching
 `container_overrides={"ContainerOverrides": [{"Name": "main", ...}]}` in
 `04_multi_service`.
 
-`examples/config.py` is already set to this account (944861944755 / us-east-1,
+`examples/config.py` is already set to this account (000000000000 / us-east-1,
 namespace `polyris-ex`), so `polyris-deploy` in any example folder targets the right
 place. Set a `profile` there if you don't use default credentials.
 

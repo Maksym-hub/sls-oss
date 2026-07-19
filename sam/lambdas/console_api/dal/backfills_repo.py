@@ -162,20 +162,42 @@ class BackfillsRepo:
 
     # ── Query operations ──────────────────────────────────────────────────
 
-    def list_recent(self, limit: int = 50) -> list:
+    def list_recent(self, limit: Optional[int] = 50, before: str = None) -> list:
         """List most recent Backfills, sorted by started_at desc.
+
+        ``before`` is a ``started_at`` cursor — only Backfills older than it are
+        returned. This is the History feed's paging contract (see
+        ``console_api/feed.py``), which merges Backfills into ``/api/runs`` as
+        first-class rows (ADR #95).
+
+        ``limit=None`` returns every match. The scan below is unconditional, so ``limit``
+        buys no capacity — it only truncates an already-materialised list. A caller that
+        filters afterwards (the unified feed does, per ADR #95's per-kind semantics) must
+        pass ``None`` and slice itself, or the slice spends the page on records the
+        filter is about to drop.
+
+        The cursor is applied **before** ``limit``, and must be: this method sorts
+        newest-first, so filtering *after* the slice would hand every page but the
+        first an empty result — the newest ``limit`` Backfills are exactly the ones
+        any cursor has already served.
 
         Currently implemented as a scan with sentinel filter. At >10K
         Backfill records this becomes expensive; future optimization is
-        to add a started_at GSI (out of scope for v0.78).
+        to add a started_at GSI (out of scope for v0.78). The cursor filter runs in
+        memory for the same reason it stays out of the FilterExpression: DynamoDB
+        applies filters after reading, so pushing it down saves no capacity — and it
+        would silently drop Backfills with no ``started_at`` instead of sorting them
+        last, which is where the rest of the feed puts them.
         """
         items = scan_all(
             self.table,
             FilterExpression=Attr('pipeline_name').eq(BACKFILL_SENTINEL_PIPELINE_NAME),
         )
+        if before:
+            items = [i for i in items if (i.get('started_at') or '') < before]
         # Sort by started_at desc; missing started_at sorts last
         items.sort(key=lambda x: x.get('started_at', ''), reverse=True)
-        return items[:limit]
+        return items if limit is None else items[:limit]
 
     def list_active(self) -> list:
         """List Backfills with status in (pending, running).

@@ -33,6 +33,33 @@ Have a request or want to help build one of these? Open an issue or see
 - **Keyboard shortcuts** — faster navigation in the console.
 - **Asset lineage graph** — visualize asset dependencies as an interactive graph.
 
+### Distribution & onboarding
+Goal: shrink "clone the repo + run SAM by hand" down to installing a package and
+clicking deploy. The infrastructure itself is CloudFormation, so AWS provisioning
+time (~10 min, CloudFront-bound) can't be removed — but the manual steps around it can.
+- **Publish the CLI to PyPI** — `pip install polyris` for the DSL + `polyris-*`
+  commands, so authoring/validating pipelines needs no repo clone. `pyproject.toml`
+  already declares the entry points; this is mostly release wiring. *(Cheapest, independent.)*
+- **One-click "Deploy to AWS"** — `sam package` the stack into a self-contained
+  template (18 local `CodeUri` → `s3://` artifacts) published to the public releases
+  bucket (the one `sam/bootstrap.yaml` creates), then a CloudFormation launch URL /
+  `templateURL=...`. Deploys the infra with no clone; CI publishes it each release
+  via the existing OIDC role.
+- **UI bundled in the stack** — a CloudFormation custom resource (extend the existing
+  `ui_bootstrap` Lambda) that, on stack create, pulls the pre-built UI bundle from the
+  public releases bucket and writes it + `config.js` (real API/Cognito values) into the
+  user's `ConsoleUiBucket`. Removes the separate `deploy.sh` step. *(Hardest piece —
+  this is what makes it feel "packaged.")*
+- **AWS Serverless Application Repository (SAR)** — `sam publish` so Polyris is
+  discoverable and deployable straight from the AWS console. *(Polish on top of the
+  launch URL.)*
+- **Surface the local "try without AWS" path** — lead onboarding with
+  `pip install polyris` → `polyris-init demo --local` → `polyris-output --graph` so
+  newcomers can explore the DSL/DAG in ~60s before committing to an AWS deploy.
+- **Drop the `deploy.sh` stack-name footgun** — resolve `stack_name`/`region` from
+  `samconfig.toml` (single source of truth) instead of a hidden `polyris-dev` default,
+  so `./deploy.sh` needs no manually-synced args. *(Small; has already bitten once.)*
+
 ## Under consideration
 
 Ideas being explored but not yet committed. Feedback welcome:

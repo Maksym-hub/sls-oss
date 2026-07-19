@@ -12,7 +12,7 @@ Run it locally (no AWS):  polyris-output --graph
 from polyris import DAG, task
 
 # NOTE: ARNs below are hardcoded to the testing-infra CloudFormation stack.
-ARN = "arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn"
+ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:polyris-test-sfn"
 
 with DAG(
     dag_id="multi-source-merge",

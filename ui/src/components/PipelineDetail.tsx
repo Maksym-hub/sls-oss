@@ -8,7 +8,7 @@ import {
     GanttSkeleton,
     ErrorBoundary,
 } from './index';
-import { POLLING } from '../utils';
+import { POLLING, toDateString } from '../utils';
 import { TASK_SUCCESS_STATUSES } from '@/generated/enums';
 import { useAppStore } from '../stores/useAppStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -21,6 +21,7 @@ import type { PipelineActions, PipelineActionsParams } from '@/types';
 import { 
     usePipelineDetailQuery,
     usePipelineExecutionsQuery,
+    usePipelineRunsQuery,
     usePipelinesQuery,
     useTaskEventsQuery,
 } from '../hooks/queries';
@@ -289,14 +290,12 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                         {/* Action buttons — state-driven. Refresh is icon-only utility;
                             the run/pause/resume/stop set switches on pipeline state. */}
                         <div className="pd-canvas-actions">
-                            {/* History dropdown — leftmost action. Always rendered so the
-                                date-picker drawer it owns stays reachable even when the
-                                current date has no executions (otherwise the page deadlocks).
-                                The panel is right-aligned so it never overflows the right
-                                screen edge. */}
+                            {/* History dropdown — leftmost action. Lists every run it
+                                can still see (no date window); the picker inside is a
+                                filter, not the page scope. Panel is right-aligned so it
+                                never overflows the right screen edge. */}
                             <ExecutionDropdown
-                                executions={executions}
-                                latestRunDate={latestRunDate}
+                                pipelineName={pipeline?.name || ''}
                                 showHistory={showHistory}
                                 onToggleHistory={() => setShowHistory(!showHistory)}
                                 onCloseHistory={() => setShowHistory(false)}
@@ -412,7 +411,13 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                     />
                 ) : isLoading && !dag ? (
                     viewMode === 'gantt' && GanttChart ? <GanttSkeleton count={6} /> : <DAGSkeleton />
-                ) : executions.length === 0 && !isLoading && viewMode !== 'calendar' ? (
+                ) : tasks.length === 0 && !isLoading && viewMode !== 'calendar' ? (
+                    // Gate on the tasks, because the tasks are what the graph draws. This
+                    // asked `executions.length === 0` instead — a different question, to a
+                    // different endpoint — so whenever the two disagreed the explanation
+                    // silently vanished and left a bare graph with no way out. They agree
+                    // now (ADR #106 follow-up), which is exactly why this must not go back
+                    // to trusting that they always will.
                     (dag?.nodes?.length ?? 0) > 0 ? (
                         <div className="relative h-full">
                             <DAGGraph
@@ -521,14 +526,12 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
  * ExecutionDropdown — reads selectedExecution and date from store
  */
 function ExecutionDropdown({
-    executions,
-    latestRunDate,
+    pipelineName,
     showHistory,
     onToggleHistory,
     onCloseHistory
 }: {
-    executions: Execution[];
-    latestRunDate: string | null;
+    pipelineName: string;
     showHistory: boolean;
     onToggleHistory: () => void;
     onCloseHistory: () => void;
@@ -538,18 +541,38 @@ function ExecutionDropdown({
         date: s.date, setDate: s.setDate,
     })));
 
-    // Clear the manual selection and jump back to the latest run.
-    const goLatest = () => {
-        setSelectedExecution(null);
-        if (latestRunDate) setDate(latestRunDate);
-        onCloseHistory();
-    };
+    // The picker filters this list; it no longer scopes the page. The page's date
+    // follows whichever run you pick, so an empty filter can't strand you on a
+    // date with no runs.
+    const [filterDate, setFilterDate] = React.useState('');
+
+    // Every run, newest first — no date window. Fetched even while the drawer is
+    // shut: the button shows the count, so gating this on `showHistory` would
+    // render "0" until you opened it.
+    const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
+        usePipelineRunsQuery(pipelineName);
+
+    const allRuns = React.useMemo(
+        () => (data?.pages ?? []).flatMap((p: { executions: Execution[] }) => p.executions),
+        [data],
+    );
+    const runs = React.useMemo(
+        () => (filterDate ? allRuns.filter((r: Execution) => r.date === filterDate) : allRuns),
+        [allRuns, filterDate],
+    );
+
+    const today = toDateString(new Date());
 
     return (
         <div className="pd-dropdown-container">
-            <span className="pd-history-count" aria-hidden="true">({executions.length})</span>
-            <Button variant="secondary" onClick={onToggleHistory} title="History" aria-label={`History (${executions.length})`}>
+            <Button
+                variant="secondary"
+                onClick={onToggleHistory}
+                title="History"
+                aria-label={`History (${runs.length})`}
+            >
                 <BookOpen size={16} />
+                <span className="pd-history-count">{runs.length}</span>
             </Button>
 
             {showHistory && (
@@ -558,32 +581,35 @@ function ExecutionDropdown({
                         <span className="pd-exec-dropdown-title">Execution history</span>
                     </div>
 
-                    {/* Date scope — on the pipeline page the date scopes which executions show */}
+                    {/* Optional filter — empty means every run we can still see */}
                     <div className="pd-exec-dropdown-datebar">
                         <DatePicker
-                            value={date}
-                            onChange={d => { setSelectedExecution(null); setDate(d); }}
+                            value={filterDate}
+                            onChange={setFilterDate}
                             placeholder="All dates"
-                            ariaLabel="Execution date"
+                            ariaLabel="Filter runs by date"
                         />
-                        {latestRunDate && (date !== latestRunDate || (selectedExecution && !selectedExecution.auto_selected)) && (
+                        {filterDate && (
                             <Button
                                 variant="secondary"
                                 size="sm"
                                 className="ml-auto"
-                                onClick={goLatest}
-                                title="Back to the latest run"
+                                onClick={() => setFilterDate('')}
+                                title="Show every run"
                             >
-                                Latest
+                                Clear
                             </Button>
                         )}
                     </div>
 
                     <div className="pd-exec-dropdown-list">
-                        {executions.length === 0 && (
-                            <div className="pd-exec-dropdown-empty">No executions for this date</div>
+                        {isLoading && <div className="pd-exec-dropdown-empty">Loading…</div>}
+                        {!isLoading && runs.length === 0 && (
+                            <div className="pd-exec-dropdown-empty">
+                                {filterDate ? 'No runs on this date' : 'No runs yet'}
+                            </div>
                         )}
-                            {executions.map((ex, i: number) => {
+                            {runs.map((ex: Execution, i: number) => {
                                 const isSelected = selectedExecution?.execution_id === ex.execution_id ||
                                                   (!selectedExecution && ex.date === date);
                                 const statusClass = ex.status || 'waiting';
@@ -591,7 +617,7 @@ function ExecutionDropdown({
                                 return (
                                     <div
                                         key={i}
-                                        className={`pd-dropdown-item ${isSelected ? 'selected' : ''}`}
+                                        className={`pd-dropdown-item ${isSelected ? 'selected' : ''} ${ex.date === today ? 'today' : ''}`}
                                         onClick={() => {
                                             setSelectedExecution({ ...ex, auto_selected: false });
                                             if (ex.date) setDate(ex.date);
@@ -613,6 +639,21 @@ function ExecutionDropdown({
                                 );
                             })}
                         </div>
+
+                    {/* History goes back as far as the rows still exist (row TTL);
+                        there is no window to widen — just keep loading. */}
+                    {hasNextPage && !filterDate && (
+                        <div className="pd-exec-dropdown-more">
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => fetchNextPage()}
+                                disabled={isFetchingNextPage}
+                            >
+                                {isFetchingNextPage ? 'Loading…' : 'Show older runs'}
+                            </Button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

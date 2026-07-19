@@ -23,6 +23,7 @@ from config import sfn, dynamodb, TABLE_NAME
 from dal import executions_repo, pipelines_repo
 from dal.task_events_repo import task_events_repo
 from constants import Limits, TaskStatus, TASK_WAITING_STATUSES, TASK_SETTLED_STATUSES, TASK_SUCCESS_STATUSES
+from feed import feed_dates, is_older, page_by_started_at, pipeline_rows_before
 from response import cors_response, safe_parse_body
 from logger import log
 from utils import (
@@ -197,10 +198,57 @@ def _reconcile_orphaned_tasks(tasks):
     return tasks
 
 
+_TASKS_PROJECTION = ('execution_name, task_name, pipeline_name, #s, #d, started_at, '
+                     'running_at, finished_at, dependencies, pipeline_execution, wait_for, '
+                     'wrapper_execution_arn')
+_TASKS_EXPR_NAMES = {'#s': 'status', '#d': 'date'}
+
+
+def _format_task_row(item: Dict) -> Dict:
+    """Project one pipeline-tokens row to a History tasks-feed row."""
+    # Calculate duration if possible — use running_at (actual task start) not started_at (wrapper start)
+    duration_ms = None
+    actual_start = item.get('running_at') or item.get('started_at')
+    if actual_start and item.get('finished_at'):
+        try:
+            start = datetime.fromisoformat(actual_start.replace('Z', '+00:00'))
+            end = datetime.fromisoformat(item['finished_at'].replace('Z', '+00:00'))
+            duration_ms = int((end - start).total_seconds() * 1000)
+        except (ValueError, TypeError, AttributeError) as e:
+            log.warn("get_all_tasks", "Bad timestamp on task; duration_ms left None",
+                     execution_name=item.get('execution_name'),
+                     actual_start=actual_start,
+                     finished_at=item.get('finished_at'),
+                     error=str(e))
+
+    return {
+        'execution_name': item.get('execution_name'),
+        'task_name': item.get('task_name'),
+        'pipeline_name': item.get('pipeline_name', 'unknown'),
+        'status': item.get('status', 'unknown'),
+        'date': item.get('date'),
+        'started_at': item.get('started_at'),
+        'running_at': item.get('running_at'),
+        'finished_at': item.get('finished_at'),
+        'duration_ms': duration_ms,
+        'dependencies': item.get('dependencies', []),
+        'wait_for': item.get('wait_for', '[]'),
+        'pipeline_execution': item.get('pipeline_execution'),
+        'notification_failed': item.get('notification_failed')
+    }
+
+
 def get_all_tasks(event: Dict) -> Dict:
     """Get all task instances across all pipelines.
-    
-    Optimized: Uses GSI 'date-pipeline-index' when date filter is provided.
+
+    The other half of the History feed, and it pages exactly like ``/api/runs``: an
+    opaque ``before`` cursor carrying a ``started_at``, ``next`` for the older page
+    (see ``feed.py``). One dialect across both halves is the point — they list the
+    same rows, so they should not disagree about how far back you can look.
+
+    Source per filter, mirroring ``/api/runs`` (ADR #108): an explicit date is one
+    indexed query; one pipeline reads ``pipeline-date-index`` and has no window;
+    everything-newest-first shards on ``date`` and fans the window out per day.
     """
     params = event.get('queryStringParameters', {}) or {}
     
@@ -208,109 +256,81 @@ def get_all_tasks(event: Dict) -> Dict:
     status_filter = params.get('status')
     date_filter = params.get('date')
     pipeline_filter = params.get('pipeline')
-    limit = safe_param_int(params, 'limit', 100, 500)
-    
+    before = params.get('before', '')
+    limit = safe_param_int(params, 'limit', Limits.TASKS_FEED_LIMIT, 500)
+
+    status_expr = Attr('status').eq(status_filter) if status_filter else None
+
+    def _keeps(item: Dict) -> bool:
+        """Would this row survive to the page? Mirrors the filtering below, so the
+        index read knows when it has pulled enough to fill one."""
+        return (bool(item.get('task_name'))
+                and not should_skip_token_row(item)
+                and (not status_filter or item.get('status') == status_filter)
+                and is_older(item, before))
+
     try:
-        # Optimized path: Use GSI when date filter is provided
         if date_filter:
             key_cond = Key('date').eq(date_filter)
             # Add pipeline filter to key condition if provided
             if pipeline_filter:
-                key_cond = Key('date').eq(date_filter) & Key('pipeline_name').eq(pipeline_filter)
-            
-            filter_expr = Attr('status').eq(status_filter) if status_filter else None
-            
-            items = executions_repo.query_by_date(
+                key_cond = key_cond & Key('pipeline_name').eq(pipeline_filter)
+
+            items = executions_repo.query_runs_by_date(
                 date_filter,
-                max_items=Limits.MAX_FETCH_ITEMS,
+                min_rows=Limits.TASKS_MIN_ROWS_PER_DATE,
                 key_condition=key_cond,
-                filter_expr=filter_expr,
-                projection='execution_name, task_name, pipeline_name, #s, #d, started_at, running_at, finished_at, dependencies, pipeline_execution, wait_for, wrapper_execution_arn',
-                expr_names={'#s': 'status', '#d': 'date'}
+                filter_expr=status_expr,
+                projection=_TASKS_PROJECTION,
+                expr_names=_TASKS_EXPR_NAMES,
             )
-        else:
-            # Fallback: Scan with filters (for queries without date)
-            # Build filter expression. #s/#d are always used (projection); #p is
-            # added only when the pipeline filter uses it, otherwise DynamoDB rejects
-            # the scan with "unused ExpressionAttributeNames".
-            filter_parts = []
-            expr_values = {}
-            expr_names = {'#s': 'status', '#d': 'date'}
-            
+        elif pipeline_filter:
+            # One pipeline, no date: pipeline-date-index, no window (ADR #108) — the
+            # same read /api/runs uses, so both halves of History reach equally far
+            # back. Replaces a full-table Scan: unbounded cost, and its arbitrary row
+            # order made "the newest N" a lottery no cursor could page honestly.
+            items = pipeline_rows_before(
+                pipeline_filter, before, limit,
+                count_fn=lambda rows: sum(1 for r in rows if _keeps(r)),
+                projection=_TASKS_PROJECTION,
+                expr_names=_TASKS_EXPR_NAMES,
+            )
+            # The index read takes no FilterExpression — its whole-date accounting
+            # counts returned rows — so status is applied here instead.
             if status_filter:
-                filter_parts.append('#s = :status')
-                expr_values[':status'] = status_filter
-            
-            if pipeline_filter:
-                expr_names['#p'] = 'pipeline_name'
-                filter_parts.append('#p = :pipeline')
-                expr_values[':pipeline'] = pipeline_filter
-            
-            filter_expr = ' AND '.join(filter_parts) if filter_parts else None
-            
-            scan_kwargs = {
-                'ProjectionExpression': 'execution_name, task_name, pipeline_name, #s, #d, started_at, running_at, finished_at, dependencies, pipeline_execution, wait_for, wrapper_execution_arn',
-                'ExpressionAttributeNames': expr_names
-            }
-            
-            if filter_expr:
-                scan_kwargs['FilterExpression'] = filter_expr
-                scan_kwargs['ExpressionAttributeValues'] = expr_values
-            
-            items = executions_repo.scan(max_items=Limits.MAX_FETCH_ITEMS, **scan_kwargs)
-        
-        # Sort by started_at descending
-        items.sort(key=lambda x: x.get('started_at', ''), reverse=True)
-        
-        # Apply limit after sorting
-        items = items[:limit]
-        
-        # Format response
-        tasks = []
-        for item in items:
-            # Skip internal/special records (_pause_, _notify_warn_, output#) and Backfill records.
-            if should_skip_token_row(item):
-                continue
-            # A task instance must have a task_name; skip pipeline-level/partial rows.
-            if not item.get('task_name'):
-                continue
-            # Calculate duration if possible — use running_at (actual task start) not started_at (wrapper start)
-            duration_ms = None
-            actual_start = item.get('running_at') or item.get('started_at')
-            if actual_start and item.get('finished_at'):
+                items = [i for i in items if i.get('status') == status_filter]
+        else:
+            items = []
+            for date_str in feed_dates(before):
                 try:
-                    start = datetime.fromisoformat(actual_start.replace('Z', '+00:00'))
-                    end = datetime.fromisoformat(item['finished_at'].replace('Z', '+00:00'))
-                    duration_ms = int((end - start).total_seconds() * 1000)
-                except (ValueError, TypeError, AttributeError) as e:
-                    log.warn("get_all_tasks", "Bad timestamp on task; duration_ms left None",
-                             execution_name=item.get('execution_name'),
-                             actual_start=actual_start,
-                             finished_at=item.get('finished_at'),
-                             error=str(e))
-            
-            tasks.append({
-                'execution_name': item.get('execution_name'),
-                'task_name': item.get('task_name'),
-                'pipeline_name': item.get('pipeline_name', 'unknown'),
-                'status': item.get('status', 'unknown'),
-                'date': item.get('date'),
-                'started_at': item.get('started_at'),
-                'running_at': item.get('running_at'),
-                'finished_at': item.get('finished_at'),
-                'duration_ms': duration_ms,
-                'dependencies': item.get('dependencies', []),
-                'wait_for': item.get('wait_for', '[]'),
-                'pipeline_execution': item.get('pipeline_execution'),
-                'notification_failed': item.get('notification_failed')
-            })
-        
-        # Reconcile: tasks stuck in non-terminal status but execution already failed
+                    items.extend(executions_repo.query_runs_by_date(
+                        date_str,
+                        min_rows=Limits.FEED_MIN_ROWS_PER_DAY,
+                        filter_expr=status_expr,
+                        projection=_TASKS_PROJECTION,
+                        expr_names=_TASKS_EXPR_NAMES,
+                    ))
+                except Exception as e:
+                    log.error("get_all_tasks", "Error querying date", error=str(e), date_str=date_str)
+
+        # Skip internal/special records (_pause_, _notify_warn_, output#) and Backfill
+        # records, and pipeline-level/partial rows with no task_name — before paging,
+        # so a page is a pageful of real rows.
+        rows = [i for i in items if not should_skip_token_row(i) and i.get('task_name')]
+
+        page, next_cursor = page_by_started_at(rows, before, limit)
+        tasks = [_format_task_row(i) for i in page]
+
+        # Reconcile: tasks stuck in non-terminal status but execution already failed.
+        # After the cut — it costs an SFN describe per pending execution, and only the
+        # rows being returned are worth paying for.
         tasks = _reconcile_orphaned_tasks(tasks)
         
         return cors_response(200, {
             'tasks': tasks,
             'count': len(tasks),
+            # Opaque cursor for the next (older) page; None when nothing older exists.
+            'next': next_cursor,
             'filters': {
                 'status': status_filter,
                 'date': date_filter,
@@ -331,7 +351,7 @@ def get_task_config(task_name: str, event: Dict) -> Dict:
     Returns config fields only (not runtime state like retry_attempts).
     """
     params = event.get('queryStringParameters') or {}
-    date = params.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    date = params.get('date') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
     pipeline_execution = params.get('pipeline_execution', '')
     
     item, execution_name = resolve_task_item(task_name, date, pipeline_execution)
@@ -365,7 +385,7 @@ def get_task_output(task_name: str, event: Dict) -> Dict:
     ``truncated: true`` means the output exceeded the inline limit.
     """
     params = event.get('queryStringParameters') or {}
-    date = params.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    date = params.get('date') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
     pipeline_execution = params.get('pipeline_execution', '')
 
     item, execution_name = resolve_task_item(task_name, date, pipeline_execution)

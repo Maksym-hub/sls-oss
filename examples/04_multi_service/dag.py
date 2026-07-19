@@ -70,7 +70,7 @@ with DAG(
         query_string="SELECT 1",   # self-contained smoke query
         database="analytics",
         workgroup="polyris-test-wg",
-        output_location="s3://polyris-test-944861944755-us-east-1/athena-results/",
+        output_location="s3://polyris-test-000000000000-us-east-1/athena-results/",
     )
     def to_silver():
         """Athena CTAS/INSERT: bronze → silver."""
@@ -78,7 +78,7 @@ with DAG(
 
     @task.ecs(
         cluster="polyris-test-ecs",
-        task_definition="arn:aws:ecs:us-east-1:944861944755:task-definition/polyris-test-task:1",
+        task_definition="arn:aws:ecs:us-east-1:000000000000:task-definition/polyris-test-task:1",
         launch_type="FARGATE",
         subnets=["subnet-08b2bc98a658e67b4", "subnet-09802d133167abae7"],
         security_groups=["sg-071773f53f202982f"],
@@ -105,8 +105,8 @@ with DAG(
         pass
 
     @task.batch(
-        job_definition="arn:aws:batch:us-east-1:944861944755:job-definition/polyris-test-jobdef:1",
-        job_queue="arn:aws:batch:us-east-1:944861944755:job-queue/polyris-test-queue",
+        job_definition="arn:aws:batch:us-east-1:000000000000:job-definition/polyris-test-jobdef:1",
+        job_queue="arn:aws:batch:us-east-1:000000000000:job-queue/polyris-test-queue",
         batch_parameters={"format": "pdf"},     # static Ref:: parameters
     )
     def render_report():
@@ -127,7 +127,7 @@ with DAG(
 
     # A nested Step Function in another account (cross-account role).
     @task.sfn(
-        arn="arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn",
+        arn="arn:aws:states:us-east-1:000000000000:stateMachine:polyris-test-sfn",
     )
     def publish():
         """Publish results through a nested, cross-account workflow."""

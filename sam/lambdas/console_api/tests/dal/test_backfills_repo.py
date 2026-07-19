@@ -282,6 +282,56 @@ class TestListRecent:
         assert result[1]['execution_name'] == 'bf-b'
 
 
+class TestListRecentCursor:
+    """`before` — the History feed's started_at cursor (console_api/feed.py, ADR #95)."""
+
+    def _table(self, mocker, count=5):
+        table = mocker.MagicMock()
+        table.scan.return_value = {
+            'Items': [
+                {'execution_name': f'bf-{i}', 'started_at': f'2024-01-{i:02d}T00:00:00Z'}
+                for i in range(1, count + 1)
+            ]
+        }
+        return table
+
+    def test_returns_only_backfills_older_than_the_cursor(self, mocker):
+        repo = _make_repo_with_table(mocker, self._table(mocker))
+        result = repo.list_recent(limit=10, before='2024-01-03T00:00:00Z')
+        assert [r['execution_name'] for r in result] == ['bf-2', 'bf-1']
+
+    def test_the_cursor_row_itself_is_not_re_served(self, mocker):
+        """Strict `<`: the last row of the previous page must not come back."""
+        repo = _make_repo_with_table(mocker, self._table(mocker))
+        result = repo.list_recent(limit=10, before='2024-01-03T00:00:00Z')
+        assert 'bf-3' not in [r['execution_name'] for r in result]
+
+    def test_cursor_is_applied_before_the_limit(self, mocker):
+        """The regression this exists to prevent: with the cursor applied *after*
+        the slice, the newest `limit` rows are all that survive to be filtered — so
+        every page but the first comes back empty and Backfills vanish from the feed
+        the moment you page."""
+        repo = _make_repo_with_table(mocker, self._table(mocker))
+        result = repo.list_recent(limit=2, before='2024-01-03T00:00:00Z')
+        assert [r['execution_name'] for r in result] == ['bf-2', 'bf-1']
+
+    def test_no_cursor_is_unchanged_behaviour(self, mocker):
+        repo = _make_repo_with_table(mocker, self._table(mocker))
+        assert len(repo.list_recent(limit=10)) == 5
+
+    def test_missing_started_at_counts_as_oldest(self, mocker):
+        """It sorts last, so the cursor must keep it rather than drop it — which is
+        also why this filter stays in memory instead of becoming a FilterExpression."""
+        table = mocker.MagicMock()
+        table.scan.return_value = {'Items': [
+            {'execution_name': 'bf-a', 'started_at': '2024-01-15T10:00:00Z'},
+            {'execution_name': 'bf-b'},
+        ]}
+        repo = _make_repo_with_table(mocker, table)
+        result = repo.list_recent(limit=10, before='2024-01-15T10:00:00Z')
+        assert [r['execution_name'] for r in result] == ['bf-b']
+
+
 class TestListActive:
     def test_filters_to_pending_and_running(self, mocker):
         table = mocker.MagicMock()

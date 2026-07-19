@@ -1,6 +1,7 @@
 import React from 'react';
 import { useClientRoute } from '@/hooks/useClientRoute';
 import { Activity, ListTodo, Search, ChevronLeft, ChevronRight } from '../utils/icons';
+import { Button } from '@/components/ui/button';
 import { RefreshButton } from './RefreshButton';
 
 interface HistoryChromeProps {
@@ -19,6 +20,15 @@ interface HistoryChromeProps {
     loading?: boolean;
     /** Spins the refresh icon and disables it while a fetch is in flight. */
     isFetching?: boolean;
+    /**
+     * The API still has older rows. `total` counts what has been loaded, so this is
+     * what keeps the count honest: "50+" while more exists, a plain "73" once the
+     * feed is exhausted. Never guessed client-side — it comes from the API's cursor.
+     */
+    hasMore?: boolean;
+    /** Loads the next (older) page and appends it. */
+    onLoadMore?: () => void;
+    isLoadingMore?: boolean;
     /** Optional ref to the search input, so a view can wire a focus-filter shortcut to it. */
     searchRef?: React.Ref<HTMLInputElement>;
     children: React.ReactNode;
@@ -29,9 +39,13 @@ interface HistoryChromeProps {
  * Renders the title, the Runs/Tasks toggle, a reference-style toolbar (search + the view's own
  * filters), the table (children), and a pagination footer. Each view keeps its own data,
  * filtering and sorting and passes the sorted-then-searched-then-paged rows as children.
+ *
+ * Two paginations meet in the footer, and they are not the same thing: the pager walks the
+ * rows already loaded, `Show older` asks the API for the next page of the feed itself.
  */
 export function HistoryChrome({
-    mode, search, onSearch, page, setPage, total, pageCount, pageSize, filters, onRefresh, loading, isFetching, searchRef, children,
+    mode, search, onSearch, page, setPage, total, pageCount, pageSize, filters, onRefresh, loading, isFetching,
+    hasMore, onLoadMore, isLoadingMore, searchRef, children,
 }: HistoryChromeProps) {
     const { push } = useClientRoute();
     const from = total === 0 ? 0 : page * pageSize + 1;
@@ -81,29 +95,41 @@ export function HistoryChrome({
 
             {children}
 
-            {(loading || total > 0) && (
+            {(loading || total > 0 || hasMore) && (
                 <div className="hc-pagination">
-                    <span className="text-muted text-sm">
-                        {loading ? <span className="loading-spinner-sm" /> : `${total} ${mode}`}
-                    </span>
-                    {!loading && pageCount > 1 && (
-                        <div className="hc-pager">
-                            <button
-                                type="button" className="hc-pager-btn"
-                                disabled={page <= 0} onClick={() => setPage(page - 1)}
-                                aria-label="Previous page"
-                            >
-                                <ChevronLeft size={16} />
-                            </button>
-                            <span className="text-sm text-muted">{from}–{to} of {total}</span>
-                            <button
-                                type="button" className="hc-pager-btn"
-                                disabled={page >= pageCount - 1} onClick={() => setPage(page + 1)}
-                                aria-label="Next page"
-                            >
-                                <ChevronRight size={16} />
-                            </button>
-                        </div>
+                    <div className="hc-pagination-info">
+                        <span className="text-muted text-sm">
+                            {loading ? <span className="loading-spinner-sm" /> : `${total}${hasMore ? '+' : ''} ${mode}`}
+                        </span>
+                        {!loading && pageCount > 1 && (
+                            <div className="hc-pager">
+                                <button
+                                    type="button" className="hc-pager-btn"
+                                    disabled={page <= 0} onClick={() => setPage(page - 1)}
+                                    aria-label="Previous page"
+                                >
+                                    <ChevronLeft size={16} />
+                                </button>
+                                <span className="text-sm text-muted">{from}–{to} of {total}</span>
+                                <button
+                                    type="button" className="hc-pager-btn"
+                                    disabled={page >= pageCount - 1} onClick={() => setPage(page + 1)}
+                                    aria-label="Next page"
+                                >
+                                    <ChevronRight size={16} />
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                    {!loading && hasMore && (
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={onLoadMore}
+                            disabled={isLoadingMore}
+                        >
+                            {isLoadingMore ? 'Loading…' : `Show older ${mode}`}
+                        </Button>
                     )}
                 </div>
             )}

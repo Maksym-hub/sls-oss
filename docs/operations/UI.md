@@ -221,6 +221,20 @@ The UI automatically detects when tasks are running and increases polling freque
 
 ## Filtering
 
+### History paging (Runs + Tasks)
+
+Both halves of History load newest-first, one page at a time (ADR #113). The footer's
+count reflects what is loaded and says whether that is everything: **`50+ runs`** while
+the API still has older rows, **`73 runs`** once the feed is exhausted. **Show older
+runs / tasks** loads the next page and appends it.
+
+Two paginations sit in that footer and they are not the same thing: the `‹ ›` pager
+walks the rows already loaded, ten at a time; **Show older** extends the feed itself.
+
+How far back you can go depends on the filter: one pipeline reaches as far as the rows
+still exist (bounded by their TTL), a date reaches that date, and no filter reaches the
+last 14 days.
+
 ### Tasks View
 - **Pipeline** — Filter by pipeline name
 - **Status** — Filter by task status

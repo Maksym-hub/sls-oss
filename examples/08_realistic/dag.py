@@ -58,13 +58,13 @@ with DAG(
         query_string="SELECT 1",   # self-contained smoke query
         database="analytics",
         workgroup="polyris-test-wg",
-        output_location="s3://polyris-test-944861944755-us-east-1/athena-results/",
+        output_location="s3://polyris-test-000000000000-us-east-1/athena-results/",
     )
     def aggregate():
         """Roll up into the gold daily table."""
         pass
 
-    @task.batch(job_definition="arn:aws:batch:us-east-1:944861944755:job-definition/polyris-test-jobdef:1", job_queue="arn:aws:batch:us-east-1:944861944755:job-queue/polyris-test-queue")
+    @task.batch(job_definition="arn:aws:batch:us-east-1:000000000000:job-definition/polyris-test-jobdef:1", job_queue="arn:aws:batch:us-east-1:000000000000:job-queue/polyris-test-queue")
     def build_report():
         """Render the executive report.
 
@@ -90,14 +90,14 @@ with DAG(
         pass
 
     @task.sfn(
-        arn="arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn",
+        arn="arn:aws:states:us-east-1:000000000000:stateMachine:polyris-test-sfn",
     )
     def publish():
         """Publish the report via a nested, cross-account workflow."""
         pass
 
     @task.sfn(
-        arn="arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn",
+        arn="arn:aws:states:us-east-1:000000000000:stateMachine:polyris-test-sfn",
         trigger_rule="one_failed",          # only if something upstream failed
     )
     def notify_on_failure():

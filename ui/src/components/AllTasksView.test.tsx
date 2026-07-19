@@ -2,7 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useAppStore } from '../stores/useAppStore';
 
-const mockQueryData = { data: [] as Record<string, unknown>[], isLoading: false, refetch: vi.fn() };
+const mockFetchNextPage = vi.fn();
+/** Infinite-query shape: the feed arrives page by page (see useAllTasksQuery). */
+const mockQueryData = {
+    data: { pages: [] as Array<{ tasks: Record<string, unknown>[]; next: string | null }> },
+    isLoading: false,
+    refetch: vi.fn(),
+    fetchNextPage: mockFetchNextPage,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+};
 const { mockPush } = vi.hoisted(() => ({ mockPush: vi.fn() }));
 
 vi.mock('@/hooks/useClientRoute', () => ({
@@ -10,7 +19,10 @@ vi.mock('@/hooks/useClientRoute', () => ({
 }));
 vi.mock('@/hooks/queries', () => ({
     useAllTasksQuery: () => mockQueryData,
-    useAllRunsQuery: () => ({ data: [], isLoading: false, refetch: vi.fn() }),
+    useAllRunsQuery: () => ({
+        data: { pages: [] }, isLoading: false, refetch: vi.fn(),
+        fetchNextPage: vi.fn(), hasNextPage: false, isFetchingNextPage: false,
+    }),
     usePipelinesQuery: () => ({ data: mockPipelines }),
 }));
 vi.mock('@/utils/icons', () => ({
@@ -44,7 +56,7 @@ vi.mock('../utils/icons', () => ({
     X: () => <span data-testid="icon-x" />,
 }));
 vi.mock('@/components/ui/button', () => ({
-    Button: (props: Record<string, unknown>) => <button onClick={props.onClick as () => void}>{props.children as React.ReactNode}</button>,
+    Button: (props: Record<string, unknown>) => <button onClick={props.onClick as () => void} disabled={props.disabled as boolean}>{props.children as React.ReactNode}</button>,
 }));
 vi.mock('./Skeletons', () => ({
     TableSkeleton: () => <div data-testid="skeleton" />,
@@ -67,11 +79,20 @@ const defaultProps = {
     onPipelineClick: vi.fn(),
 };
 
-function setup(overrides: { tasks?: Record<string, unknown>[]; loading?: boolean } = {}) {
+function setup(overrides: {
+    tasks?: Record<string, unknown>[];
+    pages?: Array<{ tasks: Record<string, unknown>[]; next: string | null }>;
+    loading?: boolean;
+    hasNextPage?: boolean;
+    isFetchingNextPage?: boolean;
+} = {}) {
     const store = useAppStore.getState();
     store.setTaskFilter({ status: '', date: '', pipeline: '', taskName: '' });
-    mockQueryData.data = overrides.tasks ?? mockTasks;
+    mockQueryData.data = { pages: overrides.pages ?? [{ tasks: overrides.tasks ?? mockTasks, next: null }] };
     mockQueryData.isLoading = overrides.loading ?? false;
+    mockQueryData.hasNextPage = overrides.hasNextPage ?? false;
+    mockQueryData.isFetchingNextPage = overrides.isFetchingNextPage ?? false;
+    mockFetchNextPage.mockClear();
     defaultProps.onPipelineClick.mockClear();
 }
 
@@ -173,4 +194,51 @@ describe('AllTasksView', () => {
             expect(document.activeElement).toBe(searchInput);
         });
     });
+    // ──────────────────────────────────────────────────────────────────────
+    // Cursor paging — same contract as the runs half (one dialect).
+    // ──────────────────────────────────────────────────────────────────────
+    describe('paging', () => {
+        it('renders rows from every page loaded so far', () => {
+            setup({ pages: [
+                { tasks: [mockTasks[0]], next: '2024-01-15T08:00:00Z' },
+                { tasks: [mockTasks[2]], next: null },
+            ] });
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByText('extract')).toBeInTheDocument();
+            expect(screen.getByText('load')).toBeInTheDocument();
+            expect(screen.getByText('2 tasks')).toBeInTheDocument();
+        });
+
+        it('marks the count as partial while the API has older tasks', () => {
+            setup({ hasNextPage: true });
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByText('3+ tasks')).toBeInTheDocument();
+        });
+
+        it('drops the + once the feed is exhausted', () => {
+            setup({ hasNextPage: false });
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByText('3 tasks')).toBeInTheDocument();
+        });
+
+        it('loads the older page on Show older tasks', () => {
+            setup({ hasNextPage: true });
+            render(<AllTasksView {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: 'Show older tasks' }));
+            expect(mockFetchNextPage).toHaveBeenCalled();
+        });
+
+        it('offers nothing to load when nothing older exists', () => {
+            setup({ hasNextPage: false });
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.queryByRole('button', { name: 'Show older tasks' })).not.toBeInTheDocument();
+        });
+
+        it('disables the button while the older page is in flight', () => {
+            setup({ hasNextPage: true, isFetchingNextPage: true });
+            render(<AllTasksView {...defaultProps} />);
+            expect(screen.getByRole('button', { name: 'Loading…' })).toBeDisabled();
+        });
+    });
+
 });

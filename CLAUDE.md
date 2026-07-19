@@ -453,11 +453,17 @@ is exactly why the explicit report exists: so verification is auditable, not tru
 
 ## Date picker is per-workspace, not global (ADR #106)
 
-The date scopes a workspace's data, so its control lives with that data — not in
-the global topbar. Assets are current-state (no date; per-date history is on the
-Team matrix), and the pipeline page now scopes the date inside its execution-history drawer, so the
-topbar date picker shows only on `/runs`. When the Runs workspace grows its own date
-control the topbar picker is removed entirely.
+The date scopes a workspace's data, so its control lives with that data — and, just as
+importantly, so does its **state**. Assets are current-state (no date; per-date history is
+on the Team matrix); the pipeline page scopes the date inside its execution-history drawer;
+and Runs and Tasks each own their date filter (`runFilter.date` / `taskFilter.date`, both in
+their own workspace's URL). There is no global date picker left.
+
+`useAppStore.date` is now the **pipeline page's scope, and nothing else**. Never read it
+from a workspace view. The two are not the same idea and cannot share a value: a feed's
+empty date means "every date", a page's empty date means nothing at all. While Runs drove
+the global one, clearing its filter left the pipeline page scoped to a day called `''` —
+a bare graph, no banner, and the run it should have shown sitting right there.
 
 ## Coding Philosophy
 

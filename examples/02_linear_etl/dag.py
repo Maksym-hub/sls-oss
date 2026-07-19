@@ -16,7 +16,7 @@ from polyris import DAG, task
 # Reuse one worker state machine here for brevity; in practice each step is
 # usually its own state machine. Replace with your real ARN(s).
 # NOTE: ARNs below are hardcoded to the testing-infra CloudFormation stack.
-ARN = "arn:aws:states:us-east-1:944861944755:stateMachine:polyris-test-sfn"
+ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:polyris-test-sfn"
 
 with DAG(
     dag_id="sales-etl",

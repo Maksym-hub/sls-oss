@@ -116,7 +116,7 @@ export const useAppStore = create<AppState>((set) => ({
 
     // Filters
     taskFilter: { status: '', date: '', pipeline: '', taskName: '' },
-    runFilter: { status: '', pipeline: '' },
+    runFilter: { status: '', pipeline: '', date: '' },
 
     // Modals
     showHelpModal: false,

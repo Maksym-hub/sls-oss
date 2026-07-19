@@ -15,7 +15,7 @@ ENVIRONMENTS = {
         "namespace": "polyris-ex",
         "stage": "dev",
         "region": "us-east-1",
-        "account_id": "944861944755",
+        "account_id": "000000000000",
         # "profile": "your-aws-profile",   # optional — omit to use default credentials
         # The example pipelines don't use cross-account roles, so this is empty.
         "roles": {},

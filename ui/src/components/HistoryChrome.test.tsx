@@ -8,7 +8,7 @@ vi.mock('@/hooks/useClientRoute', () => ({
 }));
 vi.mock('@/components/ui/button', () => ({
     Button: (props: Record<string, unknown>) => (
-        <button onClick={props.onClick as () => void}>{props.children as React.ReactNode}</button>
+        <button onClick={props.onClick as () => void} disabled={props.disabled as boolean}>{props.children as React.ReactNode}</button>
     ),
 }));
 vi.mock('../utils/icons', () => ({
@@ -107,5 +107,108 @@ describe('HistoryChrome', () => {
         render(<HistoryChrome {...baseProps} mode="runs" />);
         expect(screen.getByRole('tab', { name: /runs/i })).toHaveAttribute('tabindex', '0');
         expect(screen.getByRole('tab', { name: /tasks/i })).toHaveAttribute('tabindex', '-1');
+    });
+    // ──────────────────────────────────────────────────────────────────────
+    // Cursor paging. `total` counts what is loaded; `hasMore` is the API's word
+    // for "there is older data" — together they make the count honest.
+    // ──────────────────────────────────────────────────────────────────────
+
+    it('marks the count as partial while the feed has older rows', () => {
+        render(<HistoryChrome {...baseProps} hasMore />);
+        expect(screen.getByText('25+ runs')).toBeInTheDocument();
+    });
+
+    it('states the count plainly once the feed is exhausted', () => {
+        render(<HistoryChrome {...baseProps} hasMore={false} />);
+        expect(screen.getByText('25 runs')).toBeInTheDocument();
+    });
+
+    it('loads the older page on demand', () => {
+        const onLoadMore = vi.fn();
+        render(<HistoryChrome {...baseProps} hasMore onLoadMore={onLoadMore} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Show older runs' }));
+        expect(onLoadMore).toHaveBeenCalled();
+    });
+
+    it('offers nothing to load when nothing older exists', () => {
+        render(<HistoryChrome {...baseProps} hasMore={false} />);
+        expect(screen.queryByRole('button', { name: /show older/i })).not.toBeInTheDocument();
+    });
+
+    it('labels the button after the mode it is paging', () => {
+        render(<HistoryChrome {...baseProps} mode="tasks" hasMore />);
+        expect(screen.getByRole('button', { name: 'Show older tasks' })).toBeInTheDocument();
+    });
+
+    it('disables the button while the older page is in flight', () => {
+        render(<HistoryChrome {...baseProps} hasMore isLoadingMore />);
+        expect(screen.getByRole('button', { name: 'Loading…' })).toBeDisabled();
+    });
+
+    it('keeps the footer reachable when a search hides every loaded row', () => {
+        // 0 matches but more pages behind them: hiding the footer here would strand
+        // the user on "no matches" with no way to search deeper.
+        render(<HistoryChrome {...baseProps} total={0} pageCount={1} hasMore />);
+        expect(screen.getByText('0+ runs')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Show older runs' })).toBeInTheDocument();
+    });
+
+    it('still hides the footer when the feed is genuinely empty', () => {
+        render(<HistoryChrome {...baseProps} total={0} pageCount={1} hasMore={false} />);
+        expect(screen.queryByText(/runs$/)).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /show older/i })).not.toBeInTheDocument();
+    });
+
+    it('shows the loading spinner instead of a count while the first page loads', () => {
+        const { container } = render(<HistoryChrome {...baseProps} loading hasMore />);
+        expect(container.querySelector('.loading-spinner-sm')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /show older/i })).not.toBeInTheDocument();
+    });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // The footer's flex row used to lay out via `justify-content: space-between`
+    // across however many of {counter, pager, button} happened to be rendered.
+    // Stable at 3 children while the feed still had more to load; once `hasMore`
+    // flips false the button disappears, leaving 2 — `space-between` redistributes
+    // *those* to the two edges, so the pager visibly jumped from wherever it sat
+    // (somewhere in the middle) to the far edge the button used to occupy the
+    // instant a "Show older" click exhausted the feed. Counter and pager are now a
+    // single `.hc-pagination-info` unit whose own internal layout never depends on
+    // whether a sibling exists — these tests pin that unit's position and contents
+    // stay identical with and without the button, rather than asserting on computed
+    // CSS (jsdom has no real box model to check `space-between` math against).
+    // ──────────────────────────────────────────────────────────────────────
+    describe('pagination footer does not reposition when "Show older" disappears', () => {
+        it('keeps the counter+pager group as the first element, whether or not the button renders', () => {
+            const { container: withButton } = render(<HistoryChrome {...baseProps} hasMore />);
+            const { container: withoutButton } = render(<HistoryChrome {...baseProps} hasMore={false} />);
+
+            const infoWith = withButton.querySelector('.hc-pagination')?.firstElementChild;
+            const infoWithout = withoutButton.querySelector('.hc-pagination')?.firstElementChild;
+
+            expect(infoWith).toHaveClass('hc-pagination-info');
+            expect(infoWithout).toHaveClass('hc-pagination-info');
+            // Same shape in both cases (counter + pager both present) — the group's own
+            // structure is untouched by whether a completely separate sibling (the
+            // button) exists. Text isn't compared: the counter legitimately reads
+            // differently ("25+" vs "25") since it's honestly reporting `hasMore` itself.
+            expect(infoWith?.querySelector('.hc-pager')).toBeTruthy();
+            expect(infoWithout?.querySelector('.hc-pager')).toBeTruthy();
+        });
+
+        it('holds the counter and pager together inside one group, not as separate flex siblings', () => {
+            const { container } = render(<HistoryChrome {...baseProps} hasMore />);
+            const info = container.querySelector('.hc-pagination-info');
+            expect(info?.querySelector('.text-muted')).toBeTruthy();   // the counter span
+            expect(info?.querySelector('.hc-pager')).toBeTruthy();     // the client pager
+        });
+
+        it('renders the button as a direct sibling of the info group, not nested inside it', () => {
+            const { container } = render(<HistoryChrome {...baseProps} hasMore />);
+            const pagination = container.querySelector('.hc-pagination');
+            const button = screen.getByRole('button', { name: 'Show older runs' });
+            expect(button.parentElement).toBe(pagination);
+            expect(container.querySelector('.hc-pagination-info')?.contains(button)).toBe(false);
+        });
     });
 });

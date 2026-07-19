@@ -11,7 +11,7 @@ Handles pipeline execution control operations:
 - get_execution_parent: Get parent execution info
 """
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Dict, List
 
 from boto3.dynamodb.conditions import Key
@@ -21,10 +21,38 @@ from config import sfn
 from dal import executions_repo, pipelines_repo, backfills_repo
 from .pipelines_list import reconcile_sfn_status
 from dal.subscriptions_repo import dep_subscriptions_repo
-from constants import TASK_SETTLED_STATUSES, derive_execution_status
+from constants import Limits, TASK_SETTLED_STATUSES, derive_execution_status
+from feed import feed_dates, is_older, page_by_started_at, pipeline_rows_before
 from response import cors_response
 from logger import log
 from utils import safe_param_int, should_skip_token_row
+
+
+def _backfill_matches(bf: Dict, status_filter: str, pipeline_filter: str,
+                      date_filter: str) -> bool:
+    """The feed's filter semantics for one Backfill record (ADR #95 decisions).
+
+      * ``status_filter`` — literal match against the Backfill status.
+      * ``pipeline_filter`` — match on ``target_pipeline`` (cross-pipeline
+        backfills surface under their target only).
+      * ``date_filter`` — include when the date is within the backfill's
+        partition range (string range over ``partition_keys``; daily-oriented).
+    """
+    if status_filter and (bf.get('status', 'pending') != status_filter):
+        return False
+
+    if pipeline_filter and (bf.get('target_pipeline', '') or '') != pipeline_filter:
+        return False
+
+    if date_filter:
+        try:
+            keys = json.loads(bf.get('partition_keys') or '[]')
+        except (json.JSONDecodeError, TypeError):
+            keys = []
+        if not keys or not (min(keys) <= date_filter <= max(keys)):
+            return False
+
+    return True
 
 
 def _build_backfill_run_rows(
@@ -32,6 +60,7 @@ def _build_backfill_run_rows(
     status_filter: str,
     pipeline_filter: str,
     date_filter: str,
+    before: str = '',
 ) -> List[Dict]:
     """Build unified-feed rows for Backfills (``kind='backfill'``) — ADR #95.
 
@@ -43,39 +72,34 @@ def _build_backfill_run_rows(
     interpret it. Children are not embedded: a backfill row expands on demand
     via ``GET /api/backfills/by-id``.
 
-    Filters (ADR #95 decisions):
-      * ``status_filter`` — literal match against the Backfill status.
-      * ``pipeline_filter`` — match on ``target_pipeline`` (cross-pipeline
-        backfills surface under their target only).
-      * ``date_filter`` — include when the date is within the backfill's
-        partition range (string range over ``partition_keys``; daily-oriented).
+    ``before`` is the feed's paging cursor (see ``feed.py``) and is handed to the repo
+    rather than applied here: ``list_recent`` sorts newest-first, so a cursor applied
+    after a ``limit`` slice would return nothing on every page but the first, and
+    Backfills would quietly vanish from the feed as soon as you paged.
+
+    **Filters run before the page is cut, and the repo is asked for no limit at all.**
+    ``list_recent`` scans the sentinel unconditionally — its ``limit`` buys no capacity,
+    it only truncates an already-materialised list — so slicing first just spends the
+    page on records the filters are about to drop. ``?status=completed`` with a run of
+    recent ``partial`` backfills would then answer "no runs found" while completed ones
+    sat right behind them, and an empty page has no last row, so no cursor, so the feed
+    would stop there for good. ``limit + 1`` for the same reason
+    ``feed.pipeline_rows_before`` overshoots: the page learns it is not the last one by
+    having more rows than it can fit.
 
     Degrades gracefully: on a DDB error the executions are still returned.
     """
     rows: List[Dict] = []
     try:
-        backfills = backfills_repo.list_recent(limit=limit)
+        backfills = backfills_repo.list_recent(limit=None, before=before or None)
     except (ClientError, BotoCoreError) as e:
         log.error("get_all_runs", "Failed to list backfills for unified feed", error=str(e))
         return rows
 
-    for bf in backfills:
-        status = bf.get('status', 'pending')
-        if status_filter and status != status_filter:
-            continue
+    matching = [bf for bf in backfills
+                if _backfill_matches(bf, status_filter, pipeline_filter, date_filter)]
 
-        target_pipeline = bf.get('target_pipeline', '') or ''
-        if pipeline_filter and target_pipeline != pipeline_filter:
-            continue
-
-        if date_filter:
-            try:
-                keys = json.loads(bf.get('partition_keys') or '[]')
-            except (json.JSONDecodeError, TypeError):
-                keys = []
-            if not keys or not (min(keys) <= date_filter <= max(keys)):
-                continue
-
+    for bf in matching[:limit + 1]:
         started_at = bf.get('started_at', '') or ''
         finished_at = bf.get('finished_at', '') or ''
         duration_ms = None
@@ -92,8 +116,8 @@ def _build_backfill_run_rows(
             'kind': 'backfill',
             'id': bf.get('backfill_id'),
             'backfill_id': bf.get('backfill_id'),
-            'pipeline_name': target_pipeline,
-            'status': status,
+            'pipeline_name': bf.get('target_pipeline', '') or '',
+            'status': bf.get('status', 'pending'),
             'started_at': started_at or None,
             'finished_at': finished_at or None,
             'started_by': bf.get('started_by'),
@@ -109,14 +133,25 @@ def _build_backfill_run_rows(
     return rows
 
 
+_RUNS_PROJECTION = ('pipeline_execution, pipeline_execution_short, pipeline_name, '
+                    '#d, #s, started_at, finished_at')
+_RUNS_EXPR_NAMES = {'#d': 'date', '#s': 'status'}
+
+
 def get_all_runs(event: Dict) -> Dict:
     """Get all pipeline runs across pipelines from DynamoDB.
     
     DATA SOURCE: DynamoDB (see DESIGN_DECISIONS.md #22).
     Uses date-pipeline-index GSI for efficient queries by logical date.
+
+    Pages with an opaque ``before`` cursor and answers with ``next`` (see ``feed.py``),
+    so the row count is what the feed actually holds rather than whatever survived a
+    silent slice. Backfills page through the same cursor — they carry ``started_at``
+    too, which is what makes one cursor enough for the merged feed (ADR #95).
     """
     params = event.get('queryStringParameters', {}) or {}
-    limit = safe_param_int(params, 'limit', 50, 200)
+    limit = safe_param_int(params, 'limit', Limits.RUNS_FEED_LIMIT, 200)
+    before = params.get('before', '')
     date_filter = params.get('date', '')
     pipeline_filter = params.get('pipeline', '')
     status_filter = params.get('status', '')
@@ -125,32 +160,49 @@ def get_all_runs(event: Dict) -> Dict:
         all_items = []
         
         if date_filter:
-            # Single date: one GSI query
+            # Single date: one GSI query. Already bounded, so the cursor only pages
+            # what came back — no narrowing to do on the read itself.
             key_cond = Key('date').eq(date_filter)
             if pipeline_filter:
-                key_cond = Key('date').eq(date_filter) & Key('pipeline_name').eq(pipeline_filter)
-            all_items = executions_repo.query_by_date(
+                key_cond = key_cond & Key('pipeline_name').eq(pipeline_filter)
+            all_items = executions_repo.query_runs_by_date(
                 date_filter,
-                max_items=2000,
+                min_rows=Limits.RUNS_MIN_ROWS_PER_DATE,
                 key_condition=key_cond,
-                projection='pipeline_execution, pipeline_execution_short, pipeline_name, #d, #s, started_at, finished_at',
-                expr_names={'#d': 'date', '#s': 'status'}
+                projection=_RUNS_PROJECTION,
+                expr_names=_RUNS_EXPR_NAMES,
+            )
+        elif pipeline_filter:
+            # One pipeline, no date: ask pipeline-date-index directly (ADR #108).
+            # No day-loop and no window — how far back you can see is bounded by
+            # the row TTL, not by SLA_DAYS. The cross-pipeline branch below cannot
+            # do this: with no pipeline to hash on, `date` is the only shard key.
+            all_items = pipeline_rows_before(
+                pipeline_filter, before, limit,
+                # A run is older than the cursor iff any of its rows is: the run's
+                # started_at is the earliest of them.
+                count_fn=lambda rows: len({
+                    r.get('pipeline_execution') for r in rows
+                    if r.get('pipeline_execution')
+                    and not should_skip_token_row(r)
+                    and is_older(r, before)
+                }),
+                projection=_RUNS_PROJECTION,
+                expr_names=_RUNS_EXPR_NAMES,
             )
         else:
-            # Default: query last 14 days (SLA window)
-            sla_days = 14
-            for i in range(sla_days):
-                date_str = (datetime.now(timezone.utc) - timedelta(days=i)).strftime('%Y-%m-%d')
+            # Default: the SLA window, walked back from the cursor's date. This feed
+            # is a cross-pipeline time series, so `date` is the natural shard key and
+            # a per-date fan-out is the correct access pattern here (unlike the
+            # per-pipeline path, which uses pipeline-date-index and needs no window
+            # at all).
+            for date_str in feed_dates(before):
                 try:
-                    key_cond = Key('date').eq(date_str)
-                    if pipeline_filter:
-                        key_cond = Key('date').eq(date_str) & Key('pipeline_name').eq(pipeline_filter)
-                    day_items = executions_repo.query_by_date(
+                    day_items = executions_repo.query_runs_by_date(
                         date_str,
-                        max_items=500,
-                        key_condition=key_cond,
-                        projection='pipeline_execution, pipeline_execution_short, pipeline_name, #d, #s, started_at, finished_at',
-                        expr_names={'#d': 'date', '#s': 'status'}
+                        min_rows=Limits.FEED_MIN_ROWS_PER_DAY,
+                        projection=_RUNS_PROJECTION,
+                        expr_names=_RUNS_EXPR_NAMES,
                     )
                     all_items.extend(day_items)
                 except Exception as e:
@@ -219,6 +271,12 @@ def get_all_runs(event: Dict) -> Dict:
                 'duration_ms': duration_ms
             })
 
+        # Drop what earlier pages already served before reconciling: a run newer than
+        # the cursor cannot appear on this page, and reconciling it would spend an SFN
+        # describe on a row nobody will see. The paging contract is still enforced
+        # below, in page_by_started_at — this is only about not paying for it twice.
+        all_runs = [r for r in all_runs if is_older(r, before)]
+
         # Reconcile 'running' executions against SFN (ADR #112, decision b) so /runs and
         # the execution dropdown agree on stuck-running / timed_out / recovered. ARNs are
         # resolved once per pipeline; only running rows incur an SFN call. Runs BEFORE the
@@ -246,16 +304,18 @@ def get_all_runs(event: Dict) -> Dict:
         # are excluded from the execution rows above by should_skip_token_row,
         # so there is no double-count — they enter only here.
         all_runs.extend(
-            _build_backfill_run_rows(limit, status_filter, pipeline_filter, date_filter)
+            _build_backfill_run_rows(limit, status_filter, pipeline_filter, date_filter, before)
         )
 
-        # Sort by started_at descending (newest first)
-        all_runs.sort(key=lambda x: x.get('started_at') or '', reverse=True)
-        all_runs = all_runs[:limit]
-        
+        # One page, newest first, plus the cursor for the older one. Both kinds sort
+        # and page on the same started_at, so the merge needs no second cursor.
+        page, next_cursor = page_by_started_at(all_runs, before, limit)
+
         return cors_response(200, {
-            'runs': all_runs,
-            'count': len(all_runs),
+            'runs': page,
+            'count': len(page),
+            # Opaque cursor for the next (older) page; None when nothing older exists.
+            'next': next_cursor,
             'filters': {
                 'pipeline': pipeline_filter,
                 'status': status_filter,

@@ -198,6 +198,27 @@ Resources:
               - wrapper_execution_arn
               - error
               - notification_failed
+        - IndexName: pipeline-date-index
+          # Inverse of date-pipeline-index: lets us ask "this pipeline's runs,
+          # newest first" in ONE query instead of looping a day at a time.
+          # Both key attributes are already written on every task row, so this
+          # index needs no write-path change and AWS backfills it from existing
+          # rows. Depth is then bounded only by the row TTL, not by a window
+          # constant (ADR: read runs by pipeline via inverted GSI).
+          KeySchema:
+            - AttributeName: pipeline_name
+              KeyType: HASH
+            - AttributeName: date
+              KeyType: RANGE
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - status
+              - started_at
+              - finished_at
+              - pipeline_execution
+              - pipeline_execution_short
+              - task_name
         - IndexName: backfill-id-index
           KeySchema:
             - AttributeName: backfill_id

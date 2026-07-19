@@ -123,3 +123,6 @@ secrets.json
 # Deploy config carries inline secrets — only the sanitized .example is tracked.
 sam/samconfig.toml
 
+
+# Local working copies of examples with real account IDs — never publish
+examples_temp/

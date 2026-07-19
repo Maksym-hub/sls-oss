@@ -8771,6 +8771,21 @@ the console; that history is on the matrix (which also opens backfill). This is
 consistent with "assets = current" and removes an app-wide date dependency, at the
 cost of the rarely-used past-day event/queue lookup, which the matrix covers.
 
+**Follow-up (v0.93.0).** The same confusion outlived this ADR in the last place still
+holding the global date: the **Runs** workspace. Its picker wrote `useAppStore.date` —
+the *pipeline page's scope* — so clearing it meant "every date" to the feed and "a day
+called `''`" to that page, which then rendered a bare graph with the run it should have
+shown sitting right there. Runs now owns `runFilter.date` in its own URL, matching Tasks
+and the pipeline page's history drawer. **`useAppStore.date` is the pipeline page's scope
+and nothing else** — a workspace view must never read it.
+
+Two ideas, one value, is the whole trap: a feed's empty date means *every date*, a page's
+empty date means *nothing at all*. They cannot share storage no matter how convenient it
+looks. The backend had the mirror image of it — `params.get('date', <today>)` defaults only
+when the param is *absent*, while a cleared picker sends it present and empty — so four
+routes matched `date=''` literally. Both halves are pinned by guard tests that walk the
+code rather than rely on anyone remembering.
+
 ### 107. Notifications: one per run, two attention states (failure vs decision-required)
 
 **Context.** The header notification feed scanned task-instance records for
@@ -8801,3 +8816,146 @@ never yields more than one notification regardless of how many tasks failed. We 
 *not* add a separate "task failed while the run is still running" notification (kept out
 to avoid noise — in-progress task failures are visible on the DAG). The classification
 is derived purely from task records; no run-level status record is introduced.
+
+### 108. A pipeline's runs are read through an inverted GSI; the cross-pipeline feed keeps its per-date fan-out
+
+**Context.** Runs are derived, not stored: task rows are grouped by `pipeline_execution`
+and the run status comes from `derive_execution_status()` (ADR #112). The only index into
+them was `date-pipeline-index` (**HASH `date`**, RANGE `pipeline_name`), which answers
+"who ran on day D". Answering the question the UI actually asks — *"this pipeline's runs,
+newest first"* — therefore required looping a day at a time, and every caller had to pick
+how many days to loop. That produced four dialects of one workaround (`/runs` hardcoded
+`sla_days = 14`; `/pipeline-executions` a caller-supplied range; the asset matrix 14/60
+**parallel**; the calendar a month) plus a hidden `executions[:50]` cap, and it capped
+visible history at an arbitrary window rather than at the data's own lifetime. It also
+forced two UI workarounds: a "No executions for {date}" dead end and a "Latest" escape
+hatch, both artefacts of the drawer being scoped to a single date.
+
+**Decision.** Add `pipeline-date-index` — the **inverse** of the existing index
+(**HASH `pipeline_name`, RANGE `date`**, projection INCLUDE). Both key attributes are
+already written on every task row by the wrapper, so this needs **no write-path change,
+no new Step Functions state, and no migration** — DynamoDB backfills the index from
+existing rows, and old runs are visible immediately. `ExecutionsRepo.query_runs_by_pipeline`
+reads it newest-first and pages with an opaque date cursor, cutting only on a date
+boundary so an execution's task set is never split across pages.
+
+**The cross-pipeline feed (`/runs` with no pipeline filter) deliberately keeps its
+per-date fan-out.** There is nothing to hash on for "everything, newest first"; a
+constant partition key (`feed_pk = "RUN"`) would funnel every write into one DynamoDB
+partition — the hot-partition antipattern — and would need a new attribute that only new
+rows carry, blanking the feed until the old rows age out. **`date` is the natural shard
+key for a time-ordered feed**, so the loop there is correct design, not debt. What was
+removed is the *dialects*: the window now comes from `Limits.SLA_DAYS` and the worker cap
+from `Limits.PARALLEL_DATE_QUERIES` (previously duplicated verbatim in EE `drift.py` and
+`matrix.py`).
+
+**Consequences.**
+- Depth is governed by the row TTL alone (~31 days today, per the wrapper's `ttl`). Raising
+  the TTL deepens visible history **with no code change** — the point of the exercise.
+- One extra GSI write per task-row write (PAY_PER_REQUEST) plus INCLUDE-projection storage;
+  ~\$0.45/month at ~60k executions/month. No capacity planning.
+- The history drawer lists every run it can see, so "Latest" is gone (click the top entry).
+  The page still scopes the DAG to a date, so "No executions for {date}" / "View latest run"
+  remain — but they are no longer a dead end, since the drawer reaches any run regardless.
+- Two access patterns remain, one per question, both behind the DAL. That is deliberate:
+  forcing them into one would mean the hot-partition antipattern above.
+
+### 113. The History feed pages on a `started_at` cursor; `next` is the only end-of-feed signal
+
+**Context.** ADR #108 removed the *window* dialects from the runs feed but left the
+**cap** untouched: `get_all_runs` ended in `all_runs = all_runs[:limit]`, unconditionally,
+on every path. `/api/tasks` did the same with `items[:limit]`, on top of a full-table Scan
+whose row order is arbitrary — so "the newest 100 tasks" was the newest 100 of whichever
+10,000 rows the Scan happened to read first. The UI then rendered the survivors under the
+label `50 runs`, which is not a count of anything: it is the page size wearing a count's
+clothes. Nothing in the response distinguished "there are exactly 50 runs" from "there are
+5,000 and you may have the first 50", so the UI could not have told the truth even if it
+had wanted to, and there was no way to ask for the 51st.
+
+**Decision.** Both feeds page on an opaque **`before` cursor carrying a `started_at`**
+("give me what is older than T") and answer with **`next`** — the last returned row's
+`started_at`, or `null` when nothing older exists. `null` is the point: a full page is not
+an end-of-feed signal, so without an explicit one the UI must either lie or guess.
+
+`started_at` rather than a DynamoDB key, because the runs feed merges two sources with no
+common key — executions and Backfills (ADR #95) — whose only shared ordering attribute is
+`started_at`, which is also what the feed already sorts by. One timestamp pages the merged
+list; a key-based cursor would have to encode both sources, and a composite cursor would
+buy nothing the sort order doesn't already give.
+
+The **cursor is a filter, not a scope**: it says which rows are eligible, never where they
+come from. Sources stay exactly as ADR #108 left them, and both routes now share all three:
+- explicit `date` → one indexed query (already bounded);
+- `pipeline`, no date → `pipeline-date-index`, no window (bounded by the row TTL);
+- neither → the `Limits.SLA_DAYS` fan-out over `date`, **started at the cursor's date**
+  rather than at today. `date` remains the natural shard key for a cross-pipeline time
+  series (ADR #108) — the walk is design, not debt, and paging deeper now costs *fewer*
+  queries, not more.
+
+Starting the walk at the cursor's date is safe because a row's `started_at` is never
+earlier than its logical `date`: no row older than T can hide on a date newer than T's.
+
+**Consequences.**
+- `/api/tasks` loses its Scan. It was the more expensive read *and* the less honest one —
+  unbounded cost, arbitrary order, and no cursor could have paged it truthfully. Its
+  pipeline-filtered path now reads `pipeline-date-index`, so both halves of History reach
+  equally far back; its unfiltered path inherits the same SLA window the runs half has
+  always had, in exchange for a bounded, ordered read.
+- `backfills_repo.list_recent` grew `before`, applied **before** its `limit` slice. After
+  it, the newest `limit` records are all that survive to be filtered — which is exactly the
+  set any cursor has already served — so Backfills would silently drop out of the feed on
+  page two. The cursor filter stays in memory: DynamoDB applies `FilterExpression` after
+  reading, so pushing it down saves no capacity, and it would drop records with no
+  `started_at` instead of sorting them last, where the rest of the feed puts them.
+- **Every bounded source reads one row past the page.** `next` is inferred from having more
+  rows than fit, so a source that returns exactly `limit` makes a full page look identical
+  to an exhausted feed — reporting end-of-data with rows still behind it, which is the same
+  silent truncation this ADR exists to remove, merely moved one layer down. Sources that
+  read a whole window or date get the surplus for free; the two bounded ones must ask for
+  it: `feed.pipeline_rows_before` requests `want + 1` and stops on `count_fn(rows) > want`
+  (strictly), and `_build_backfill_run_rows` asks `list_recent` for `limit + 1`. Landing on
+  exactly `limit` is then only reachable by exhausting the source, which is the one case
+  where it is true.
+- The index read needs a **fill loop** (`feed.pipeline_rows_before`). Its repo cursor is a
+  *date*, so on a busy cut date one read returns only rows the cursor already served; a
+  single read would hand back a short page and, worse, never advance past that date —
+  paging would stall with older runs still behind it. The loop pulls whole dates until it
+  overshoots the page or the index runs out. It costs nothing on the first page, where the
+  first read is always enough. (The stall needs the repo to hand back a date cursor, which
+  needs a >1MB query page — real for a busy pipeline, and the same cursor the history
+  drawer already pages on, but not reproducible under `moto`, so it is pinned by a unit
+  test against the repo's documented contract rather than end-to-end.)
+- The count is now honest, and says so: `50+ runs` while `next` is non-null, `73 runs` once
+  it isn't. Two paginations coexist in the footer and are not the same thing — the pager
+  walks loaded rows, `Show older` extends the feed.
+- Rows without a `started_at` sort last and cannot be a cursor, so a page ending on one
+  stops paging. Every task row is stamped at registration and every Backfill at start; this
+  is a broken-data guard, not a supported mode.
+- **Nothing is ever cut inside a unit, at any layer.** This turned out to be the whole of
+  it, and the review found two places that were: the day read cut inside a *pipeline*, and
+  the page cut inside an *instant*. The rule is now uniform —
+  `query_runs_by_pipeline` cuts on whole dates, `query_runs_by_date` on whole pipelines,
+  `page_by_started_at` on whole `started_at` values.
+  - The day read was the serious one. `date-pipeline-index` is ordered by `pipeline_name`,
+    so a row-count cut lands mid-pipeline — and a run's status is *derived* from the rows
+    the caller got (ADR #112), so a split run is not a missing run, it is a **wrong** one:
+    a failed run whose failing task fell past the cut renders `success`. Measured at three
+    hourly 8-task pipelines (576 rows on one day, cap 500): 23 of 72 failed runs green.
+    `ExecutionsRepo.query_runs_by_date` reads whole pipelines and drops the one it stopped
+    inside, keeping the read while only one pipeline is buffered so a single busy pipeline
+    is never the one dropped. The budgets are therefore floors, not caps
+    (`*_MIN_ROWS_*`), and a date that fits one DynamoDB page comes back whole — which
+    costs more Lambda memory than the old truncation and is the right trade: the cap was
+    never saving capacity anyway (DynamoDB had already returned the page; the truncation
+    only threw it away).
+  - The page cut was the subtle one. The cursor is a strict `<`, so a row sharing the
+    boundary's `started_at` is filtered out by the very cursor meant to fetch it. The page
+    absorbs its twins instead. This is what makes a plain timestamp sufficient rather than
+    a compromise: a composite cursor would only buy back what the boundary already gives.
+- What remains, honestly: on a day too big for one DynamoDB page, the pipelines past the cut
+  are still missing from the *unfiltered* feed (filter to a pipeline and they are all there,
+  windowless). That is a completeness gap, not a correctness one, and closing it needs a
+  per-day cursor over `pipeline_name` — which conflicts with ordering the feed by
+  `started_at`. Deliberately not answered here. `query_all` already logs `Hit max_items
+  limit`, and `query_runs_by_date` cuts on the same condition, so whether this is live is
+  measurable rather than arguable.

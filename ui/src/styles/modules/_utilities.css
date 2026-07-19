@@ -57,13 +57,28 @@
     position: relative;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
 }
 
+/* Run count, rendered inside the History button */
 .pd-history-count {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
+    font-weight: 600;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+}
+
+/* Runs from today, so "what just happened" stands out in a list that spans
+   every date we can still see. */
+.pd-dropdown-item.today {
+    border-left: 2px solid var(--accent);
+    background: var(--bg-tertiary);
+}
+
+.pd-exec-dropdown-more {
+    display: flex;
+    justify-content: center;
+    padding: 8px;
+    border-top: 1px solid var(--border);
 }
 .pd-dropdown-item:last-child { border-bottom: none; }
 .pd-dropdown-item:hover { background: var(--bg-hover); }
@@ -323,8 +338,6 @@
 /* Dropdown */
 .dropdown { position: absolute; top: 100%; right: 0; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; min-width: 280px; max-height: 400px; overflow: auto; }
 .pd-dropdown-item { padding: 0.75rem 1rem; cursor: pointer; border-bottom: 1px solid var(--border); }
-.pd-dropdown-item:hover { background: var(--bg-hover); }
-.pd-dropdown-item:last-child { border-bottom: none; }
 
 /* Color utilities */
 .text-accent { color: var(--accent); }

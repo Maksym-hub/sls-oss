@@ -30,9 +30,10 @@ interface AllRunsViewProps {
 interface RunsUrlState {
     status?: string;
     pipeline?: string;
+    date?: string;
     [key: string]: string | undefined;
 }
-const RUNS_URL_KEYS = ['status', 'pipeline'] as const;
+const RUNS_URL_KEYS = ['status', 'pipeline', 'date'] as const;
 
 /**
  * AllRunsView — the Runs half of the History view (merged with All tasks via HistoryChrome).
@@ -43,21 +44,25 @@ export function AllRunsView({
     onPipelineClick,
 }: AllRunsViewProps) {
     const router = useClientRoute();
-    const { date, setDate, runFilter: filter, setRunFilter: onFilterChange } = useAppStore(useShallow(s => ({
-        date: s.date, setDate: s.setDate, runFilter: s.runFilter, setRunFilter: s.setRunFilter,
+    const { runFilter: filter, setRunFilter: onFilterChange } = useAppStore(useShallow(s => ({
+        runFilter: s.runFilter, setRunFilter: s.setRunFilter,
     })));
 
     const showBackfills = !!paidSurface.BackfillsView;
 
     // ─── URL Sync ─────────────────────────────────────────────────────────
-    // Note: `date` is shared with global header, not in URL here (header
-    // already controls it). We sync only filter (status, pipeline).
+    // The date is this workspace's own filter and lives in this workspace's URL
+    // (ADR #106 — a date scopes the data it sits with). It used to be the global
+    // `store.date`, which is the *Pipeline page's* scope: clearing the filter here
+    // meant "all dates" to this feed and "a day called ''" to that page, which
+    // stranded it on an empty graph.
     const { initialState: urlInitial, replaceUrl: replaceRunsUrl } = useUrlSync<RunsUrlState>({
         keys: RUNS_URL_KEYS,
         onChange: (state) => {
             onFilterChange({
                 status: state.status || '',
                 pipeline: state.pipeline || '',
+                date: state.date || '',
             });
         },
     });
@@ -66,10 +71,11 @@ export function AllRunsView({
     useEffect(() => {
         if (initialized.current) return;
         initialized.current = true;
-        if (urlInitial.status || urlInitial.pipeline) {
+        if (urlInitial.status || urlInitial.pipeline || urlInitial.date) {
             onFilterChange({
                 status: urlInitial.status || '',
                 pipeline: urlInitial.pipeline || '',
+                date: urlInitial.date || '',
             });
         }
     // Mount-only: initialize once from URL state.
@@ -80,13 +86,22 @@ export function AllRunsView({
         replaceRunsUrl({
             status: filter.status || undefined,
             pipeline: filter.pipeline || undefined,
+            date: filter.date || undefined,
         });
     // Omits replaceRunsUrl (stable callback ref)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filter.status, filter.pipeline]);
+    }, [filter.status, filter.pipeline, filter.date]);
 
     const { data: pipelines = [] } = usePipelinesQuery();
-    const { data: runs = [], isLoading: loading, isFetching, isError, error, refetch: refetchAllRuns } = useAllRunsQuery(date, filter, true);
+    const {
+        data: runsPages, isLoading: loading, isFetching, isError, error, refetch: refetchAllRuns,
+        fetchNextPage, hasNextPage, isFetchingNextPage,
+    } = useAllRunsQuery(filter.date, filter, true);
+    // Every page loaded so far, newest first — the API already ordered them.
+    const runs = useMemo(
+        () => (runsPages?.pages ?? []).flatMap((p: { runs: RunFeedRow[] }) => p.runs),
+        [runsPages],
+    );
     const [sort, setSort] = useState({ key: '', dir: 'desc' });
     const [search, setSearch] = useState('');
 
@@ -126,15 +141,16 @@ export function AllRunsView({
         r => `${r.pipeline_name ?? ''} ${r.pipeline_execution ?? ''} ${r.backfill_id ?? ''}`,
     );
 
-    const hasActiveFilters = !!(filter.pipeline || filter.status);
+    const hasActiveFilters = !!(filter.pipeline || filter.status || filter.date);
 
     const clearFilters = () => {
-        onFilterChange({ status: '', pipeline: '' });
+        onFilterChange({ status: '', pipeline: '', date: '' });
     };
 
     const filterChips: WorkspaceFilterChip[] = [];
     if (filter.pipeline) filterChips.push({ label: 'Pipeline', value: filter.pipeline, onRemove: () => onFilterChange({ ...filter, pipeline: '' }) });
     if (filter.status) filterChips.push({ label: 'Status', value: filter.status, onRemove: () => onFilterChange({ ...filter, status: '' }) });
+    if (filter.date) filterChips.push({ label: 'Date', value: filter.date, onRemove: () => onFilterChange({ ...filter, date: '' }) });
 
     const handlePipelineClick = (run: RunFeedRow) => {
         const pipeline = pipelines.find(p => p.name === run.pipeline_name);
@@ -184,8 +200,8 @@ export function AllRunsView({
             </select>
 
             <DatePicker
-                value={date}
-                onChange={d => setDate(d)}
+                value={filter.date}
+                onChange={d => onFilterChange({ ...filter, date: d })}
                 placeholder="All dates"
                 ariaLabel="Filter by date"
             />
@@ -211,6 +227,9 @@ export function AllRunsView({
             onRefresh={() => refetchAllRuns()}
             loading={loading}
             isFetching={isFetching}
+            hasMore={hasNextPage}
+            onLoadMore={() => fetchNextPage()}
+            isLoadingMore={isFetchingNextPage}
             filters={filters}
         >
             <WorkspaceFilterChips chips={filterChips} />

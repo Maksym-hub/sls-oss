@@ -6,6 +6,8 @@ import ReactFlow, {
     MiniMap,
     useNodesState,
     useEdgesState,
+    useNodes,
+    useReactFlow,
     MarkerType,
     Handle,
     Position,
@@ -15,6 +17,7 @@ import dagre from 'dagre';
 import { formatCountdown, formatWaitBadge, formatDuration } from '../utils';
 import { TASK_SUCCESS_STATUSES, TASK_SETTLED_STATUSES } from '@/generated/enums';
 import { taskTypeBadge } from '../utils/taskTypeBadge';
+import { mergeNodePositions } from '../utils/reactFlowHelpers';
 import { StatusIcon, CheckCircle2, XCircle, Loader2, Clock, Settings, BarChart3, Hourglass, Check, AlertTriangle } from '../utils/icons';
 import { 
     TASK_STATUS, 
@@ -223,6 +226,76 @@ const nodeTypes = {
 };
 
 // Main Component
+/**
+ * ViewportFitController — the single place that decides when to reframe the graph.
+ * Both triggers below end up calling the same `fitView`, obtained once via
+ * `useReactFlow()` here rather than threaded through an `onInit` instance ref from the
+ * parent — one source of truth for "how do we reach fitView", not two.
+ *
+ * Rendered as a *child* of `<ReactFlow>` (not called from the component that returns
+ * `<ReactFlow>` as JSX): `useNodes` and `useReactFlow` read React Flow's internal
+ * store, which exists only for that subtree.
+ *
+ * Structural refit — `signal` identifies a genuinely new graph (different pipeline,
+ * date, or execution); its keys are the node ids that graph is expected to have.
+ * Gated on those *specific* ids being present in the live store with a measured size —
+ * not on React Flow's generic `useNodesInitialized()` boolean. That boolean answers
+ * "is whatever the store currently holds fully measured", which can already be `true`
+ * for the *previous* graph's nodes one render before this component's own `nodes` prop
+ * actually reaches the store (switching pipelines recomputes this component's layout
+ * synchronously, but the `nodes` state that reaches `<ReactFlow>` updates one render
+ * later via its own effect) — trusting it fits against nodes that are about to be
+ * replaced, and marks the signal "already fitted" before the real ones ever arrive.
+ * Checking the live store for *this signal's own* ids removes that race outright: it
+ * cannot say ready before those exact ids exist and are sized, regardless of render
+ * timing or effect ordering.
+ *
+ * React Flow keeps a node's measured size across an update that reuses its id, so a
+ * tasks-only refresh (same ids, new statuses) never un-measures anything and so never
+ * re-fits — panning or zooming while a pipeline is running survives its own polls.
+ *
+ * No animation here: a structural change means a genuinely different graph, and
+ * panning the camera across it implies a spatial relationship between "before" and
+ * "after" that isn't there. The instant snap is the honest one.
+ *
+ * Resize refit — the container (not the graph) changed shape: a sidebar toggled, the
+ * window resized. Framing rather than the identity of the graph, so it isn't gated on
+ * measurement or deduped against `signal`; it always refits, debounced onto the next
+ * frame the way a resize handler should be. Animated, since it's the same graph
+ * settling into new bounds, not a jump to an unrelated one.
+ */
+function ViewportFitController({ signal, containerRef }: {
+    signal: { positions: Record<string, { x: number; y: number }> };
+    containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+    const liveNodes = useNodes();
+    const { fitView } = useReactFlow();
+    const lastFittedSignal = useRef<unknown>(undefined);
+    const expectedIds = useMemo(() => Object.keys(signal.positions), [signal]);
+
+    useEffect(() => {
+        if (lastFittedSignal.current === signal) return;
+        const ready = expectedIds.length > 0 && expectedIds.every(id => {
+            const live = liveNodes.find(n => n.id === id);
+            return !!live && live.width != null && live.height != null;
+        });
+        if (!ready) return;
+        lastFittedSignal.current = signal;
+        fitView({ padding: 0.2 });
+    }, [liveNodes, signal, expectedIds, fitView]);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const resizeObserver = new ResizeObserver(() => {
+            requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }));
+        });
+        resizeObserver.observe(containerRef.current);
+        return () => resizeObserver.disconnect();
+    }, [containerRef, fitView]);
+
+    return null;
+}
+
 export function DAGGraphFlow({  
     dag, 
     tasks, 
@@ -345,12 +418,40 @@ export function DAGGraphFlow({
     
     const [nodes, setNodes, onNodesChange] = useNodesState(initialElements.nodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(initialElements.edges);
-    
+
+    // Tracks which `dag` the currently-displayed nodes belong to, so a same-graph
+    // refresh (a status poll) can preserve dragged positions while a genuine graph
+    // switch cannot. This can't be answered by node id alone: `node.id` is just the
+    // task name (ADR: console_api/routes/pipelines_info.py `'id': task_name`), so two
+    // different pipelines can share an id (both have an "extract" task) — merging by
+    // id across a `dag` change would silently carry pipeline A's dragged position onto
+    // pipeline B's unrelated node of the same name.
+    //
+    // Starts at a sentinel, not `dag` itself: seeding it with `dag` would make the very
+    // first effect run see `sameDag === true` and attempt a merge against the initial
+    // state — which holds the exact same node objects that seeded it, so the merge is a
+    // no-op in *value*, but `mergeNodePositions` always returns a new array, so React's
+    // `setState` would not bail out the way `setNodes(initialElements.nodes)` (the
+    // unchanged reference) does. That extra, avoidable `setNodes` call forces React Flow
+    // to rebuild its internal node list (`ki()`), which does not carry a node's measured
+    // `width`/`height` forward — only `handleBounds`, and only when `type` is unchanged —
+    // so the freshly-mounted nodes would briefly "unmeasure" and re-observe for no
+    // reason. The sentinel makes the first run take the `initialElements.nodes` branch
+    // directly, which the mount already seeded state to — a true no-op, same as before
+    // this fix existed.
+    const NOT_YET_RENDERED = Symbol('not-yet-rendered');
+    const lastDagRef = useRef<typeof dag | typeof NOT_YET_RENDERED>(NOT_YET_RENDERED);
+
     // Update nodes when dag/tasks change
     useEffect(() => {
-        setNodes(initialElements.nodes);
+        const sameDag = lastDagRef.current === dag;
+        lastDagRef.current = dag;
+
+        setNodes(prevNodes =>
+            sameDag ? mergeNodePositions(initialElements.nodes, prevNodes) : initialElements.nodes
+        );
         setEdges(initialElements.edges);
-    }, [initialElements, setNodes, setEdges]);
+    }, [initialElements, dag, setNodes, setEdges]);
     
     // Handle node click
     const onNodeClick = useCallback((_event: React.MouseEvent, node: { id: string }) => {
@@ -397,31 +498,6 @@ export function DAGGraphFlow({
     }, [dag, tasks]);
     
     const containerRef = useRef<HTMLDivElement>(null);
-    const reactFlowInstance = useRef<{ fitView: (opts?: Record<string, unknown>) => void } | null>(null);
-    
-    // Handle ReactFlow initialization
-    const onInit = useCallback((instance: { fitView: (opts?: Record<string, unknown>) => void }) => {
-        reactFlowInstance.current = instance;
-        setTimeout(() => instance.fitView({ padding: 0.2 }), 100);
-    }, []);
-    
-    // ResizeObserver to refit view when container size changes
-    useEffect(() => {
-        if (!containerRef.current) return;
-        
-        const resizeObserver = new ResizeObserver(() => {
-            if (reactFlowInstance.current) {
-                // Debounce fitView calls during resize
-                requestAnimationFrame(() => {
-                    reactFlowInstance.current?.fitView({ padding: 0.2, duration: 200 });
-                });
-            }
-        });
-        
-        resizeObserver.observe(containerRef.current);
-        return () => resizeObserver.disconnect();
-    }, []);
-    
     if (!dag?.nodes?.length) {
         return (
             <div className="dag-container dag-empty-state">
@@ -440,16 +516,14 @@ export function DAGGraphFlow({
                     onEdgesChange={onEdgesChange}
                     onNodeClick={onNodeClick}
                     onNodeContextMenu={onNodeContextMenu}
-                    onInit={onInit}
                     nodeTypes={nodeTypes}
-                    fitView
-                    fitViewOptions={{ padding: 0.2 }}
                     minZoom={0.2}
                     maxZoom={2}
                     nodesConnectable={false}
                     elementsSelectable={true}
                     selectNodesOnDrag={false}
                 >
+                <ViewportFitController signal={layoutPositions} containerRef={containerRef} />
                 <Background 
                     color="var(--border)" 
                     gap={20} 
@@ -458,6 +532,7 @@ export function DAGGraphFlow({
                 />
                 <Controls 
                     position="top-left"
+                    fitViewOptions={{ padding: 0.2 }}
                     style={{ 
                         background: 'var(--bg-secondary)',
                         border: '1px solid var(--border)',

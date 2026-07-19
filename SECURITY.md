@@ -56,3 +56,22 @@ Out of scope:
   account.
 - Misconfigurations in a user's own AWS environment that are not caused by
   Polyris's defaults.
+
+## `npm audit` findings — dev/build toolchain only
+
+The Console UI ships as a **static export** (Next.js): the deployed site is plain HTML,
+CSS, and JavaScript served from S3/CloudFront, with no server and no build or test
+toolchain running in production.
+
+The advisories currently reported by `npm audit` are therefore confined to
+**development and build dependencies** — `vitest`, `vite`, `esbuild`, and the `postcss`
+copy bundled inside `next`. These run only during local development, testing, and the
+build step; **none are part of the shipped bundle**, so they do not affect deployed
+instances or their users. Several advisories are additionally scoped to a local dev
+server or to Windows-only paths, neither of which applies to the deployed artifact.
+
+We treat these as **low-priority, non-runtime** issues. Clearing them fully requires a
+major version bump of the test runner (`vitest`), which is a deliberate migration rather
+than a patch; it is tracked as routine maintenance. A vulnerability in a **runtime**
+dependency — anything that reaches the deployed bundle or the backend Lambdas — is
+treated with priority and should be reported as above.

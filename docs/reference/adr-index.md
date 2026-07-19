@@ -91,3 +91,4 @@ _81 ADRs indexed (67 inline, 14 standalone). Regenerate with the snippet in this
 | 108 | `TaskConfigKey`: shared constants for the SDK↔wrapper `task_config` contract | [`adr-108-task-config-key-constants.md`](adr-108-task-config-key-constants.md) |
 | 109 | Unified common parameters for `@task.<type>` decorators (`CommonTaskKwargs`) | [`adr-109-unified-task-decorator-kwargs.md`](adr-109-unified-task-decorator-kwargs.md) |
 | 110 | Task & execution intervention moved from Team to free; config mutation stays paid | [`adr-110-intervention-tier-flip.md`](adr-110-intervention-tier-flip.md) |
+| 113 | History feed pages on a `started_at` cursor; `next` is the only end-of-feed signal | inline |

@@ -1,4 +1,4 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../../utils';
 import { queryKeys } from '../../lib/queryClient';
 import type { Task, DAG, SelectedExecution, Execution, PipelineWithUI } from '../../types';
@@ -118,6 +118,38 @@ export function usePipelineExecutionsQuery(pipelineName: string, date: string) {
         enabled: !!pipelineName,
         staleTime: 5 * 1000,
         placeholderData: keepPreviousData,
+    });
+}
+
+
+/**
+ * usePipelineRunsQuery - Every run of a pipeline, newest first, no date window.
+ *
+ * Backed by pipeline-date-index: omitting `date` makes the API return runs
+ * newest-first with an opaque `next` cursor, rather than only the runs that
+ * happen to fall inside a hardcoded day window. How far back you can see is
+ * therefore governed by the row TTL alone — raising the TTL deepens history
+ * with no code change here.
+ *
+ * Paginates with useInfiniteQuery: `fetchNextPage()` loads the next (older)
+ * page; `hasNextPage` is false once nothing older exists.
+ */
+export function usePipelineRunsQuery(pipelineName: string, enabled = true) {
+    return useInfiniteQuery({
+        queryKey: queryKeys.pipelineRuns(pipelineName),
+        queryFn: async ({ pageParam }) => {
+            const params = new URLSearchParams({ name: pipelineName });
+            if (pageParam) params.append('before', pageParam as string);
+            const data = await api.get(`/pipeline-executions?${params.toString()}`);
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            return { executions: (data.executions || []) as Execution[], next: data.next as string | null };
+        },
+        initialPageParam: '' as string,
+        getNextPageParam: (lastPage) => lastPage.next || undefined,
+        enabled: enabled && !!pipelineName,
+        staleTime: 5 * 1000,
     });
 }
 

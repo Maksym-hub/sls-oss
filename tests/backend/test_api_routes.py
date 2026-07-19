@@ -93,6 +93,14 @@ class MockRepo:
         items = [i for i in self.items if i.get('date') == date]
         return items[:max_items] if max_items else items
 
+    def query_runs_by_date(self, date, min_rows, filter_expr=None,
+                           projection=None, expr_names=None, key_condition=None):
+        """Whole pipelines only (ADR #113). The fake holds one page's worth, so there
+        is never a partial pipeline to drop — which is the real method's own answer
+        when a date fits in one DynamoDB page. ``min_rows`` is a floor, so it never
+        truncates here."""
+        return [i for i in self.items if i.get('date') == date]
+
     def query_by_date_raw(self, **kwargs):
         return {'Items': self.items, 'Count': len(self.items)}
 

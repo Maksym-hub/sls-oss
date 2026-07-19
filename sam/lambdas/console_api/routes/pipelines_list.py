@@ -20,9 +20,10 @@ from botocore.exceptions import ClientError, BotoCoreError
 from config import sfn
 from dal import executions_repo, pipelines_repo
 from constants import Limits, normalize_execution_status, derive_execution_status, reconcile_execution_status, TASK_SETTLED_STATUSES, TASK_SUCCESS_STATUSES
+from feed import feed_dates
 from response import cors_response
 from logger import log
-from utils import safe_int, retrieve_result, parse_wait_before, should_skip_token_row
+from utils import safe_int, safe_param_int, retrieve_result, parse_wait_before, should_skip_token_row
 
 def list_pipelines(event: Dict) -> Dict:
     """
@@ -30,14 +31,14 @@ def list_pipelines(event: Dict) -> Dict:
     
     Optimized:
     - Uses pipeline_registry as source of truth (small table)
-    - Stats scan limited to Limits.Limits.MAX_STATS_ITEMS and last SLA_DAYS
+    - Stats scan limited to Limits.MAX_STATS_ITEMS and last SLA_DAYS
     - Stats are optional via ?stats=true parameter
     """
     params = event.get('queryStringParameters', {}) or {}
     include_stats = params.get('stats', 'false').lower() == 'true'
     
     pipelines = {}
-    today = params.get('date', '') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    today = params.get('date') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
     # 1. Get pipelines from registry (authoritative source, small table)
     try:
@@ -94,16 +95,16 @@ def list_pipelines(event: Dict) -> Dict:
         pipeline_today = {}  # {pipeline_name: {success: 0, failed: 0, running: 0, waiting: 0, total: 0}}
         
         try:
-            sla_dates = [
-                (datetime.now(timezone.utc) - timedelta(days=i)).strftime('%Y-%m-%d')
-                for i in range(Limits.SLA_DAYS)
-            ]
+            # Same SLA window every History feed walks (feed.py) — no cursor here since
+            # this is a fixed 14-day rollup for the sidebar, not a paginated feed, but
+            # the sequence of dates is the exact one `feed_dates('')` already produces.
+            sla_dates = feed_dates('')
             
             for query_date in sla_dates:
                 try:
-                    items = executions_repo.query_by_date(
+                    items = executions_repo.query_runs_by_date(
                         query_date,
-                        max_items=Limits.MAX_STATS_ITEMS,
+                        min_rows=Limits.MAX_STATS_ITEMS,
                         projection='pipeline_name, pipeline_execution, #s',
                         expr_names={'#s': 'status'}
                     )
@@ -224,7 +225,7 @@ def get_pipeline_status(pipeline_name: str, event: Dict) -> Dict:
     """Get detailed status for a specific pipeline."""
     # Get filters from query params
     params = event.get('queryStringParameters') or {}
-    date = params.get('date', datetime.now(timezone.utc).strftime('%Y-%m-%d'))
+    date = params.get('date') or datetime.now(timezone.utc).strftime('%Y-%m-%d')
     pipeline_execution = params.get('pipeline_execution', '')
     
     # Query by pipeline_execution (GSI) if provided, otherwise scan by date
@@ -372,8 +373,21 @@ def get_pipeline_status(pipeline_name: str, event: Dict) -> Dict:
         'stopped': len([t for t in tasks if t['status'] in ['stopped', 'aborted']]),
     }
     
+    # The pipeline these tasks actually belong to — not the one that was asked for.
+    # `?pipeline_execution=` looks up by execution id alone, so it can hand back another
+    # pipeline's rows (the console clears its selected execution when you switch pipeline,
+    # but that is the caller's discipline, not this route's guarantee). Echoing the
+    # requested name made the response agree with the question no matter what it returned,
+    # which is exactly what the console's stale-response guard checks — so the guard could
+    # never fire. Say what the rows say; fall back to the request only when there are none.
+    actual_pipeline = next(
+        (i.get('pipeline_name') for i in items
+         if not should_skip_token_row(i) and i.get('pipeline_name')),
+        pipeline_name,
+    )
+
     return cors_response(200, {
-        'pipeline_name': pipeline_name,
+        'pipeline_name': actual_pipeline,
         'date': date,
         'tasks': tasks,
         'stats': stats,
@@ -462,9 +476,9 @@ def _query_pipeline_by_date_range(pipeline_name: str, start: datetime, end: date
     while current.date() <= end.date():
         date_str = current.strftime('%Y-%m-%d')
         try:
-            day_items = executions_repo.query_by_date(
+            day_items = executions_repo.query_runs_by_date(
                 date_str,
-                max_items=Limits.MAX_STATS_ITEMS,
+                min_rows=Limits.MAX_STATS_ITEMS,
                 key_condition=Key('date').eq(date_str) & Key('pipeline_name').eq(pipeline_name),
                 projection='pipeline_execution, pipeline_execution_short, #d, #s, started_at, finished_at',
                 expr_names={'#d': 'date', '#s': 'status'}
@@ -537,10 +551,14 @@ def reconcile_sfn_status(execution_name, sfn_arn):
                     execution_name, projection='#s', expr_names={'#s': 'status'})
                 all_resolved = bool(task_items) and all(
                     i.get('status') in TASK_SUCCESS_STATUSES for i in task_items)
-            except (ClientError, BotoCoreError):
-                pass  # Can't verify recovery — treat as not resolved
+            except (ClientError, BotoCoreError) as e:
+                # Can't verify recovery — treat as not resolved (ADR #38: still visible)
+                log.warn("reconcile_sfn_status", "Failed to check task resolution",
+                         execution_name=execution_name, error=str(e))
         return reconcile_execution_status('running', sfn_status, all_resolved)
-    except (ClientError, BotoCoreError):
+    except (ClientError, BotoCoreError) as e:
+        log.warn("reconcile_sfn_status", "Failed to describe SFN execution",
+                 execution_name=execution_name, sfn_arn=sfn_arn, error=str(e))
         return None
 
 
@@ -559,12 +577,13 @@ def get_pipeline_executions(pipeline_name: str, event: Dict) -> Dict:
     
     try:
         items = []
+        next_cursor = None  # only the no-date path paginates
         
         if date_filter:
             # Single date: one GSI query
-            items = executions_repo.query_by_date(
+            items = executions_repo.query_runs_by_date(
                 date_filter,
-                max_items=Limits.MAX_STATS_ITEMS,
+                min_rows=Limits.MAX_STATS_ITEMS,
                 key_condition=Key('date').eq(date_filter) & Key('pipeline_name').eq(pipeline_name),
                 projection='pipeline_execution, pipeline_execution_short, #d, #s, started_at, finished_at',
                 expr_names={'#d': 'date', '#s': 'status'}
@@ -578,12 +597,14 @@ def get_pipeline_executions(pipeline_name: str, event: Dict) -> Dict:
             except ValueError as e:
                 return cors_response(400, {'error': f'Invalid date format: {e}'})
         else:
-            # No date filter: default to today
-            today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-            items = executions_repo.query_by_date(
-                today,
-                max_items=Limits.MAX_STATS_ITEMS,
-                key_condition=Key('date').eq(today) & Key('pipeline_name').eq(pipeline_name),
+            # No date filter: this pipeline's runs, newest first, via
+            # pipeline-date-index. One indexed query instead of a day-by-day
+            # loop, so there is no window constant — depth is bounded only by
+            # the row TTL. `before` is an opaque cursor (a date, inclusive).
+            items, next_cursor = executions_repo.query_runs_by_pipeline(
+                pipeline_name,
+                min_runs=safe_param_int(params, 'page_size', Limits.RUNS_PAGE_SIZE, 100),
+                before_date=params.get('before', '') or None,
                 projection='pipeline_execution, pipeline_execution_short, #d, #s, started_at, finished_at',
                 expr_names={'#d': 'date', '#s': 'status'}
             )
@@ -605,7 +626,11 @@ def get_pipeline_executions(pipeline_name: str, event: Dict) -> Dict:
         return cors_response(200, {
             'pipeline': pipeline_name,
             'pipeline_arn': pipeline_arn,
-            'executions': executions[:50]
+            'executions': executions,
+            # Opaque cursor for the next (older) page; None when nothing older
+            # exists. Only the no-date path paginates — an explicit date or range
+            # is already bounded by the caller.
+            'next': next_cursor,
         })
     
     except Exception as e:

@@ -15,6 +15,10 @@ const mockDag = createDAG();
 const mockExecList = [createExecution()];
 
 const mockDetailQuery = { data: { tasks: mockTasks, dag: mockDag, serverOffsetMs: 0, selectedExecution: null }, isLoading: false };
+const mockRunsQuery: { data: unknown; fetchNextPage: () => void; hasNextPage: boolean; isFetchingNextPage: boolean; isLoading: boolean } = {
+    data: { pages: [] }, fetchNextPage: vi.fn(), hasNextPage: false,
+    isFetchingNextPage: false, isLoading: false,
+};
 const mockExecQuery = { data: mockExecList };
 const mockPipelinesQuery = { data: [createPipeline()] };
 const mockTaskEventsQuery = { data: [], isLoading: false };
@@ -22,6 +26,8 @@ const mockTaskEventsQuery = { data: [], isLoading: false };
 vi.mock('../hooks/queries', () => ({
     usePipelineDetailQuery: () => mockDetailQuery,
     usePipelineExecutionsQuery: () => mockExecQuery,
+    // The history dropdown fetches its own runs (windowless, paginated).
+    usePipelineRunsQuery: () => mockRunsQuery,
     usePipelinesQuery: () => mockPipelinesQuery,
     useTaskEventsQuery: () => mockTaskEventsQuery,
 }));
@@ -86,8 +92,19 @@ vi.mock('@/components/PipelineActionsProvider', () => ({
 vi.mock('@/utils/icons', () => ({ ActionIcons: new Proxy({}, { get: () => () => null }), Activity: () => null, AlertCircle: () => null, AlertTriangle: () => null, ArrowDown: () => null, ArrowLeft: () => null, ArrowRight: () => null, ArrowUp: () => null, Ban: () => null, BarChart3: () => null, Bell: () => null, BellRing: () => null, BookOpen: () => null, Calendar: () => null, Check: () => null, CheckCircle2: () => null, ChevronDown: () => null, ChevronLeft: () => null, ChevronRight: () => null, Circle: () => null, CircleDot: () => null, CircleHelp: () => null, ClipboardList: () => null, Clock: () => null, ContextIcons: new Proxy({}, { get: () => () => null }), Copy: () => null, Database: () => null, Download: () => null, ElementIcons: () => null, ExpandIcon: () => null, ExternalLink: () => null, Eye: () => null, FileText: () => null, Filter: () => null, Gauge: () => null, GitBranch: () => null, GitMerge: () => null, Globe: () => null, HelpCircle: () => null, History: () => null, Hourglass: () => null, Inbox: () => null, Info: () => null, Keyboard: () => null, Lightbulb: () => null, Link2: () => null, ListTodo: () => null, Loader2: () => null, LoadingIcon: () => null, MarkIcons: () => null, Minus: () => null, Moon: () => null, NavIcon: () => null, NavIcons: () => null, Network: () => null, Package: () => null, Palette: () => null, Pause: () => null, Play: () => null, PlayCircle: () => null, Plug: () => null, Plus: () => null, RefreshCw: () => null, RefreshIcon: () => null, Rewind: () => null, Rocket: () => null, RotateCcw: () => null, STALENESS_ICONS_COMPONENTS: () => null, STATUS_ICONS_COMPONENTS: () => null, Search: () => null, Settings: () => null, Siren: () => null, SkipForward: () => null, Square: () => null, StalenessIcon: () => null, StatusIcon: () => null, StopCircle: () => null, Sun: () => null, Target: () => null, Terminal: () => null, Timer: () => null, ToastIcons: () => null, Trash2: () => null, UIIcons: () => null, User: () => null, Workflow: () => null, Wrench: () => null, X: () => null, XCircle: () => null, XIcon: () => null, Zap: () => null }));
 vi.mock('../utils/icons', () => ({ ActionIcons: new Proxy({}, { get: () => () => null }), Activity: () => null, AlertCircle: () => null, AlertTriangle: () => null, ArrowDown: () => null, ArrowLeft: () => null, ArrowRight: () => null, ArrowUp: () => null, Ban: () => null, BarChart3: () => null, Bell: () => null, BellRing: () => null, BookOpen: () => null, Calendar: () => null, Check: () => null, CheckCircle2: () => null, ChevronDown: () => null, ChevronLeft: () => null, ChevronRight: () => null, Circle: () => null, CircleDot: () => null, CircleHelp: () => null, ClipboardList: () => null, Clock: () => null, ContextIcons: new Proxy({}, { get: () => () => null }), Copy: () => null, Database: () => null, Download: () => null, ElementIcons: () => null, ExpandIcon: () => null, ExternalLink: () => null, Eye: () => null, FileText: () => null, Filter: () => null, Gauge: () => null, GitBranch: () => null, GitMerge: () => null, Globe: () => null, HelpCircle: () => null, History: () => null, Hourglass: () => null, Inbox: () => null, Info: () => null, Keyboard: () => null, Lightbulb: () => null, Link2: () => null, ListTodo: () => null, Loader2: () => null, LoadingIcon: () => null, MarkIcons: () => null, Minus: () => null, Moon: () => null, NavIcon: () => null, NavIcons: () => null, Network: () => null, Package: () => null, Palette: () => null, Pause: () => null, Play: () => null, PlayCircle: () => null, Plug: () => null, Plus: () => null, RefreshCw: () => null, RefreshIcon: () => null, Rewind: () => null, Rocket: () => null, RotateCcw: () => null, STALENESS_ICONS_COMPONENTS: () => null, STATUS_ICONS_COMPONENTS: () => null, Search: () => null, Settings: () => null, Siren: () => null, SkipForward: () => null, Square: () => null, StalenessIcon: () => null, StatusIcon: () => null, StopCircle: () => null, Sun: () => null, Target: () => null, Terminal: () => null, Timer: () => null, ToastIcons: () => null, Trash2: () => null, UIIcons: () => null, User: () => null, Workflow: () => null, Wrench: () => null, X: () => null, XCircle: () => null, XIcon: () => null, Zap: () => null }));
 vi.mock('lucide-react', () => ({ Activity: () => null, AlertCircle: () => null, ArrowLeft: () => null, Check: () => null, CheckCircle: () => null, ChevronDown: () => null, ChevronRight: () => null, ChevronUp: () => null, Circle: () => null, Eye: () => null, EyeOff: () => null, HelpCircle: () => null, KeyRound: () => null, ListTodo: () => null, Loader2: () => null, Lock: () => null, LogOut: () => null, Mail: () => null, Menu: () => null, Moon: () => null, Package: () => null, Pause: () => null, RefreshCw: () => null, Shield: () => null, Sun: () => null, User: () => null, Users: () => null, Workflow: () => null, X: () => null, Zap: () => null }));
+vi.mock('./DatePicker', () => ({
+    // The real picker is a portal-rendered calendar; stub it to a plain input so
+    // these tests exercise the dropdown's filtering, not the picker's internals.
+    DatePicker: (props: Record<string, unknown>) => (
+        <input
+            aria-label={props.ariaLabel as string}
+            value={props.value as string}
+            onChange={e => (props.onChange as (v: string) => void)(e.target.value)}
+        />
+    ),
+}));
 vi.mock('@/components/ui/button', () => ({
-    Button: (props: Record<string, unknown>) => <button onClick={props.onClick as () => void} title={props.title as string} data-variant={props.variant}>{props.children as React.ReactNode}</button>,
+    Button: (props: Record<string, unknown>) => <button onClick={props.onClick as () => void} title={props.title as string} aria-label={props['aria-label'] as string} data-variant={props.variant}>{props.children as React.ReactNode}</button>,
 }));
 vi.mock('../lib/config', () => ({ default: { API_URL: '/api', POLLING_INTERVAL: 5000, AUTH_ENABLED: false } }));
 vi.mock('../utils/api', () => ({ api: { get: vi.fn(), post: vi.fn() }, setAuthTokenGetter: vi.fn(), setAuthErrorCallback: vi.fn() }));
@@ -275,31 +292,105 @@ describe('PipelineDetail', () => {
         });
     });
 
-    describe('Latest button', () => {
-        afterEach(() => { mockPipelinesQuery.data = [createPipeline()]; });
-
-        it('shows Latest when a specific (manually selected) execution is chosen', () => {
-            mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ status: 'failed', date: '2024-01-15' }] })];
-            setStore({ selectedExecution: { execution_id: 'e1', auto_selected: false } });
-            render(<PipelineDetail {...defaultProps} />);
-            fireEvent.click(screen.getByRole('button', { name: /History/i }));
-            expect(screen.getByText('Latest')).toBeInTheDocument();
+    describe('history dropdown', () => {
+        afterEach(() => {
+            mockPipelinesQuery.data = [createPipeline()];
+            mockRunsQuery.data = { pages: [] };   // don't leak runs between tests
         });
 
-        it('shows Latest when viewing a non-latest date', () => {
-            mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ status: 'succeeded', date: '2024-01-20' }] })];
-            setStore({ date: '2024-01-15', selectedExecution: { execution_id: 'e1', auto_selected: true } });
+        // The dropdown lists every run it can still see rather than only the
+        // selected date's, so the old "Latest" escape hatch (and the empty-date
+        // deadlock it worked around) are gone by construction.
+        it('opens with no date filter, so every run is listed', () => {
             render(<PipelineDetail {...defaultProps} />);
             fireEvent.click(screen.getByRole('button', { name: /History/i }));
-            expect(screen.getByText('Latest')).toBeInTheDocument();
-        });
-
-        it('hides Latest when on the auto-selected latest run', () => {
-            mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ status: 'failed', date: '2024-01-15' }] })];
-            setStore({ date: '2024-01-15', selectedExecution: { execution_id: 'e1', auto_selected: true } });
-            render(<PipelineDetail {...defaultProps} />);
-            fireEvent.click(screen.getByRole('button', { name: /History/i }));
+            expect(screen.getByLabelText('Filter runs by date')).toHaveValue('');
             expect(screen.queryByText('Latest')).not.toBeInTheDocument();
+        });
+
+        it('offers no Clear until a date filter is applied', () => {
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: /History/i }));
+            // Unfiltered by default → nothing to clear.
+            expect(screen.queryByText('Clear')).not.toBeInTheDocument();
+        });
+
+        // The picker is stubbed to a plain input (see the mock at the top), so these
+        // exercise the dropdown's own filtering rather than the calendar widget.
+        it('filtering by date narrows the list and the button count follows it', () => {
+            mockRunsQuery.data = { pages: [{ executions: [
+                { execution_id: 'e1', execution_short: 'e1', date: '2024-01-15', status: 'success' },
+                { execution_id: 'e2', execution_short: 'e2', date: '2024-01-15', status: 'failed' },
+                { execution_id: 'e3', execution_short: 'e3', date: '2024-01-10', status: 'success' },
+            ], next: null }] };
+            render(<PipelineDetail {...defaultProps} />);
+
+            // Unfiltered: every run, and the count says so.
+            expect(screen.getByRole('button', { name: 'History (3)' })).toBeInTheDocument();
+            fireEvent.click(screen.getByRole('button', { name: /History/i }));
+            expect(screen.getAllByText(/^e[123]\.\.\.$/)).toHaveLength(3);
+
+            // Filter to a date → only that day's runs, count follows.
+            fireEvent.change(screen.getByLabelText('Filter runs by date'), { target: { value: '2024-01-10' } });
+            expect(screen.getAllByText(/^e[123]\.\.\.$/)).toHaveLength(1);
+            expect(screen.getByRole('button', { name: 'History (1)' })).toBeInTheDocument();
+
+            // Clear → back to everything.
+            fireEvent.click(screen.getByText('Clear'));
+            expect(screen.getAllByText(/^e[123]\.\.\.$/)).toHaveLength(3);
+            expect(screen.getByRole('button', { name: 'History (3)' })).toBeInTheDocument();
+        });
+
+        it('tells you the filter is to blame when it hides everything', () => {
+            mockRunsQuery.data = { pages: [{ executions: [
+                { execution_id: 'e1', execution_short: 'e1', date: '2024-01-15', status: 'success' },
+            ], next: null }] };
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: /History/i }));
+
+            fireEvent.change(screen.getByLabelText('Filter runs by date'), { target: { value: '2024-01-01' } });
+            expect(screen.getByText('No runs on this date')).toBeInTheDocument();
+        });
+
+        it('says "No runs yet" when there are none (not "none on this date")', () => {
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: /History/i }));
+            // The list spans every date, so an empty list means no runs at all —
+            // never the old "no executions for {date}" dead end.
+            expect(screen.getByText('No runs yet')).toBeInTheDocument();
+        });
+    });
+
+    // ──────────────────────────────────────────────────────────────────────
+    // The empty-graph banner explains an empty graph, so it must be gated on the
+    // graph's own data. It asked `executions.length === 0` — a different question,
+    // to a different endpoint — and vanished whenever the two disagreed, leaving a
+    // bare graph with no explanation and no way out (ADR #106 follow-up).
+    // ──────────────────────────────────────────────────────────────────────
+    describe('empty-graph banner', () => {
+        it('explains an empty graph even when runs exist elsewhere', () => {
+            mockDetailQuery.data = { tasks: [], dag: mockDag, serverOffsetMs: 0, selectedExecution: null };
+            mockExecQuery.data = mockExecList;          // the runs endpoint still has rows
+
+            render(<PipelineDetail {...defaultProps} />);
+
+            expect(screen.getByText(/No executions for/)).toBeInTheDocument();
+        });
+
+        it('offers a way out of the empty date', () => {
+            mockDetailQuery.data = { tasks: [], dag: mockDag, serverOffsetMs: 0, selectedExecution: null };
+
+            render(<PipelineDetail {...defaultProps} />);
+
+            expect(screen.getByText(/Show older runs|View latest run|Execution history/)).toBeInTheDocument();
+        });
+
+        it('stays out of the way when the graph has tasks', () => {
+            mockDetailQuery.data = { tasks: mockTasks, dag: mockDag, serverOffsetMs: 0, selectedExecution: null };
+
+            render(<PipelineDetail {...defaultProps} />);
+
+            expect(screen.queryByText(/No executions for/)).not.toBeInTheDocument();
         });
     });
 
