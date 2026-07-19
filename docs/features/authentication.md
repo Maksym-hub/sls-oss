@@ -5,6 +5,12 @@ the browser UI (via Amplify) and polyris Personal Access Tokens (PATs) for
 scripts/CI. For day-to-day API usage and token management, see
 [api-tokens.md](./api-tokens.md).
 
+> **OSS vs Team.** The CE gate accepts **both** a Cognito access token and a PAT,
+> but *minting* PATs is **🔒 Team** (see api-tokens.md). On an OSS deployment,
+> authenticate scripts/CI with a **Cognito access token** —
+> `scripts/get-e2e-token.sh` obtains one from the deployment's user pool — or set
+> `AUTH_ENABLED=false`.
+
 > **How enforcement actually works (v0.87+, ADR #65).** Auth is enforced by a
 > single gate inside the `console-api` Lambda (`auth.authenticate`), **not** by
 > an API Gateway authorizer. The HTTP API uses a `/{proxy+}` integration, so

@@ -1,5 +1,13 @@
 # API Tokens (Personal Access Tokens)
 
+> **🔒 Team tier.** Minting and managing PATs — the Console **API Tokens** panel
+> and the `POST/GET/DELETE /api/tokens` endpoints — ships in the proprietary
+> `ee/` package (ADR #98) and is **not in the open-source build**. The free CE
+> gate still *validates* a PAT if one exists, but OSS provides no way to create
+> one. **On OSS, authenticate scripts/CI with a Cognito access token**
+> (`scripts/get-e2e-token.sh` obtains one) or run with `AUTH_ENABLED=false`. The
+> rest of this page applies to Team deployments.
+
 This is the canonical guide for authenticating to the polyris Console API from
 outside the browser — scripts, CI, and the API examples in the docs. Browser
 sessions use Cognito (see [authentication.md](./authentication.md)); everything

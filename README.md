@@ -447,7 +447,7 @@ See [SETUP_FROM_SCRATCH.md](docs/getting-started/SETUP_FROM_SCRATCH.md) for full
 | [ASSETS.md](docs/features/ASSETS.md) | Asset-based orchestration |
 | [ASSET_PULL_FEATURE.md](docs/features/ASSET_PULL_FEATURE.md) | wait_for / pull-based assets |
 | [authentication.md](docs/features/authentication.md) | Cognito auth setup |
-| [api-tokens.md](docs/features/api-tokens.md) | API tokens (PAT) for scripts/CI |
+| [api-tokens.md](docs/features/api-tokens.md) | API tokens (PAT) for scripts/CI — 🔒 Team (OSS: use a Cognito access token) |
 | [LOCAL_TESTING.md](docs/tools/LOCAL_TESTING.md) | Local testing (validate, dry_run, mock) |
 | [REGISTRATION.md](docs/tools/REGISTRATION.md) | Pipeline registration (CLI, auto) |
 | [API.md](docs/operations/API.md) | REST API reference (52 endpoints) |

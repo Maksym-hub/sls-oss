@@ -1,5 +1,14 @@
 # polyris REST API Reference
 
+> **Editions.** This reference documents the full Console API across tiers. The
+> open-source (CE) build ships the free surface only; endpoints marked
+> **🔒 Team** live in the proprietary `ee/` package (ADR #98) and return **404**
+> on an OSS deployment. The Team-only endpoints are: token management
+> (`/api/tokens`), pipeline `pause`/`restart`/`logs`/`metrics`, everything under
+> **Assets** (`/api/assets*`, `/api/asset-*`), and **Slack Actions**
+> (`/api/action/*`). Everything else — pipelines list/status/DAG/run/register,
+> tasks, executions, runs, notifications, health/metrics — is free.
+
 ## Base URL
 
 ```
@@ -27,10 +36,13 @@ Cognito access token (browser) or a polyris Personal Access Token (scripts/CI):
 Authorization: Bearer plrs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-Generate and manage tokens via the Console (avatar → API Tokens) or the
-`/api/tokens` endpoints. See [api-tokens.md](../features/api-tokens.md) for the
-full how-to. The `http` examples below omit the header for brevity — add it to
-every call.
+Minting and managing PATs (the Console avatar → API Tokens panel and the
+`/api/tokens` endpoints) is **🔒 Team**. On an **OSS** deployment there is no way
+to mint a PAT, so authenticate scripts/CI with a **Cognito access token**
+instead (`scripts/get-e2e-token.sh` obtains one), or run with
+`AUTH_ENABLED=false`. See [api-tokens.md](../features/api-tokens.md) (Team) and
+[authentication.md](../features/authentication.md) for the full how-to. The
+`http` examples below omit the header for brevity — add it to every call.
 
 Tokens are **scoped** (`read` ⊂ `write` ⊂ `admin`, ADR #66): a request whose
 token scope is below what the route needs returns **403** (vs **401** for a
@@ -39,9 +51,11 @@ deletes / token management need `admin`.
 
 ---
 
-## API Tokens (PAT)
+## API Tokens (PAT) — 🔒 Team
 
-Personal Access Tokens for scripts/CI (ADR #65). Full how-to:
+Personal Access Tokens for scripts/CI (ADR #65). **Team tier** — not in the OSS
+build; OSS scripts/CI use a Cognito access token (see Authentication above).
+Full how-to:
 [api-tokens.md](../features/api-tokens.md).
 
 ### Create token
@@ -135,13 +149,13 @@ Returns DAG structure with lookup priority:
 
 Response includes `dag_source` field: `'snapshot'` | `'registry'` | `'inferred'`
 
-### Get Pipeline Metrics
+### Get Pipeline Metrics — 🔒 Team
 
 ```http
 GET /api/pipeline-metrics?name={pipeline_name}
 ```
 
-### Get Pipeline Logs
+### Get Pipeline Logs — 🔒 Team
 
 ```http
 GET /api/pipeline-logs?name={pipeline_name}
@@ -155,13 +169,13 @@ POST /api/pipeline-run?name={pipeline_name}
 
 Body (optional): `{"variables": {"custom_var": "value"}}`
 
-### Restart Pipeline
+### Restart Pipeline — 🔒 Team
 
 ```http
 POST /api/pipeline-restart?name={pipeline_name}
 ```
 
-### Pause / Unpause Pipeline
+### Pause / Unpause Pipeline — 🔒 Team
 
 ```http
 POST /api/pipeline-pause?name={pipeline_name}
@@ -323,7 +337,12 @@ GET /api/execution-parent?id={execution_name}
 
 ---
 
-## Assets
+## Assets — 🔒 Team
+
+The asset *SDK* (declaring `Asset`, inlets/outlets, `wait_for`) is free and
+experimental; the asset **console read API** below (`/api/assets*`,
+`/api/asset-*`) ships in the Team `ee/` package only and 404s on OSS. Inspect
+lineage in OSS with `polyris-output --graph`.
 
 ### List & Lineage
 
@@ -383,9 +402,9 @@ GET /api/notifications?limit=20&hours=4
 
 ---
 
-## Slack Actions
+## Slack Actions — 🔒 Team
 
-Called by Slack interactive message buttons:
+Called by Slack interactive message buttons. Team tier — not in the OSS build.
 
 ```http
 GET /api/action/skip?execution_name={name}
