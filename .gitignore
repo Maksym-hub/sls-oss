@@ -130,3 +130,7 @@ sam/samconfig.toml
 
 # Local working copies of examples with real account IDs — never publish
 examples_temp/
+
+# User pipeline definitions live outside the repo (were sample acme/shopmart;
+# real account IDs must never be published). Users create their own pipelines/.
+pipelines/

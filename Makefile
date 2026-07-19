@@ -115,7 +115,7 @@ lint:
 	@echo "🔍 Checking Python syntax..."
 	@find polyris/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python3 -m py_compile {}
 	@find sam/lambdas/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python3 -m py_compile {}
-	@find pipelines/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python3 -m py_compile {}
+	@find examples/ -name "*.py" -not -path "*/__pycache__/*" | xargs -I{} python3 -m py_compile {}
 	@echo "🔍 Running ruff (E,F,W)..."
 	@ruff check .
 	@echo "🔍 Checking JSON templates..."
@@ -212,17 +212,17 @@ check-versions:
 	fi && \
 	echo "✅ Versions consistent: $$PY_VER"
 
-# Smoke test: verify all pipeline definitions import
+# Smoke test: verify all shipped example pipeline definitions import
 smoke-pipelines:
-	@echo "🔍 Checking pipeline imports..."
-	@COUNT=$$(find pipelines/ -name "dag.py" -not -path "*/__pycache__/*" | wc -l); \
+	@echo "🔍 Checking example pipeline imports..."
+	@COUNT=$$(find examples/ -name "dag.py" -not -path "*/__pycache__/*" | wc -l); \
 	if [ "$$COUNT" -eq 0 ]; then \
-		echo "  ⚠️  No dag.py files found in pipelines/"; \
+		echo "  ⚠️  No dag.py files found in examples/"; \
 	fi
-	@find pipelines/ -name "dag.py" -not -path "*/__pycache__/*" | while read f; do \
+	@find examples/ -name "dag.py" -not -path "*/__pycache__/*" | while read f; do \
 		python3 -m py_compile "$$f" 2>&1 && echo "  ✅ $$f" || (echo "  ❌ $$f" && exit 1); \
 	done
-	@echo "✅ All pipelines OK"
+	@echo "✅ All example pipelines OK"
 
 # Exhaustive JSONata edge-case audit (ADR #85). Maintenance tool — runs
 # 21k+ evaluations across all SFN-template expressions against
