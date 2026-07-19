@@ -92,6 +92,20 @@ Also consolidated, while in the area: `list_pipelines`'s SLA-window rollup reimp
   must not reappear) — not a mock on `feed_dates` itself, which would only prove the
   function got called, not that the two sequences stayed in sync (Principle #14).
 
+### Fixed — CI's Lambda Tests job couldn't collect `test_reconcile_sfn_status.py` (missing `moto`)
+
+The Lambda Tests job installs an explicit, minimal package list for its shared steps
+(`pytest pytest-mock boto3 rsa`), not the SDK's `[dev]` extras — deliberately, so the job
+doesn't pull in things like ruff/mypy that a separate job already covers. `moto` (added
+this session, in `test_reconcile_sfn_status.py`'s real Step Functions test) lives only in
+`[dev]`, so it was never in that explicit list — passed locally (dev environments already
+have `[dev]` installed) and failed in CI with `ModuleNotFoundError: No module named
+'moto'`, aborting collection for the entire `console_api` test run before a single test
+could execute. `moto>=4.0.0` added to the same explicit list. Reproduced the exact CI
+failure in a clean venv mirroring the old dependency set before fixing it, then confirmed
+the fix in a second clean venv running the same command CI runs. EE's own CI already
+installs `[dev]` extras wholesale for its equivalent job, so it was never affected.
+
 ### Fixed — the History pagination footer visibly jumped once "Show older" ran out
 
 `.hc-pagination` laid out its up-to-three children (row count, the client-side "N–M of
