@@ -894,7 +894,7 @@ class Asset:
     def __repr__(self):
         return f"Asset('{self.name}')"
     
-    def within(self, hours: int = 0, days: int = 0, weeks: int = 0) -> 'AssetRef':
+    def within(self, hours: int = 0, days: int = 0, weeks: int = 0, minutes: int = 0) -> 'AssetRef':
         """
         Create a reference to this asset with freshness constraint.
         Used with wait_for for pull-based cross-pipeline dependencies.
@@ -903,6 +903,9 @@ class Asset:
             hours: Maximum age in hours
             days: Maximum age in days  
             weeks: Maximum age in weeks
+            minutes: Maximum age in minutes (converted to fractional hours —
+                mainly useful for quick manual testing; hours/days/weeks cover
+                real production freshness windows)
             
         Returns:
             AssetRef with freshness constraint
@@ -913,14 +916,17 @@ class Asset:
             
             @task.sfn(wait_for=[asset_x.within(days=1, hours=12)])
             def process(): ...
+
+            @task.sfn(wait_for=[asset_x.within(minutes=2)])  # quick manual testing
+            def process(): ...
             
         Raises:
             ValueError: If no time parameters provided
         """
-        if hours == 0 and days == 0 and weeks == 0:
-            raise ValueError("within() requires at least one of: hours, days, weeks")
+        if hours == 0 and days == 0 and weeks == 0 and minutes == 0:
+            raise ValueError("within() requires at least one of: hours, days, weeks, minutes")
         
-        total_hours = hours + (days * 24) + (weeks * 24 * 7)
+        total_hours = hours + (days * 24) + (weeks * 24 * 7) + (minutes / 60 if minutes else 0)
         return AssetRef(asset=self, freshness_hours=total_hours)
 
     def consecutive(self, days: int) -> 'AssetConsecutiveRef':
@@ -1134,12 +1140,21 @@ class AssetAll:
     
     @property
     def asset_names(self) -> List[str]:
-        return [a.name for a in self.assets]
+        names = []
+        for a in self.assets:
+            if isinstance(a, AssetAny):
+                names.append(f"({' | '.join(a.asset_names)})")
+            else:
+                names.append(a.name)
+        return names
     
     def to_dict(self) -> Dict[str, Any]:
+        items: List[Any] = [
+            a.name if isinstance(a, Asset) else a.to_dict() for a in self.assets
+        ]
         return {
             "operator": "AND",
-            "assets": [a.name for a in self.assets]
+            "assets": items
         }
     
     def __repr__(self):
@@ -1151,11 +1166,21 @@ class AssetAny:
     """
     OR condition for multiple assets.
     DAG triggers when ANY asset is updated.
-    
+
     Example:
         schedule=[inventory | catalog]  # Trigger on either
         # or equivalently:
         schedule=[AssetAny([inventory, catalog])]
+
+    Single-item AssetAny (deliberate pattern, not a typo): `schedule=AssetAny([x])`
+    triggers on EVERY materialization of `x`, with no day-scoped deduplication —
+    unlike `schedule=x` or `schedule=[x]`, which are AND-of-one (same net effect
+    of "one required asset", but the notify_asset_consumers path dedupes by
+    calendar day, so a producer that materializes `x` more than once on the same
+    day only triggers this consumer once). Use `AssetAny([x])` when the consumer
+    should react to every update, e.g. an hourly producer, or a deliberate
+    re-run whose downstream should recompute too. See
+    docs/reference/SPIKE_ASSET_TRIGGER_GRANULARITY.md for the full analysis.
     """
     assets: List[Union[AssetOperand, AssetAll]] = field(default_factory=list)
     
@@ -1175,23 +1200,16 @@ class AssetAny:
     def asset_names(self) -> List[str]:
         names = []
         for a in self.assets:
-            if isinstance(a, Asset):
-                names.append(a.name)
-            elif isinstance(a, AssetRef):
-                names.append(a.name)  # AssetRef has .name property
-            elif isinstance(a, AssetAll):
+            if isinstance(a, AssetAll):
                 names.append(f"({' & '.join(a.asset_names)})")
+            else:
+                names.append(a.name)
         return names
     
     def to_dict(self) -> Dict[str, Any]:
-        items: List[Any] = []
-        for a in self.assets:
-            if isinstance(a, Asset):
-                items.append(a.name)
-            elif isinstance(a, AssetRef):
-                items.append(a.to_dict())  # Include freshness info
-            elif isinstance(a, AssetAll):
-                items.append(a.to_dict())
+        items: List[Any] = [
+            a.name if isinstance(a, Asset) else a.to_dict() for a in self.assets
+        ]
         return {
             "operator": "OR",
             "assets": items
@@ -1309,7 +1327,17 @@ def normalize_asset_schedule(schedule: Optional[AssetSchedule]) -> Union[AssetAl
     # Single Asset → AND with one item
     if isinstance(schedule, Asset):
         return AssetAll(assets=[schedule])
-    
+
+    # Bare AssetRef/AssetConsecutiveRef (e.g. schedule=asset.within(hours=1)
+    # or schedule=asset.consecutive(days=3)) — same treatment as a single
+    # Asset: AND with one item. Previously unhandled, so it fell through to
+    # `return None` below, and the DAG silently got no trigger at all: not
+    # asset-triggered (this function returning None), and not time-based
+    # either (dag.py's __post_init__ only takes the time-based branch for a
+    # str schedule) — the pipeline just never fired, with no error anywhere.
+    if isinstance(schedule, (AssetRef, AssetConsecutiveRef)):
+        return AssetAll(assets=[schedule])
+
     # AssetAlias → OR of all member assets
     if isinstance(schedule, AssetAlias):
         return AssetAny(assets=cast("List[Union[AssetOperand, AssetAll]]", schedule.assets))
@@ -1333,20 +1361,31 @@ def normalize_asset_schedule(schedule: Optional[AssetSchedule]) -> Union[AssetAl
             elif isinstance(item, Asset):
                 return AssetAll(assets=cast("List[AssetOperand]", [item]))
         
-        # Multiple items in list → AND by default
-        assets = []
+        # Multiple items in list → AND by default. AND is associative, so a
+        # nested AssetAll item is flattened (schedule=[a, b & c] means
+        # a AND b AND c, not a AND (AND b c) — leaving it nested crashed
+        # asset_names/to_dict downstream, since AssetAll has no .name).
+        # An AssetAny item is kept as a single nested OR-group operand
+        # (schedule=[a, b | c] means a AND (b OR c) — flattening it would
+        # silently change the semantics to a AND b AND c). AssetRef/
+        # AssetConsecutiveRef (e.g. a bare `asset.within(hours=24)` in the
+        # list) previously matched none of the isinstance branches below and
+        # silently vanished from the result — now they're appended too.
+        assets: List[AssetOperand] = []
         for item in schedule:
-            if isinstance(item, Asset):
-                assets.append(item)
+            if isinstance(item, AssetAll):
+                assets.extend(item.assets)
             elif isinstance(item, AssetAlias):
                 # Expand alias assets
                 assets.extend(item.assets)
-            elif isinstance(item, (AssetAll, AssetAny)):
-                # Mixed operators in list - return as-is in AssetAll
-                # This handles: [a, b & c] → AND(a, AND(b, c))
-                return AssetAll(assets=schedule)  # type: ignore[arg-type]  # known-limitation: mixed-operator lists nest combinators; serialization of nested forms tracked separately
+            elif isinstance(item, AssetAny):
+                # Mixed operators in list - keep as a nested OR-group operand
+                assets.append(item)
+            else:
+                # Asset, AssetRef, AssetConsecutiveRef
+                assets.append(item)
         
-        return AssetAll(assets=cast("List[AssetOperand]", assets))
+        return AssetAll(assets=assets)
     
     return None
 
@@ -1395,13 +1434,19 @@ def get_asset_schedule_info(dag: 'DAG') -> Optional[Dict[str, Any]]:
             }
         }
     elif isinstance(normalized, AssetAny):
-        # OR logic: Trigger on any
+        # OR logic: Trigger on any. EventBridge event patterns match on the
+        # literal asset_name field, so AssetRef/AssetConsecutiveRef
+        # contribute their underlying asset's .name here (not their full
+        # to_dict(), which carries freshness/consecutive info that has no
+        # meaning for pattern-matching an incoming event) — same as a plain
+        # Asset. A nested AssetAll is flattened into its member names so the
+        # EventBridge pattern is a flat array, not a nested structure.
         flat_names = []
         for a in normalized.assets:
-            if isinstance(a, Asset):
-                flat_names.append(a.name)
-            elif isinstance(a, AssetAll):
+            if isinstance(a, AssetAll):
                 flat_names.extend(a.asset_names)
+            else:
+                flat_names.append(a.name)
         result["eventbridge_rule_pattern"] = {
             "source": ["polyris.assets"],
             "detail-type": ["Asset Materialized"],

@@ -130,3 +130,41 @@ def test_disabled_unknown_route_still_404(monkeypatch):
     monkeypatch.setenv('AUTH_ENABLED', 'false')
     resp = main.handler(_event('GET', '/api/does-not-exist'), None)
     assert resp['statusCode'] == 404
+
+
+def test_only_the_documented_routes_are_public():
+    """Guard against a future route accidentally becoming public.
+
+    is_public_path() matches by PREFIX (path.startswith), not exact path —
+    correct for /api/health/simple and /api/action/{skip,fail,...}, but it
+    means any NEW route registered under one of these prefixes silently
+    bypasses auth too, with no error or warning. This test walks every
+    currently-registered route in main.ROUTES and asserts that any route
+    is_public_path() considers public is one of the routes explicitly
+    reviewed and intended to be public — a new addition here must update
+    this allowlist consciously, not slip through unnoticed.
+    """
+    from auth import is_public_path
+
+    EXPECTED_PUBLIC_ROUTES = {
+        ('GET', '/api/health'),
+        ('GET', '/api/health/simple'),
+        ('GET', '/api/metrics'),
+        ('GET', '/api/action/skip'),
+        ('GET', '/api/action/fail'),
+        ('GET', '/api/action/success'),
+        ('GET', '/api/action/restart'),
+    }
+
+    actual_public_routes = {
+        (method, path) for (method, path) in main.ROUTES
+        if is_public_path(path)
+    }
+
+    unexpected = actual_public_routes - EXPECTED_PUBLIC_ROUTES
+    assert not unexpected, (
+        f"Route(s) {unexpected} are newly public via prefix match in "
+        f"is_public_path — if intentional, add them to EXPECTED_PUBLIC_ROUTES "
+        f"in this test; if not, they need a distinct path outside the "
+        f"public-path prefixes."
+    )

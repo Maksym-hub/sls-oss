@@ -755,7 +755,7 @@ function ApiReferenceTab() {
                     />
                 </div>
             </div>
-            
+
             <div className="hm-api-section">
                 <h4><Bell size={16} className="inline mr-1" /> Other</h4>
                 <div className="hm-api-endpoints">

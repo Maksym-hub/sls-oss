@@ -226,7 +226,7 @@ def verify_cognito_token(token: str) -> Principal:
     region = os.environ.get("REGION", "")
     pool_id = os.environ.get("COGNITO_USER_POOL_ID", "")
     client_id = os.environ.get("COGNITO_CLIENT_ID", "")
-    if not region or not pool_id:
+    if not region or not pool_id or not client_id:
         raise AuthError("auth not configured")
 
     parts = token.split(".")
@@ -274,7 +274,7 @@ def verify_cognito_token(token: str) -> Principal:
         raise AuthError("invalid token use")
     # Cognito access tokens carry `client_id`; ID tokens carry `aud`.
     presented_client = claims.get("client_id") or claims.get("aud")
-    if client_id and presented_client != client_id:
+    if presented_client != client_id:
         raise AuthError("token not issued for this client")
 
     return Principal("user", claims.get("sub", ""))

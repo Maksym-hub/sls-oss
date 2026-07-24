@@ -178,3 +178,76 @@ def test_fail_task_happy_path_calls_side_effects(mocker):
     assert response['statusCode'] == 200
     mock_stop.assert_called_once()
     mock_record.assert_called_once()
+
+
+# ============================================================
+# ADR #115: manual skip is tagged skip_origin='manual' so the
+# all_success skip-cascade (a separate, later change) can distinguish it
+# from the wrapper's rule-triggered skip_origin='rule'.
+# ============================================================
+
+
+def test_skip_task_writes_skip_origin_manual(mocker):
+    """skip_task must tag skip_origin='manual' on the DDB update (ADR #115)."""
+    from routes.tasks import skip_task
+
+    item = _make_task_item()
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mocker.patch('routes.tasks.stop_task_executions')
+    mocker.patch('routes.tasks.record_manual_decision')
+    mocker.patch('routes.tasks.notify_dependents_via_sfn', return_value=True)
+    mocker.patch('routes.tasks.resolve_pagerduty')
+    mocker.patch('routes.tasks.sfn')
+    mock_repo = _mock_repo_success(mocker, item)
+    mocker.patch('routes.tasks.executions_repo', mock_repo)
+
+    response = skip_task('test_task', {'body': json.dumps({'date': '2026-02-20'})})
+
+    assert response['statusCode'] == 200
+    update_expr, kwargs = mock_repo.update.call_args[0][1], mock_repo.update.call_args[1]
+    assert 'skip_origin' in update_expr
+    assert kwargs['expr_values'][':skip_origin'] == 'manual'
+
+
+def test_fail_task_does_not_write_skip_origin(mocker):
+    """fail_task is unaffected by ADR #115 — no skip_origin on its update."""
+    from routes.tasks import fail_task
+
+    item = _make_task_item()
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mocker.patch('routes.tasks.stop_task_executions')
+    mocker.patch('routes.tasks.record_manual_decision')
+    mocker.patch('routes.tasks.notify_dependents_via_sfn', return_value=True)
+    mocker.patch('routes.tasks.resolve_pagerduty')
+    mocker.patch('routes.tasks.sfn')
+    mock_repo = _mock_repo_success(mocker, item)
+    mocker.patch('routes.tasks.executions_repo', mock_repo)
+
+    response = fail_task('test_task', {'body': json.dumps({'date': '2026-02-20'})})
+
+    assert response['statusCode'] == 200
+    update_expr, kwargs = mock_repo.update.call_args[0][1], mock_repo.update.call_args[1]
+    assert 'skip_origin' not in update_expr
+    assert ':skip_origin' not in kwargs['expr_values']
+
+
+def test_mark_success_does_not_write_skip_origin(mocker):
+    """mark_success is unaffected by ADR #115 — no skip_origin on its update."""
+    from routes.tasks import mark_success
+
+    item = _make_task_item()
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mocker.patch('routes.tasks.stop_task_executions')
+    mocker.patch('routes.tasks.record_manual_decision')
+    mocker.patch('routes.tasks.notify_dependents_via_sfn', return_value=True)
+    mocker.patch('routes.tasks.resolve_pagerduty')
+    mocker.patch('routes.tasks.sfn')
+    mock_repo = _mock_repo_success(mocker, item)
+    mocker.patch('routes.tasks.executions_repo', mock_repo)
+
+    response = mark_success('test_task', {'body': json.dumps({'date': '2026-02-20'})})
+
+    assert response['statusCode'] == 200
+    update_expr, kwargs = mock_repo.update.call_args[0][1], mock_repo.update.call_args[1]
+    assert 'skip_origin' not in update_expr
+    assert ':skip_origin' not in kwargs['expr_values']

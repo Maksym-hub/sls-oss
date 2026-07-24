@@ -108,9 +108,8 @@ def test_skip_tasks_safe_default(run_task_template):
 
 def test_task_skipped_emits_skipped_status(run_task_template):
     """Task_Skipped Pass state must emit status='skipped' so downstream
-    tasks with trigger_rule including 'none_failed_or_skipped' or
-    'all_done' proceed correctly. Without this, skipped tasks would
-    block the rest of the DAG."""
+    tasks with trigger_rule 'all_done' proceed correctly. Without this,
+    skipped tasks would block the rest of the DAG."""
     state = run_task_template["States"]["Task_Skipped"]
     assert state["Type"] == "Pass"
     assert "'skipped'" in state["Output"]

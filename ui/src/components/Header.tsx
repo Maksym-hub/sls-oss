@@ -95,6 +95,7 @@ const SECTION_LABEL: Record<string, string> = {
     tasks: 'History',
     runs: 'History',
     assets: 'Assets',
+    backfills: 'Backfills',
 };
 
 function Breadcrumbs() {

@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"wait_before\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"delayed_task\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"delayed_task\", \"name\": \"delayed_task\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"wait_before\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"delayed_task\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"delayed_task\", \"name\": \"delayed_task\", \"type\": \"task\", \"task_type\": \"sfn\", \"wait_before\": 600}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -26,7 +26,7 @@
             "S": "[{\"task_id\": \"delayed_task\", \"task_type\": \"sfn\", \"dependencies\": []}]"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"delayed_task\", \"name\": \"delayed_task\"}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"delayed_task\", \"name\": \"delayed_task\", \"type\": \"task\", \"task_type\": \"sfn\", \"wait_before\": 600}], \"edges\": []}"
           },
           "schedule": {
             "S": ""
@@ -62,7 +62,7 @@
             "S": "{% $states.context.Execution.Name %}"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"delayed_task\", \"name\": \"delayed_task\"}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"delayed_task\", \"name\": \"delayed_task\", \"type\": \"task\", \"task_type\": \"sfn\", \"wait_before\": 600}], \"edges\": []}"
           },
           "snapshot_at": {
             "S": "{% $now() %}"

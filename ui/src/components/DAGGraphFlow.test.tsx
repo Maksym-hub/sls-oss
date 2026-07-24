@@ -34,6 +34,7 @@ const rf = vi.hoisted(() => ({
     fitView: vi.fn(),
     measuredIds: new Set<string>(),
     currentNodeIds: [] as string[],
+    currentEdges: [] as { id: string; style?: { stroke?: string; opacity?: number } }[],
 }));
 
 vi.mock('reactflow', () => {
@@ -46,13 +47,14 @@ vi.mock('reactflow', () => {
 
     const ReactFlow = ({ nodes, edges, onNodeClick, onNodeContextMenu, onInit, children }: {
         nodes: { id: string; data: { label: string; status: string } }[];
-        edges: { id: string }[];
+        edges: { id: string; style?: { stroke?: string; opacity?: number } }[];
         onNodeClick?: (e: unknown, node: { id: string }) => void;
         onNodeContextMenu?: (e: unknown, node: { id: string }) => void;
         onInit?: (instance: { fitView: (o?: unknown) => void }) => void;
         children?: React.ReactNode;
     }) => {
         rf.currentNodeIds = (nodes ?? []).map(n => n.id);
+        rf.currentEdges = edges ?? [];
         React.useEffect(() => { onInit?.(rf); }, [onInit]);
         return (
             <div data-testid="react-flow">
@@ -215,6 +217,35 @@ describe('DAGGraphFlow', () => {
         it('hides legend in blueprint mode', () => {
             render(<DAGGraphFlow {...defaultProps} isBlueprint={true} tasks={[]} />);
             expect(screen.queryByText('Success')).not.toBeInTheDocument();
+        });
+
+        it('does not open the task modal on click — no real task exists to show', () => {
+            // Every node falls back to a fake {status:'waiting', pipeline_name:'',
+            // execution_name:''} object when no matching task is found, which is
+            // always the case here (tasks=[]) — opening the modal on that would
+            // show a misleading status and fields that fail any real API call.
+            render(<DAGGraphFlow {...defaultProps} isBlueprint={true} tasks={[]} />);
+            fireEvent.click(screen.getByTestId('rf-node-transform'));
+            expect(defaultProps.onSelectTask).not.toHaveBeenCalled();
+        });
+
+        it('does not open the task modal on right-click either', () => {
+            render(<DAGGraphFlow {...defaultProps} isBlueprint={true} tasks={[]} />);
+            fireEvent.contextMenu(screen.getByTestId('rf-node-load_db'));
+            expect(defaultProps.onSelectTask).not.toHaveBeenCalled();
+        });
+
+        it('uses --text-muted for edges instead of the too-subtle --border, with no extra opacity', () => {
+            // --border is already a low-contrast token; a 0.5 opacity on
+            // top of it made blueprint edges nearly invisible in dark mode
+            // (#334155 at 50% against a dark page background). --text-muted
+            // (#64748b in dark mode) is meaningfully more visible on its own.
+            render(<DAGGraphFlow {...defaultProps} isBlueprint={true} tasks={[]} />);
+            expect(rf.currentEdges.length).toBeGreaterThan(0);
+            for (const edge of rf.currentEdges) {
+                expect(edge.style?.stroke).toBe('var(--text-muted)');
+                expect(edge.style?.opacity).toBeUndefined();
+            }
         });
     });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -82,7 +82,16 @@ describe('usePipelineActions', () => {
   });
 
   describe('handleRun', () => {
-    it('should open run modal with default params', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-22T12:00:00Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('should open run modal defaulting to today, not the currently-viewed date', () => {
       const { result } = renderHook(() => usePipelineActions(defaultProps), { wrapper: createWrapper() });
       
       act(() => {
@@ -92,7 +101,9 @@ describe('usePipelineActions', () => {
       expect(result.current.modal.isOpen).toBe(true);
       expect(result.current.modal.action).toBe('runPipeline');
       expect(result.current.modal.title).toBe('Run Pipeline');
-      expect(result.current.triggerParams).toBe(JSON.stringify({ current_date: '2024-01-15' }, null, 2));
+      // defaultProps.date is '2024-01-15' (simulating a stale/historical
+      // date left over from browsing) — Run must ignore it and use today.
+      expect(result.current.triggerParams).toBe(JSON.stringify({ current_date: '2026-07-22' }, null, 2));
     });
 
     it('should not open modal without selected pipeline', () => {
@@ -376,6 +387,32 @@ describe('usePipelineActions', () => {
       });
       
       expect(defaultProps.showToast).toHaveBeenCalledWith('No active execution to pause', 'warning');
+    });
+
+    it('targets the SELECTED execution, not a different running one that happens to appear earlier in the array', async () => {
+      // Regression test for a real bug: the previous lookup was a single
+      // .find() with an OR condition (selected-match OR running-match), with
+      // no priority between the two branches — whichever an element
+      // satisfied first in array order won. A user viewing an older,
+      // selected execution while a different, more recent one is running
+      // (and sorted earlier, as is typical) would have Pause silently act
+      // on the wrong execution.
+      mockApiPost.mockResolvedValue({ success: true });
+      const props = {
+        ...defaultProps,
+        selectedExecution: { execution_id: 'yesterday-run-1' },
+        executions: [
+          { execution_id: 'today-run-2', status: 'running' },   // different execution, running, earlier in array
+          { execution_id: 'yesterday-run-1', status: 'success' }, // the one the user actually selected
+        ],
+      };
+      const { result } = renderHook(() => usePipelineActions(props), { wrapper: createWrapper() });
+
+      await act(async () => {
+        await result.current.handlePauseResume();
+      });
+
+      expect(mockApiPost).toHaveBeenCalledWith('/execution-pause?id=yesterday-run-1', {});
     });
   });
 

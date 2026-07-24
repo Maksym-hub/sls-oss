@@ -103,9 +103,15 @@ def safe_parse_body(event: Dict) -> tuple:
     if not raw:
         return {}, None
     try:
-        return json.loads(raw), None
+        parsed = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         return None, error_response(400, 'INVALID_JSON', 'Request body is not valid JSON')
+    if not isinstance(parsed, dict):
+        # Syntactically valid JSON (an array, string, number, or null) is not
+        # a usable request body — every caller immediately does body.get(...),
+        # which would otherwise raise AttributeError deep in the route handler.
+        return None, error_response(400, 'INVALID_JSON', 'Request body must be a JSON object')
+    return parsed, None
 
 
 def validation_error(field: str, reason: str, value: Any = None) -> Dict:

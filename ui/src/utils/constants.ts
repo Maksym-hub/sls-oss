@@ -142,8 +142,7 @@ export const POLLING = {
 // API configuration
 export const API = {
     BASE_URL: '',
-    TIMEOUT: 30000,
-    RETRY_COUNT: 3
+    TIMEOUT: 30000
 };
 
 // UI configuration

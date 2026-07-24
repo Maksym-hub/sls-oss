@@ -105,8 +105,8 @@ class DAG:
             self.schedule = self.schedule_interval
         
         # Check if schedule is asset-based
-        from .assets import Asset, AssetAll, AssetAny, normalize_asset_schedule
-        
+        from .assets import normalize_asset_schedule
+
         # Handle trigger_assets as alternative to schedule for asset triggers
         if self.trigger_assets is not None and self.schedule is None:
             # Convert trigger_assets to schedule based on trigger_mode
@@ -116,16 +116,25 @@ class DAG:
             else:  # "all" is default
                 from .assets import AssetAll as _AssetAll
                 self.schedule = _AssetAll(self.trigger_assets)
-        
-        is_asset_based = isinstance(self.schedule, (Asset, AssetAll, AssetAny)) or (
-            isinstance(self.schedule, list) and 
-            len(self.schedule) > 0 and 
-            isinstance(self.schedule[0], (Asset, AssetAll, AssetAny))
-        )
-        
+
+        # normalize_asset_schedule is the single source of truth for "does
+        # this schedule value mean asset-triggered" (Asset, AssetRef,
+        # AssetConsecutiveRef, AssetAll, AssetAny, AssetAlias, and lists
+        # mixing any of them, in any position). A prior version of this
+        # check duplicated a narrower type-test here (Asset/AssetAll/AssetAny
+        # only, and only at schedule[0] for lists) — it silently missed
+        # AssetRef/AssetConsecutiveRef entirely, so `schedule=asset.within(
+        # hours=1)` or `schedule=[asset.within(hours=1), other_asset]`
+        # deployed with is_asset_triggered=False and _eventbridge_schedule=
+        # None: no trigger mechanism at all, not time-based, not
+        # asset-triggered — the pipeline simply never ran automatically,
+        # with no error anywhere to reveal why.
+        normalized = normalize_asset_schedule(self.schedule) if not isinstance(self.schedule, str) else None
+        is_asset_based = normalized is not None
+
         if is_asset_based:
             # Asset-triggered DAG - no cron schedule
-            self._asset_schedule = normalize_asset_schedule(self.schedule)
+            self._asset_schedule = normalized
             self._eventbridge_schedule = None
         elif isinstance(self.schedule, str):
             # Time-based schedule

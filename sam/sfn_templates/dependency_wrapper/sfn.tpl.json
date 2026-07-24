@@ -305,8 +305,12 @@
     },
     "Check_Deps_Signal": {
       "Type": "Choice",
-      "Comment": "Check if dependencies are ready or blocked",
+      "Comment": "Check if dependencies are ready, blocked, or a legitimate no-op skip (ADR #115)",
       "Choices": [
+        {
+          "Condition": "{% $callback_signal = 'deps_skip' %}",
+          "Next": "Emit_Deps_Skip"
+        },
         {
           "Condition": "{% $callback_signal = 'deps_blocked' %}",
           "Next": "Emit_Deps_Blocked"
@@ -380,6 +384,71 @@
         }
       ]
     },
+    "Emit_Deps_Skip": {
+      "Type": "Task",
+      "Comment": "ADR #115: record DEPS_SKIPPED event for timeline. Status is already 'skipped' in DDB (written by notify_dependents's Update_Status_Skip) - this task's job is only to cascade the skip to its own dependents and callback its orchestration_token, reusing the same Auto_Skip_* chain the pre-execution skip_tasks path uses.",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Arguments": {
+        "TableName": "${task_events_table}",
+        "Item": {
+          "task_run_id": {
+            "S": "{% $states.input.task_run_id %}"
+          },
+          "event_time": {
+            "S": "{% $now() & '#05' %}"
+          },
+          "event_type": {
+            "S": "DEPS_SKIPPED"
+          },
+          "execution_name": {
+            "S": "{% $states.input.execution_name %}"
+          },
+          "parent_execution_id": {
+            "S": "{% $states.input.parent_execution_id %}"
+          },
+          "backfill_id": {
+            "S": "{% $exists($states.input.backfill_id) ? $states.input.backfill_id : '' %}"
+          },
+          "partition_key": {
+            "S": "{% $exists($states.input.partition_key) ? $states.input.partition_key : ($exists($states.input.current_date) ? $states.input.current_date : '') %}"
+          },
+          "task_name": {
+            "S": "{% $states.input.task_name %}"
+          },
+          "reason": {
+            "S": "{% $exists($callback_reason) ? $callback_reason : 'Trigger rule condition did not occur' %}"
+          },
+          "ttl": {
+            "N": "{% $string($states.input.ttl) %}"
+          }
+        }
+      },
+      "Output": "{% $states.input %}",
+      "Next": "Auto_Skip_Notify_Dependents",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ProvisionedThroughputExceededException",
+            "DynamoDB.ThrottlingException",
+            "DynamoDB.InternalServerError",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Comment": "Emit_Deps_Skip failed - continue gracefully",
+          "Output": "{% $states.input %}",
+          "Next": "Auto_Skip_Notify_Dependents"
+        }
+      ]
+    },
+
     "Emit_Deps_Blocked": {
       "Type": "Task",
       "Comment": "Record DEPS_BLOCKED event for timeline",

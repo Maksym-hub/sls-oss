@@ -157,6 +157,32 @@ describe('PipelinesSidebar', () => {
             const headerTexts = [...headers].map(h => h.textContent.toLowerCase());
             expect(headerTexts.some(t => t.includes('acme'))).toBe(true);
         });
+
+        it('auto-expands a group containing an aborted pipeline', () => {
+            // Regression test: the auto-expand check previously looked for
+            // 'timed_out', a value the /api/pipelines status field can never
+            // actually hold (derive_execution_status — the only place this
+            // field is set — returns only running/success/failed/aborted;
+            // 'timed_out' is reconciliation-only, used elsewhere). Meanwhile
+            // 'aborted', a real reachable value for a user-stopped pipeline,
+            // was missing from the check entirely, so a group containing
+            // only an aborted pipeline was never auto-expanded.
+            //
+            // >12 total pipelines across two groups, so the "≤12 total"
+            // auto-expand-everything rule doesn't mask this specific check.
+            const quietGroup = Array.from({ length: 12 }, (_, i) =>
+                createPipeline({ name: `quiet-${i}`, group: 'quiet', status: 'success' }));
+            const abortedGroup = [createPipeline({ name: 'stopped-run', group: 'attention', status: 'aborted' })];
+            mockQueryData.data = [...quietGroup, ...abortedGroup];
+
+            const { container } = render(<PipelinesSidebar />);
+            const headers = [...container.querySelectorAll('.sb-pipeline-group-header')];
+            const attentionHeader = headers.find(h => h.getAttribute('aria-label')?.toLowerCase().includes('attention'));
+            const quietHeader = headers.find(h => h.getAttribute('aria-label')?.toLowerCase().includes('quiet'));
+
+            expect(attentionHeader?.getAttribute('aria-expanded')).toBe('true');
+            expect(quietHeader?.getAttribute('aria-expanded')).toBe('false');
+        });
     });
 
     // ─── Selection ───────────────────────────────────────────────────────
@@ -171,6 +197,16 @@ describe('PipelinesSidebar', () => {
             expect(useAppStore.getState().selectedPipeline).toEqual(
                 expect.objectContaining({ name: 'acme-daily' })
             );
+        });
+
+        it('resets dagViewSource to run when a different pipeline is clicked', () => {
+            const pipelines = [createPipeline({ name: 'acme-daily' })];
+            useAppStore.getState().setDagViewSource('current');
+            mockQueryData.data = pipelines;
+            render(<PipelinesSidebar />);
+            expandAllGroups();
+            fireEvent.click(screen.getByText('acme-daily'));
+            expect(useAppStore.getState().dagViewSource).toBe('run');
         });
 
         it('highlights the selected pipeline', () => {

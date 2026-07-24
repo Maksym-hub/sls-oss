@@ -30,6 +30,11 @@ interface AppState extends ModalState {
     selectedPipeline: PipelineWithUI | null;
     selectedExecution: SelectedExecution | null;
     selectedTaskName: string | null;
+    // Pipeline detail: show the last run's graph (tied to that run's actual
+    // structure/statuses) or the currently-deployed structure (registry,
+    // no execution — see docs/reference/SPIKE_CURRENT_STRUCTURE_VS_LATEST_RUN.md).
+    // Deliberately separate from `viewMode` (dag/gantt/table/calendar layout).
+    dagViewSource: 'run' | 'current';
 
     // UI
     theme: string;
@@ -48,6 +53,7 @@ interface AppState extends ModalState {
     setSelectedPipeline: (pipeline: PipelineWithUI | null) => void;
     setSelectedExecution: (exec: SelectedExecution | null) => void;
     setSelectedTaskName: (name: string | null) => void;
+    setDagViewSource: (source: 'run' | 'current') => void;
 
     // UI actions
     setTheme: (theme: string) => void;
@@ -106,6 +112,7 @@ export const useAppStore = create<AppState>((set) => ({
     selectedPipeline: null,
     selectedExecution: null,
     selectedTaskName: null,
+    dagViewSource: 'run',
 
     // UI — restored from localStorage
     theme: readPersisted('theme', 'light'),
@@ -132,10 +139,20 @@ export const useAppStore = create<AppState>((set) => ({
     setDate: (date) => set({ date }),
     setSelectedPipeline: (pipeline) => set(() => {
         if (pipeline?.name) persist('lastPipeline', pipeline.name);
-        return { selectedPipeline: pipeline };
+        // Switching pipelines always leaves 'current structure' mode — it's
+        // scoped to whichever pipeline you were looking at, not carried over.
+        return { selectedPipeline: pipeline, dagViewSource: 'run' };
     }),
-    setSelectedExecution: (exec) => set({ selectedExecution: exec }),
+    setSelectedExecution: (exec) => set(() => ({
+        selectedExecution: exec,
+        // Picking a specific execution (history dropdown, notifications via
+        // navigateToExecution) always means "show me that run" — 'current
+        // structure' mode would otherwise silently override it by forcing
+        // executionId back to null.
+        dagViewSource: 'run',
+    })),
     setSelectedTaskName: (name) => set({ selectedTaskName: name }),
+    setDagViewSource: (source) => set({ dagViewSource: source }),
 
     // UI actions
     setTheme: (theme) => set(() => {
@@ -180,5 +197,6 @@ export const useAppStore = create<AppState>((set) => ({
         selectedPipeline: null,
         selectedExecution: null,
         selectedTaskName: null,
+        dagViewSource: 'run',
     }),
 }));

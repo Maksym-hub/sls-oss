@@ -1886,7 +1886,7 @@
     color: var(--text-secondary);
     text-align: center;
 }
-.amv-empty-icon { color: var(--text-muted, var(--text-secondary)); opacity: 0.5; }
+.amv-empty-icon { color: var(--text-muted, var(--text-secondary)); }
 .amv-empty-hint { font-size: 0.8125rem; opacity: 0.7; }
 .amv-empty-btn,
 .amv-retry-btn {

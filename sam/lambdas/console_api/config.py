@@ -172,7 +172,6 @@ TABLE_NAME = os.environ.get('DYNAMODB_TABLE', 'pipeline-executions')
 PIPELINES_TABLE = os.environ.get('PIPELINES_TABLE', 'pipeline-registry')
 SUBSCRIPTIONS_TABLE = os.environ.get('SUBSCRIPTIONS_TABLE', 'dep-subscriptions')
 ASSET_EVENTS_TABLE = os.environ.get('ASSET_EVENTS_TABLE', 'asset-events')
-ASSET_SUBSCRIPTIONS_TABLE = os.environ.get('ASSET_SUBSCRIPTIONS_TABLE', 'asset-subscriptions')
 QUEUED_EVENTS_TABLE = os.environ.get('QUEUED_EVENTS_TABLE', 'queued-asset-events')
 TASK_EVENTS_TABLE = os.environ.get('TASK_EVENTS_TABLE', 'task-events')
 # Personal Access Token store (ADR #65). Dedicated table, not pipeline-tokens.
@@ -184,6 +183,7 @@ RESULTS_BUCKET = os.environ.get('RESULTS_BUCKET', '')
 
 # SFN Helpers
 NOTIFY_DEPENDENTS_HELPER_ARN = os.environ.get('NOTIFY_DEPENDENTS_HELPER_ARN', '')
+NOTIFY_ASSET_CONSUMERS_SFN_ARN = os.environ.get('NOTIFY_ASSET_CONSUMERS_SFN_ARN', '')
 BULK_BACKFILL_ARN = os.environ.get('BULK_BACKFILL_ARN', '')
 
 # ============================================

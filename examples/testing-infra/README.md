@@ -37,7 +37,7 @@ aws cloudformation describe-stacks --stack-name polyris-test \
 
 For ECS, the test container is named **`main`** — matching
 `container_overrides={"ContainerOverrides": [{"Name": "main", ...}]}` in
-`04_multi_service`.
+`04_task_types`.
 
 `examples/config.py` is already set to this account (000000000000 / us-east-1,
 namespace `polyris-ex`), so `polyris-deploy` in any example folder targets the right
@@ -78,7 +78,7 @@ and exit. That's enough for every task in a pipeline to run green.
 EMR is the one task type this stack leaves out, because a cluster costs money just
 by existing (it must stay running so `@task.emr` can add steps). To exercise the EMR
 task, create a small cluster yourself and pass its `j-XXXX` id to
-`@task.emr(emr_cluster_id=...)` — or just drop the EMR task from `04_multi_service`
+`@task.emr(emr_cluster_id=...)` — or just drop the EMR task from `04_task_types`
 while smoke-testing.
 
 ## Clean up

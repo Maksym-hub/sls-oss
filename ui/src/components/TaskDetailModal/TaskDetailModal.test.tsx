@@ -257,6 +257,33 @@ describe('TaskDetailModal', () => {
             expect(screen.getByText('Mark Successful')).toBeInTheDocument();
         });
 
+        it('shows Stop for waiting_decision tasks — an explicit "give up, don\'t retry" choice', () => {
+            // The backend already fully supports this: stop_task's own
+            // TASK_STOPPABLE_STATUSES already includes waiting_decision,
+            // transitioning it to 'aborted'. Stop and Restart now both show
+            // directly for waiting_decision, covering two different
+            // intents: Stop = final, notify downstream now; Restart =
+            // retry, via restart_task_helper's hard StopExecution kill,
+            // which never triggers that same immediate notification.
+            const task = createWaitingDecisionTask();
+            render(<TaskDetailModal {...defaultProps} task={task} />);
+            fireEvent.click(screen.getByText('Actions'));
+            expect(screen.getByText('Stop Task')).toBeInTheDocument();
+        });
+
+        it('shows Restart directly for waiting_decision tasks — no need to Stop first', () => {
+            // §9's final step: restart_task's backend now directly accepts
+            // waiting_decision (RESTARTABLE_STATUSES extension), safe because
+            // both prerequisites are in place — the correct field name so
+            // Stop_Old_Wrapper can actually kill the still-live wrapper, and
+            // the attempt-keyed ConditionExpression guard so a surviving
+            // ghost can never corrupt a newer attempt's state either way.
+            const task = createWaitingDecisionTask();
+            render(<TaskDetailModal {...defaultProps} task={task} />);
+            fireEvent.click(screen.getByText('Actions'));
+            expect(screen.getByText('Restart Task')).toBeInTheDocument();
+        });
+
         it('shows Stop for running tasks without error', () => {
             const task = createRunningTask();
             render(<TaskDetailModal {...defaultProps} task={task} />);

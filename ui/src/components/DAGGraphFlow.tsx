@@ -43,7 +43,7 @@ import type { DAGGraphFlowProps, CountdownBadgeProps, DAGTaskNodeData } from '@/
 
 // Status colors
 const STATUS_COLORS: Record<string, { bg: string; border: string }> = {
-    blueprint: { bg: 'var(--bg-secondary)', border: 'var(--border)' },
+    blueprint: { bg: 'var(--bg-secondary)', border: 'var(--border-strong)' },
     success: { bg: 'var(--success-light)', border: 'var(--success)' },
     succeeded: { bg: 'var(--success-light)', border: 'var(--success)' },
     running: { bg: 'var(--running-light)', border: 'var(--running)' },
@@ -142,7 +142,7 @@ export const TaskNode = ({ data, selected }: { data: DAGTaskNodeData; selected: 
 
     // Compose tooltip text. trigger_rule is shown only when it diverges from
     // the default 'all_success' — operators expect default behavior silently;
-    // surfacing 'all_done' / 'one_failed' / etc. on hover prevents the
+    // surfacing 'all_done' / 'one_success' / etc. on hover prevents the
     // "why is mark_daily_complete green when run_classification failed?"
     // confusion (it's because trigger_rule='all_done' on the marker task).
     const triggerRule = data.task?.trigger_rule;
@@ -162,12 +162,11 @@ export const TaskNode = ({ data, selected }: { data: DAGTaskNodeData; selected: 
                 borderRadius: '6px',
                 padding: '8px 12px',
                 minWidth: '130px',
-                opacity: isBlueprint ? 0.5 : 1,
                 boxShadow: selected 
                     ? '0 0 0 3px var(--accent-light), 0 4px 12px rgba(0,0,0,0.15)' 
                     : isBlueprint ? 'none' : '0 1px 3px rgba(0,0,0,0.1)',
                 transition: 'all 0.15s ease',
-                cursor: 'pointer'
+                cursor: isBlueprint ? 'default' : 'pointer'
             }}
         >
             <Handle type="target" position={Position.Left} style={{ background: colors.border }} />
@@ -197,7 +196,7 @@ export const TaskNode = ({ data, selected }: { data: DAGTaskNodeData; selected: 
                     ) : null;
                 })()}
                 {/* Subtle badge for non-default trigger rule. Operators reading the DAG
-                    expect 'all_success' silently; when a task uses 'all_done', 'one_failed',
+                    expect 'all_success' silently; when a task uses 'all_done', 'one_success',
                     etc. the green-when-upstream-failed behavior surprises them. The badge
                     on the node makes the rule visible without opening TaskDetailModal. */}
                 {showsTriggerRule && (
@@ -357,11 +356,15 @@ export function DAGGraphFlow({
                 duration = formatDuration(ms);
             }
             
-            // Merge wait_before from dag if not in task
+            // Merge wait_before/task_type from dag if not in task — task_type
+            // always comes from the DAG structure (node.task_type), never
+            // from the execution record, so it's needed even when a real
+            // task IS found, not just the blueprint fallback.
             const taskWithWaitBefore = task ? {
                 ...task,
-                wait_before: task.wait_before || node.wait_before
-            } : { wait_before: node.wait_before };
+                wait_before: task.wait_before || node.wait_before,
+                task_type: task.task_type || node.task_type
+            } : { wait_before: node.wait_before, task_type: node.task_type };
             
             return {
                 id: node.id,
@@ -384,14 +387,13 @@ export function DAGGraphFlow({
                     ...edge,
                     animated: false,
                     style: { 
-                        stroke: 'var(--border)',
+                        stroke: 'var(--text-muted)',
                         strokeWidth: 1,
-                        strokeDasharray: '5 5',
-                        opacity: 0.5
+                        strokeDasharray: '5 5'
                     },
                     markerEnd: {
                         type: MarkerType.ArrowClosed,
-                        color: 'var(--border)'
+                        color: 'var(--text-muted)'
                     }
                 };
             }
@@ -455,18 +457,25 @@ export function DAGGraphFlow({
     
     // Handle node click
     const onNodeClick = useCallback((_event: React.MouseEvent, node: { id: string }) => {
+        // In blueprint mode there is no real task — every node falls back to
+        // a fake {status:'waiting', pipeline_name:'', execution_name:''}
+        // object, which would open TaskDetailModal showing a misleading
+        // status and fields that fail any real API call. Nothing meaningful
+        // to show, so don't open it.
+        if (isBlueprint) return;
         const task = tasks?.find(t => t.task_name === node.id) || { task_name: node.id, status: 'waiting' as const, pipeline_name: '', execution_name: '' };
         onSelectTask(task);
-    }, [tasks, onSelectTask]);
+    }, [tasks, onSelectTask, isBlueprint]);
     
     // Handle right-click - open task modal (same as left-click now)
     const onNodeContextMenu = useCallback((_event: React.MouseEvent, node: { id: string }) => {
         _event.preventDefault();
+        if (isBlueprint) return;
         if (onSelectTask) {
             const task = tasks?.find(t => t.task_name === node.id) || { task_name: node.id, status: 'waiting' as const, pipeline_name: '', execution_name: '' };
             onSelectTask(task);
         }
-    }, [tasks, onSelectTask]);
+    }, [tasks, onSelectTask, isBlueprint]);
     
     // Minimap color
     const minimapNodeColor = useCallback((node: { data?: { status?: string } }) => {

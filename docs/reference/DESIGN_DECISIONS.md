@@ -8959,3 +8959,230 @@ earlier than its logical `date`: no row older than T can hide on a date newer th
   `started_at`. Deliberately not answered here. `query_all` already logs `Hit max_items
   limit`, and `query_runs_by_date` cuts on the same condition, so whether this is live is
   measurable rather than arguable.
+
+### 118. `polyris-deploy --all` / `--only` — bulk deploy and destroy across directories
+
+**Context.** `polyris-deploy` only ever handled one file (default `dag.py`) per invocation
+— deploying N example/pipeline directories meant N manual `cd && polyris-deploy` calls,
+with no way to batch them, no way to skip a bad one and keep going, and no summary of what
+actually happened. This became acute once the example set grew past a handful of
+directories (`examples_temp/01_single_task` through `15_assets_every_event`) and needed
+redeploying together after a rename sweep.
+
+**Decision.** Two new mutually-exclusive flags: `--all` (every immediate subdirectory of
+the current directory) and `--only DIR [DIR ...]` (just the listed ones). Both apply the
+same discovery rule per directory: scan **every** `.py` file in it (not only `dag.py`) and
+deploy **every** DAG object found in each — a directory may hold more than one independent
+pipeline file, and a file with zero DAGs (a shared `config.py`, a `utils.py`) is silently
+skipped, not an error. This reuses `_load_dag_from_file`'s existing multi-DAG-per-file
+scanning verbatim; nothing new was invented for "how many DAGs can one file hold."
+
+`--select DAG_ID` (pre-existing, for picking one DAG out of a multi-DAG file) composes with
+bulk mode: applied independently inside each directory, so a directory that doesn't contain
+a DAG with that ID is skipped rather than counted as a failure.
+
+**Naming.** The obvious name for "which folders" was `--select`, but that flag already means
+"which DAG, by ID, within one file" and is shared with `polyris-output`, documented in three
+places (`CLI.md` ×2, `DEPLOY.md`). Renaming the established flag to free up the name would
+be the actual breaking change here, not adding a new one — `--only` was chosen instead,
+leaving `--select`'s existing meaning untouched. `--dirs` was considered and rejected as
+less natural to read at the call site than `--only`.
+
+**Failure isolation.** One DAG failing must not stop the batch — the whole point of bulk
+mode is walking away with a complete picture, not a `sys.exit` on directory #2 of 15. Rather
+than refactor every internal `sys.exit(1)` path inside `deploy_pipeline` (validation
+failures, AWS errors, and more) into a raised exception, each per-DAG call in the bulk loop
+is wrapped in its own `try/except SystemExit`, converting an exit-with-nonzero-code into a
+recorded failure and moving on. This is deliberately the least invasive option: it changes
+nothing about `deploy_pipeline`'s internals or its single-file callers, and it composes with
+any *future* internal exit path the same way, without needing to remember to wrap it.
+
+**Sequential, not parallel — for now.** Deploys run one at a time. Considered and set aside:
+concurrent deploys would interleave output from multiple pipelines, need explicit
+concurrency limits (CloudFormation and the AWS API throttle), and add real complexity for a
+15-pipeline batch that finishes in minutes sequentially. Revisit if bulk batches grow large
+enough that sequential time becomes the actual bottleneck.
+
+**Consequences.**
+- `--all`/`--only` are mutually exclusive with each other and with `--file` (bulk mode
+  discovers files itself — passing both is a usage error, not a silent override).
+- `--file`'s CLI default changed internally from the literal `"dag.py"` to `None`, so
+  `main()` can tell "not passed" from "passed," and reject `--file` when bulk mode is
+  active. Single-file behavior (`polyris-deploy` with no flags) is unchanged; `Path(args.file
+  or "dag.py")` reproduces the old default exactly.
+- A final summary lists every DAG attempted with ✅/❌, and the process exits non-zero if
+  anything failed — safe to gate a CI job or script on.
+- `polyris-output`/`polyris-validate` were not given the same bulk treatment — out of scope
+  for this decision; revisit if the same need shows up there.
+
+### 119. Unified DAG visualization node/edge builder
+
+**Context.** Two independent implementations built (nodes, edges) for DAG visualization:
+`generate_dag_json` (the public `polyris-output`/`polyris-validate` surface) and
+`_build_pipeline_metadata`'s `dag_metadata` construction (stored as the `dag` field in both
+the pipeline registry and per-execution snapshots — what `/pipeline-dag`'s registry
+fallback returns for "current structure" mode, ADR #118's neighbor feature). They looked
+similar enough to read as "the same thing, written twice" but had quietly drifted:
+`generate_dag_json` had a `type` marker, `trigger_rule` (non-default only), and tracked
+Glue/ECS/Athena steps (`dag.steps`) that `_build_pipeline_metadata`'s version entirely
+lacked; `_build_pipeline_metadata` had `wait_for` (asset pull-dependency metadata) that
+`generate_dag_json` lacked. Neither author appears to have known the other existed —
+each accreted fields independently as their own caller needed them.
+
+Found while fixing a narrower bug (task-type badges missing on "current structure"
+blueprint nodes, since that data only ever flowed through `_build_pipeline_metadata`'s
+path) — patching both call sites in parallel would have re-created the exact condition
+that caused the drift in the first place: two implementations, one obligation to keep
+them in sync, no mechanism enforcing it.
+
+**Decision.** One shared function, `_build_dag_visualization_nodes_edges(dag)`, returning
+the canonical `(nodes, edges)` pair with the **union** of every field either caller had
+accumulated — not the intersection, and not "whichever the newer caller happens to need."
+Both `generate_dag_json` and `_build_pipeline_metadata` now call it and use its output
+directly. A single regression guard test (`test_both_callers_produce_identical_nodes_and_edges`)
+asserts their outputs are identical for the same DAG — if this class of drift recurs, it
+fails there, immediately, rather than silently producing two different graphs depending
+on which endpoint answered the request.
+
+**Consequences.**
+- Registry/snapshot-sourced DAG data (used by "current structure" mode, and by historical
+  per-execution snapshots) now includes `type`, `trigger_rule`, and tracked Glue/ECS/Athena
+  steps it never had before. A pipeline using a direct Glue/ECS/Athena step (not through
+  `@task`) previously showed an **incomplete graph** in blueprint mode — that step's node
+  was simply missing. Fixed as a consequence of the unification, not a separate patch.
+- `generate_dag_json`'s output (`polyris-output --json`, `--graph`) now includes `wait_for`
+  on nodes that have it — previously absent from that surface entirely.
+- All 27 ASL snapshot tests were regenerated (`SNAPSHOT_UPDATE=1`) to reflect the new
+  `type` field appearing in registry-stored `dag_metadata`; the diff in each was
+  confirmed to be exactly that one field, nothing else, before regenerating.
+- Frontend (`DAGGraphFlow.tsx`) was updated to thread `node.task_type` into the node's
+  `data.task` in both the real-task and blueprint-fallback cases — the structural
+  `task_type` field now always wins as a fallback when no execution-sourced value exists.
+
+### 120. Manual task actions: recorded input, synthetic output markers, asset events on Mark Successful, safe direct Restart from `waiting_decision`
+
+**Context.** Skip / Mark Successful / Mark Failed / Stop all resolve a task's orchestration
+token directly from `console_api`, bypassing every state in the `run_task` wrapper a normal
+completion goes through. Investigation (full detail in
+`docs/reference/SPIKE_TASK_ACTIONS_DATA_LIFECYCLE.md`) found this had three consequences
+beyond the originally-reported "Input tab is empty for a skipped task": a downstream task
+calling `xcom.pull()` on a manually-resolved task crashes with `PullError`; the manual
+action's immediate `notify_dependents_via_sfn` call can unblock downstream trigger rules
+before a subsequent Restart's own outcome is known; and asset events for a task's outlets
+are never emitted, so push-triggered downstream pipelines silently never fire. Separately,
+a request to make Restart work directly from `waiting_decision` (instead of requiring Stop
+first) surfaced a field-name mismatch that made `restart_task`'s "stop the old wrapper"
+step a silent no-op for every restart, consequential specifically for this new case since
+`waiting_decision`'s wrapper is still genuinely alive.
+
+**Decisions, six pieces:**
+1. **`task_input` written on start, not just success** — new `Save_Task_Input` state
+   (`run_task/sfn.tpl.json`), positioned after upstream/variables resolve, before
+   dispatch. `updateItem`, not `putItem` like `Save_Canonical_Output` — a same-day
+   re-run's input write must never clobber a prior run's real `result` at the same
+   `output#pipeline#task#date` key.
+2. **Synthetic output marker on every manual action** — `{"_manually_resolved": true,
+   "_resolution": ..., "_reason": ...}` written to the same canonical key `xcom.pull()`
+   reads, conditioned on `result` not already existing. `xcom.pull()`'s own contract
+   (raise loud on genuinely missing output) is unchanged — this fills the specific gap
+   where "missing" actually means "resolved without running," not "something is wrong."
+3. **Asset events emitted for Mark Successful only** — the one action that explicitly
+   claims real work happened ("verified via logs/S3"); Skip/Fail/Stop correctly continue
+   not to. Looks up outlets from the registry's `dag_metadata` (ADR #119's unified nodes)
+   since outlets are a deploy-time property never stored per-execution. Scoped to the
+   push-model SFN notification (already fully wired in the SAM template); the pull-based
+   subscriber Lambda was not wired — a real infrastructure change (new IAM permission +
+   env var), left as a separate decision.
+4. **Fixed `restart_task`'s `Stop_Old_Wrapper` field-name mismatch** — it read
+   `wrapper_execution_arn`, a field the wrapper never wrote (it writes the same value as
+   `run_task_helper_arn`). Harmless for a genuinely terminal restart (nothing left running
+   to stop); consequential for restarting directly from `waiting_decision`, where the
+   wrapper is still alive. (A first fix attempt used `helper_arn` — also wrong, since
+   `:helper_arn` in the wrapper's own `UpdateExpression` is only the value-placeholder
+   name, not the field; caught before shipping.)
+5. **Attempt-keyed `ConditionExpression` on every status-writing state** (`Save_Success`,
+   `Save_Failed`, `Save_Error_Waiting`) — (4) only makes killing a stale wrapper *likely*;
+   this makes a stale write from a surviving ghost structurally impossible to apply,
+   regardless of whether the kill succeeded. Rejected writes route to a new
+   `Stale_Attempt_Superseded` (`Succeed`) state — no misleading finished/failed event, no
+   stale dependent notification.
+6. **`RESTARTABLE_STATUSES` extended to `waiting_decision`** — Restart now works directly,
+   without Stop first. `restart_task_helper`'s `Stop_Old_Wrapper` is a hard
+   `states:StopExecution` kill, not `send_task_success`/`failure`, so unlike Stop it never
+   triggers `notify_dependents_via_sfn`'s immediate downstream notification — using
+   Restart as intended (retry, don't tell anyone yet) no longer risks a downstream task
+   reacting to a stale abort before the retry's real outcome is known. Found and fixed a
+   related drift bug while wiring this up: the fallback (no-`RESTART_HELPER_ARN`) path had
+   its own, separately hand-maintained `RESTART_CONDITION` string that was already missing
+   `waiting_decision` — now derived from `RESTARTABLE_STATUSES` directly, eliminating this
+   class of drift going forward rather than adding one more hardcoded value to it.
+
+**Consequences.**
+- Stop remains available alongside Restart on a `waiting_decision` task — they serve
+  different intents ("done, tell everyone now" vs. "let me retry, don't tell anyone yet"),
+  not one superseding the other.
+- Every new safety property (field-name correctness, catch ordering, the
+  `ConditionExpression` guard, the synthetic marker's never-overwrite guard, the
+  asset-event gating) was mutation-tested: the corresponding fix was temporarily reverted
+  and the new test confirmed to fail, not just pass with the fix in place.
+- §7c's pull-based subscriber notification and §7a's "should the marker be visually
+  badged in the UI" remain open, deliberately out of scope for this pass.
+
+### 121. Restart correctness: two-level wrapper stop, `task_config`/`outlets` reconstruction, `restart-` name prefix
+
+**Context.** Live testing of ADR #120's direct-Restart-from-`waiting_decision` surfaced
+three further, real gaps — full detail in `docs/reference/SPIKE_TASK_ACTIONS_DATA_LIFECYCLE.md`
+§9.5–9.6.
+
+**Decisions:**
+1. **Two executions must be stopped, in order, not one.** There are two levels: the
+   outer `dependency_wrapper` (waits for dependencies, then synchronously calls the inner
+   `run_task` via `startExecution.sync:2`) and the inner `run_task` itself. An initial fix
+   read `wrapper_execution_arn`, found it unused in `run_task`'s own template, and
+   concluded (incompletely — only that one template was checked) it must be a typo for
+   `run_task_helper_arn`. It's genuinely written, by `registration_helper`'s
+   `Save_Task_Record`, for the outer wrapper. Killing only the inner wrapper directly
+   left the outer one alive, synchronously waiting on it — its own `Catch` fired,
+   cascading a false `notify_dependents('failed')` to downstream tasks *immediately*,
+   before the restarted attempt's own work even began. Confirmed live: a downstream task
+   was marked `upstream_failed` within seconds while the restarted task's underlying SFN
+   was still genuinely running (and later genuinely succeeded). Fixed: split into
+   `Stop_Old_Outer_Wrapper` (external `StopExecution` cannot trigger a wrapper's own
+   `Catch`) then `Stop_Old_Inner_Wrapper` (safe once the outer wrapper is already dead).
+2. **`task_config`/`outlets` reconstruction.** Both are deploy-time DAG properties, never
+   stored on the per-execution record — `Start_New_Wrapper` tried to read
+   `item.task_config.S`/`item.outlets.S`, fields that never existed, always silently
+   yielding `{}`/`[]`. Fixed at the source: extracted `_build_task_config_and_arn`
+   (shared between the original dispatch and the DAG builder, so this can't drift again),
+   added `task_config` to the registry's `dag_metadata` (`outlets` was already there per
+   ADR #119/#120), and `restart_task`'s Python handler now looks both up via a new shared
+   `_lookup_dag_node` (also used by ADR #120's asset-event lookup) and passes them
+   explicitly in `restart_task_helper`'s input.
+3. **`restart-` name prefix.** Requested directly, to distinguish a restarted attempt's
+   underlying business SFN invocation from the original in the AWS console without
+   checking duration/timestamps. Only `Run_Task_SFN` needed it — the only `Run_Task_*`
+   variant that names a child Step Function execution (the others call AWS services
+   directly). Retired the dead `is_restart` flag `Start_New_Wrapper` set (never read
+   anywhere) — `attempt > 1` already captures the same thing, more precisely, and is what
+   the prefix condition uses.
+
+**Consequences.**
+- `task_config` is now visible in `generate_dag_json`'s public output (`polyris-output
+  --json`) and the registry, in addition to already being implicitly present in the
+  deployed wrapper's own SFN Argument (visible to anyone who can read the deployed
+  CloudFormation/SFN definition already). Not currently read or displayed anywhere in the
+  UI. Worth keeping in mind if a task's `task_config` is ever used to carry something
+  more sensitive than retry/worker settings (e.g. an inline Lambda payload with a
+  secret) — that would already be a questionable practice given it's baked into the
+  deployed template either way, but this makes it one step easier to notice.
+- ASL snapshots regenerated; diffed before accepting to confirm the only change was the
+  new `task_config` field appearing on nodes that have one, nothing else.
+- Every new behavior (both wrapper levels stopped in order, task_config/outlets
+  correctly threaded, the name prefix) was mutation-tested: reverting each fix was
+  confirmed to make its corresponding test fail.
+- `_build_task_config_and_arn` also gained a direct, isolated unit test suite
+  (`tests/sdk/test_task_config_contract.py::TestBuildTaskConfigAndArnDirectly`) —
+  previously covered only indirectly through its two callers. Pins the lambda-specific
+  `task_arn` resolution (discarded by the existing indirect tests, which only read
+  `task_config`), the sfn-stays-empty contract, and retry-key conditionality, in
+  isolation from either caller's surrounding construction.

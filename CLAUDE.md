@@ -802,7 +802,7 @@ sam/
       notify_asset_consumers/sfn.tpl.json
   lambdas/
     console_api/      # REST API (63 routes full build, 18 free), DAL repos, route handlers
-    evaluate_deps/    # Evaluates trigger rules (all_success, one_failed, etc.)
+    evaluate_deps/    # Evaluates trigger rules (all_success, all_done, etc.)
     query_subscriptions/  # Finds downstream subscribers for a completed task
     check_assets/     # Validates asset freshness for wait_for
     notify_asset_subscribers/  # Triggers asset-based pipelines

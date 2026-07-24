@@ -88,6 +88,66 @@ def test_orchestration_timeout_override_default_args():
     assert t.orchestration_timeout_seconds == 604800  # 7 days, not 12h
 
 
+def test_falsy_overrides_of_default_args_are_respected():
+    """Regression test: retry_delay/max_retry_delay/execution_timeout/
+    orchestration_timeout/retry_exponential_backoff/retry_jitter previously
+    used `explicit_value or default_args.get(...)` to apply a DAG-wide
+    default when the task didn't specify a value. This silently broke for
+    any *explicit but falsy* override — `timedelta(0)` (bool(timedelta(0))
+    is False) or `False` itself — since `falsy_value or X` always evaluates
+    to X regardless of whether falsy_value was "unset" or "explicitly this
+    exact falsy value". A task explicitly opting out of a truthy DAG-wide
+    default (e.g. retry_exponential_backoff=False to disable it for one
+    task in a DAG that defaults it on) got silently overridden back to the
+    DAG's value. The sibling test above (`..._override_default_args`) does
+    NOT catch this: it overrides with a *truthy* value (timedelta(days=7)),
+    which the buggy `or` pattern already handled correctly — only a falsy
+    explicit override exposes the bug."""
+    from polyris import DAG, task
+
+    defaults = {
+        'retry_exponential_backoff': True,
+        'retry_jitter': True,
+        'retry_delay': timedelta(minutes=10),
+        'max_retry_delay': timedelta(minutes=30),
+        'execution_timeout': timedelta(hours=2),
+        'orchestration_timeout': timedelta(hours=1),
+    }
+    with DAG('test-dag-falsy', schedule=None, default_args=defaults) as dag:
+        @task.sfn(
+            arn='arn:aws:states:us-east-1:123:stateMachine:test',
+            retry_exponential_backoff=False,
+            retry_jitter=False,
+            retry_delay=timedelta(0),
+            max_retry_delay=timedelta(0),
+            execution_timeout=timedelta(0),
+            orchestration_timeout=timedelta(0),
+        )
+        def my_task():
+            pass
+        my_task()
+
+    t = dag.tasks[0]
+    assert t.retry_exponential_backoff is False
+    assert t.retry_jitter is False
+    assert t.retry_delay == timedelta(0)
+    assert t.max_retry_delay == timedelta(0)
+    assert t.execution_timeout == timedelta(0)
+    assert t.orchestration_timeout == timedelta(0)
+
+    # Control: a sibling task with no explicit override still gets the
+    # DAG-wide defaults, proving the fix didn't just make everything
+    # ignore default_args.
+    with DAG('test-dag-falsy-2', schedule=None, default_args=defaults) as dag2:
+        @task.sfn(arn='arn:aws:states:us-east-1:123:stateMachine:test')
+        def other_task():
+            pass
+        other_task()
+    t2 = dag2.tasks[0]
+    assert t2.retry_exponential_backoff is True
+    assert t2.retry_delay == timedelta(minutes=10)
+
+
 def test_orchestration_timeout_in_generated_sfn():
     """Generator passes orchestration_timeout to wrapper input."""
     from polyris import DAG, task
@@ -335,6 +395,7 @@ if __name__ == '__main__':
         test_orchestration_timeout_explicit,
         test_orchestration_timeout_via_default_args,
         test_orchestration_timeout_override_default_args,
+        test_falsy_overrides_of_default_args_are_respected,
         test_orchestration_timeout_in_generated_sfn,
         test_orchestration_timeout_default_in_generated_sfn,
         # wrapper template

@@ -102,13 +102,13 @@ describe('TaskNode › trigger_rule badge', () => {
         expect(screen.getByText('all_done')).toBeInTheDocument();
     });
 
-    it('renders the badge for "one_failed"', () => {
+    it('renders the badge for "one_success"', () => {
         // Other non-default rules behave the same way — any non-default
         // rule surfaces, only 'all_success' (the default) stays silent.
         renderNode({
-            task: makeTask({ trigger_rule: 'one_failed' }),
+            task: makeTask({ trigger_rule: 'one_success' }),
         });
-        expect(screen.getByText('one_failed')).toBeInTheDocument();
+        expect(screen.getByText('one_success')).toBeInTheDocument();
     });
 
     it('does NOT render the badge for default trigger_rule ("all_success")', () => {
@@ -173,5 +173,39 @@ describe('TaskNode › status rendering', () => {
     it('renders the label text', () => {
         renderNode({ label: 'extract_listings' });
         expect(screen.getByText('extract_listings')).toBeInTheDocument();
+    });
+});
+
+describe('TaskNode › blueprint mode contrast (dark mode visibility fix)', () => {
+    it('does not dim the whole node to 0.5 opacity', () => {
+        // Previously the whole node (border AND the text/badge inside it)
+        // was faded to 0.5 opacity on top of an already-subtle border
+        // color — in dark mode this made the task name and type badge
+        // hard to read, undermining the point of showing them at all.
+        const { container } = renderNode({ status: 'blueprint', label: 'aggregate' });
+        const node = container.querySelector('.dag-flow-node');
+        expect(node).not.toBeNull();
+        expect((node as HTMLElement).style.opacity).toBe('');
+    });
+
+    it('uses --border-strong instead of the too-subtle --border', () => {
+        const { container } = renderNode({ status: 'blueprint' });
+        const node = container.querySelector('.dag-flow-node') as HTMLElement;
+        expect(node.style.border).toContain('var(--border-strong)');
+        expect(node.style.border).not.toContain('var(--border)');
+    });
+
+    it('keeps the dashed border style that signals "not yet executed"', () => {
+        const { container } = renderNode({ status: 'blueprint' });
+        const node = container.querySelector('.dag-flow-node') as HTMLElement;
+        expect(node.style.border).toContain('dashed');
+    });
+
+    it('label text stays at full contrast (no opacity fade)', () => {
+        renderNode({ status: 'blueprint', label: 'aggregate' });
+        const label = screen.getByText('aggregate');
+        expect(label).toHaveClass('dag-node-label');
+        // .dag-node-label's CSS uses --text-primary (full contrast); the
+        // fix here is that no inline opacity on an ancestor fades it out.
     });
 });

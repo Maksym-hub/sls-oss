@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"with_variables\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"process\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"process\", \"name\": \"process\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"with_variables\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"process\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"process\", \"name\": \"process\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Define_Inputs",
   "States": {
@@ -13,6 +13,9 @@
           "batch_size": 1000
         },
         "skip_tasks": "{% $exists($states.input.skip_tasks) ? $states.input.skip_tasks : [] %}",
+        "register_only": "{% $exists($states.input.register_only) ? $states.input.register_only : false %}",
+        "_suppress_asset_event": "{% $exists($states.input._suppress_asset_event) ? $states.input._suppress_asset_event : false %}",
+        "cascade_all": "{% $exists($states.input.cascade_all) ? $states.input.cascade_all : false %}",
         "current_date": "{% $exists($states.input.current_date) ? $states.input.current_date : null %}",
         "PARTITION_ARG": "{% $exists($states.input.PARTITION_ARG) ? $states.input.PARTITION_ARG : ($exists($states.input.current_date) ? $states.input.current_date : null) %}"
       },
@@ -41,7 +44,7 @@
             "S": "[{\"task_id\": \"process\", \"task_type\": \"sfn\", \"dependencies\": []}]"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"process\", \"name\": \"process\"}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"process\", \"name\": \"process\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}"
           },
           "schedule": {
             "S": ""
@@ -77,7 +80,7 @@
             "S": "{% $states.context.Execution.Name %}"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"process\", \"name\": \"process\"}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"process\", \"name\": \"process\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}"
           },
           "snapshot_at": {
             "S": "{% $now() %}"

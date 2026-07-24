@@ -40,6 +40,7 @@ describe('useAppStore', () => {
             expect(result.current.selectedTaskName).toBeNull();
             expect(result.current.sidebarOpen).toBe(false);
             expect(result.current.executionPaused).toBe(false);
+            expect(result.current.dagViewSource).toBe('run');
         });
     });
 
@@ -64,17 +65,27 @@ describe('useAppStore', () => {
             expect(localStorage.getItem('lastPipeline')).toBe('etl_main');
         });
 
-        it('clearSelection resets pipeline, execution, task', () => {
+        it('setDagViewSource switches between run and current', () => {
+            const { result } = renderHook(() => useAppStore());
+            act(() => result.current.setDagViewSource('current'));
+            expect(result.current.dagViewSource).toBe('current');
+            act(() => result.current.setDagViewSource('run'));
+            expect(result.current.dagViewSource).toBe('run');
+        });
+
+        it('clearSelection resets pipeline, execution, task, and dagViewSource', () => {
             const { result } = renderHook(() => useAppStore());
             act(() => {
                 result.current.setSelectedPipeline(makePipeline('etl'));
                 result.current.setSelectedExecution({ execution_id: 'e1', auto_selected: false });
                 result.current.setSelectedTaskName('task_a');
+                result.current.setDagViewSource('current');
             });
             act(() => result.current.clearSelection());
             expect(result.current.selectedPipeline).toBeNull();
             expect(result.current.selectedExecution).toBeNull();
             expect(result.current.selectedTaskName).toBeNull();
+            expect(result.current.dagViewSource).toBe('run');
         });
     });
 

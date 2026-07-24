@@ -91,7 +91,7 @@
     },
     "Notify_Dependents": {
       "Type": "Task",
-      "Comment": "Notify waiting tasks of failure (critical for trigger_rules like one_failed, all_done)",
+      "Comment": "Notify waiting tasks of failure (critical for trigger_rules like all_done)",
       "Resource": "arn:aws:states:::aws-sdk:sfn:startSyncExecution",
       "Arguments": {
         "StateMachineArn": "${notify_dependents_helper_arn}",

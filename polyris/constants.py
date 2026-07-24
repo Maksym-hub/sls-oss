@@ -145,19 +145,24 @@ STOPPABLE_STATUSES: Set[str] = {
 # =============================================================================
 
 
-# Type alias for trigger_rule with IDE autocomplete
+# Type alias for trigger_rule with IDE autocomplete.
+#
+# ADR #114/#115/#117: polyris pauses a failed task for a human decision rather
+# than propagating failure autonomously (intervention-first), and a CONFIRMED
+# failure (resolved via Fail) cancels the whole pipeline's Parallel before any
+# downstream trigger_rule ever evaluates. Given that, only 5 of Airflow's 11
+# rule names produce a behavior reachable in practice; the other 6 either
+# duplicate one of these 5 exactly (verified across the full status-
+# combination matrix, see tests/sdk/test_trigger_rules.py) or can never be
+# satisfied at all (all_failed/one_failed — their only use case is reacting to
+# a confirmed failure, which is exactly the state Parallel-abort prevents them
+# from reaching). See ADR #117 and docs/features/DSL.md for the full analysis.
 TriggerRuleLiteral = Literal[
-    "all_success",           # All upstream tasks succeeded (default)
-    "all_failed",            # All upstream tasks failed
-    "all_done",              # All upstream tasks done (any status)
-    "all_done_min_one_success",  # All done + at least one success
-    "all_skipped",           # All upstream tasks skipped
-    "one_failed",            # At least one failed (doesn't wait for all)
-    "one_success",           # At least one succeeded (doesn't wait for all)
-    "one_done",              # At least one done (doesn't wait for all)
-    "none_failed",           # No task failed
-    "none_failed_min_one_success",  # None failed + at least one success
-    "none_skipped",          # No task skipped
+    "all_success",           # Default. All upstream tasks succeeded.
+    "one_success",           # At least one succeeded (doesn't wait for all).
+    "all_done",              # All upstream tasks done (any status) — cleanup.
+    "all_skipped",           # All upstream tasks were skipped.
+    "none_skipped",          # No upstream task was skipped.
 ]
 
 
@@ -188,20 +193,21 @@ SCHEDULE_PRESETS = {
 
 class TriggerRule:
     """
-    Trigger rule constants. 100% Airflow 3.1.5-compatible.
-    
+    Trigger rule constants. 5 rule names, each producing a distinct,
+    reachable behavior under polyris's intervention-first failure model
+    (ADR #114): a failed task pauses for a human decision rather than
+    propagating failure autonomously, and a *confirmed* failure cancels the
+    whole pipeline's Parallel before any downstream trigger_rule evaluates.
+    6 of Airflow's 11 rule names were removed (ADR #117) — they either
+    duplicated one of these 5 exactly in every reachable state, or could
+    never be satisfied at all. See docs/features/DSL.md for the analysis.
+
     See: https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html#trigger-rules
     """
     ALL_SUCCESS = "all_success"           # All upstream tasks have succeeded (default)
-    ALL_FAILED = "all_failed"             # All upstream tasks are in failed/upstream_failed state
-    ALL_DONE = "all_done"                 # All upstream tasks are done with execution
-    ALL_DONE_MIN_ONE_SUCCESS = "all_done_min_one_success"  # All done + at least one success
-    ALL_SKIPPED = "all_skipped"           # All upstream tasks are in skipped state
-    ONE_FAILED = "one_failed"             # At least one failed (does NOT wait for all)
     ONE_SUCCESS = "one_success"           # At least one succeeded (does NOT wait for all)
-    ONE_DONE = "one_done"                 # At least one done (does NOT wait for all)
-    NONE_FAILED = "none_failed"           # No task failed (success or skipped OK)
-    NONE_FAILED_MIN_ONE_SUCCESS = "none_failed_min_one_success"  # None failed + at least one success
+    ALL_DONE = "all_done"                 # All upstream tasks are done with execution (cleanup)
+    ALL_SKIPPED = "all_skipped"           # All upstream tasks are in skipped state
     NONE_SKIPPED = "none_skipped"         # No task skipped
 
 

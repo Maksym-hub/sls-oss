@@ -67,15 +67,23 @@ class TestTaskStatusValues:
         assert TaskStatus.FAILED == 'failed'
         assert TaskStatus.SKIPPED == 'skipped'
 
-    def test_terminal_set_includes_success_failed_skipped(self):
-        assert TaskStatus.SUCCESS in TaskStatus.TERMINAL
-        assert TaskStatus.FAILED in TaskStatus.TERMINAL
-        assert TaskStatus.SKIPPED in TaskStatus.TERMINAL
-
     def test_successful_set_excludes_failed(self):
         """SUCCESSFUL means "counts as done for skip_completed semantics".
-        FAILED is terminal but NOT successful — re-running a failed
-        partition is exactly what backfill is for."""
+        FAILED is NOT successful — re-running a failed partition is exactly
+        what backfill is for."""
         assert TaskStatus.FAILED not in TaskStatus.SUCCESSFUL
         assert TaskStatus.SUCCESS in TaskStatus.SUCCESSFUL
         assert TaskStatus.SKIPPED in TaskStatus.SUCCESSFUL
+
+    def test_succeeded_present_alongside_success(self):
+        """Regression test: this class's SUCCESSFUL frozenset previously only
+        had 'success', missing the distinct 'succeeded' value that the
+        canonical TASK_SUCCESS_STATUSES (constants_generated.py) includes.
+        SUCCESSFUL is consumed directly by EE's backfill.py
+        (make_output_missing_adapter's successful_statuses parameter, and
+        _scan_completed_partitions' skip_completed check) — a task somehow
+        ending up with status 'succeeded' would have been incorrectly
+        treated as "output missing", forcing an unnecessary rebuild during
+        backfill lineage-frontier computation."""
+        assert TaskStatus.SUCCEEDED == 'succeeded'
+        assert TaskStatus.SUCCEEDED in TaskStatus.SUCCESSFUL

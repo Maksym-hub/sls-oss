@@ -1,5 +1,6 @@
 import { logger } from '@/utils/logger';
 import { TASK_SETTLED_STATUSES } from '@/generated/enums';
+import { toDateString } from '@/utils/formatters';
 import { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api, getUpstreamTasks, getDownstreamTasks, getApiErrorMessage } from '@/utils';
@@ -16,8 +17,31 @@ import {
     CircleDot
 } from '@/utils/icons';
 
-import type { Task } from '@/types';
+import type { Task, Execution, SelectedExecution } from '@/types';
 import type { PipelineActionsParams } from '@/types';
+
+/**
+ * Resolve "the execution these pipeline-level actions (pause/resume/extend/stop)
+ * should target": the user's explicit selection if it still exists in the list,
+ * otherwise whichever execution is currently running.
+ *
+ * Must NOT be a single `.find(ex => ex.id === selected || ex.status === 'running')`
+ * — that has no priority between the two branches, so whichever condition an
+ * element satisfies first in array order wins. If a different, more recent
+ * execution is running and happens to appear earlier than the selected one
+ * (typical for a newest-first list), that OR-form silently targets the wrong
+ * execution — pausing/stopping/extending a run the user isn't even looking at.
+ */
+function resolveCurrentExecution(
+    executions: Execution[],
+    selectedExecution: SelectedExecution | null
+): Execution | undefined {
+    if (selectedExecution?.execution_id) {
+        const selected = executions.find(ex => ex.execution_id === selectedExecution.execution_id);
+        if (selected) return selected;
+    }
+    return executions.find(ex => ex.status === 'running');
+}
 
 /**
  * usePipelineActions - Hook for managing pipeline and task actions
@@ -74,7 +98,11 @@ export function usePipelineActions({
     // ========== Pipeline Actions ==========
     const handleRun = useCallback(() => {
         if (!selectedPipeline) return;
-        setTriggerParams(JSON.stringify({ current_date: date }, null, 2));
+        // Always default to today, regardless of the date currently being
+        // viewed in the pipeline detail page — Run means "run now"; running
+        // for a specific past date is Backfill's job, not this button's.
+        // The field below stays editable for anyone who wants to override it.
+        setTriggerParams(JSON.stringify({ current_date: toDateString(new Date()) }, null, 2));
         setModal({
             isOpen: true,
             action: 'runPipeline',
@@ -87,7 +115,7 @@ export function usePipelineActions({
             toRun: null,
             toSkip: null
         });
-    }, [selectedPipeline, date]);
+    }, [selectedPipeline]);
     
     const handleStop = useCallback(() => {
         if (!selectedPipeline) return;
@@ -108,10 +136,7 @@ export function usePipelineActions({
     const handlePauseResume = useCallback(async () => {
         if (!selectedPipeline) return;
         
-        const currentExecution = executions.find(ex => 
-            ex.execution_id === selectedExecution?.execution_id || 
-            ex.status === 'running'
-        );
+        const currentExecution = resolveCurrentExecution(executions, selectedExecution);
         
         if (!currentExecution?.execution_id) {
             showToast('No active execution to pause', 'warning');
@@ -148,10 +173,7 @@ export function usePipelineActions({
     }, [selectedPipeline, executions, selectedExecution, executionPaused, showToast, handleRefresh]);
     
     const handleExtendPause = useCallback(async () => {
-        const currentExecution = executions.find(ex => 
-            ex.execution_id === selectedExecution?.execution_id || 
-            ex.status === 'running'
-        );
+        const currentExecution = resolveCurrentExecution(executions, selectedExecution);
         
         if (!currentExecution?.execution_id) return;
         
@@ -361,10 +383,7 @@ export function usePipelineActions({
                 }
             }
             
-            const currentExecution = executions.find(ex => 
-                ex.execution_id === selectedExecution?.execution_id || 
-                ex.status === 'running'
-            );
+            const currentExecution = resolveCurrentExecution(executions, selectedExecution);
             
             const execId = currentExecution?.execution_id || selectedExecution?.execution_id;
             if (execId) {

@@ -81,6 +81,19 @@ class TestAssetCore:
         assert isinstance(ref, AssetRef)
         assert ref.freshness_hours == 36
 
+    def test_within_minutes_converts_to_fractional_hours(self):
+        """minutes= exists mainly for quick manual testing (waiting hours/days
+        for a freshness window to lapse isn't practical while iterating) —
+        the downstream freshness check already compares floats, so a
+        fractional-hour value works without any change on that side."""
+        ref = Asset("ns/x").within(minutes=2)
+        assert isinstance(ref, AssetRef)
+        assert ref.freshness_hours == pytest.approx(2 / 60)
+
+    def test_within_minutes_combines_with_hours(self):
+        ref = Asset("ns/x").within(hours=1, minutes=30)
+        assert ref.freshness_hours == pytest.approx(1.5)
+
     def test_within_without_args_raises(self):
         with pytest.raises(ValueError):
             Asset("ns/x").within()
@@ -203,6 +216,25 @@ class TestAssetAny:
         assert d["assets"][1]["freshness_hours"] == 2
         assert d["assets"][2]["operator"] == "AND"
 
+    def test_consecutive_ref_is_not_dropped(self):
+        """Regression test: `daily.consecutive(days=7) | manual_override` is
+        the `consecutive()` docstring's own example. AssetConsecutiveRef
+        previously matched no isinstance branch in either asset_names or
+        to_dict() (only Asset/AssetRef/AssetAll were enumerated) and was
+        silently dropped from both — not degraded to a bare name like
+        AssetAll's equivalent gap, but completely absent from the output,
+        since neither method had a final else/fallback. A get_asset_schedule_
+        info() built from such a schedule would produce an EventBridge
+        pattern that could only ever match on the OTHER operand, silently
+        losing the "or 7 consecutive days" half of the intended trigger."""
+        grp = Asset("ns/daily").consecutive(days=7) | Asset("ns/manual")
+        assert grp.asset_names == ["ns/daily", "ns/manual"]
+        d = grp.to_dict()
+        assert d["assets"] == [
+            {"asset_name": "ns/daily", "consecutive_days": 7},
+            "ns/manual",
+        ]
+
     def test_chained_or(self):
         merged = AssetAny([Asset("ns/a")]) | AssetAny([Asset("ns/b")])
         assert len(merged.assets) == 2
@@ -247,6 +279,47 @@ class TestNormalizeAssetSchedule:
     def test_none(self):
         assert normalize_asset_schedule(None) is None
 
+    def test_bare_asset_ref_is_and_of_one(self):
+        """A bare `asset.within(hours=N)` schedule — previously unhandled,
+        fell through to `return None`, meaning a DAG scheduled this way
+        deployed with no trigger mechanism at all: not asset-triggered
+        (this function returned None) and not time-based either (the
+        schedule isn't a string) — the pipeline simply never fired
+        automatically, silently, with no error anywhere to reveal why."""
+        ref = Asset("ns/a").within(hours=6)
+        result = normalize_asset_schedule(ref)
+        assert isinstance(result, AssetAll)
+        assert result.to_dict() == {
+            "operator": "AND",
+            "assets": [{"asset_name": "ns/a", "freshness_hours": 6}],
+        }
+
+    def test_bare_asset_consecutive_ref_is_and_of_one(self):
+        ref = Asset("ns/a").consecutive(days=3)
+        result = normalize_asset_schedule(ref)
+        assert isinstance(result, AssetAll)
+        assert result.to_dict() == {
+            "operator": "AND",
+            "assets": [{"asset_name": "ns/a", "consecutive_days": 3}],
+        }
+
+    def test_explicit_asset_any_of_one_is_or_not_and(self):
+        """schedule=Asset('x') and schedule=[Asset('x')] both normalize to
+        AND-of-one (a single materialization satisfies it, but the
+        consumer-side dedup is still day-scoped — see
+        SPIKE_ASSET_TRIGGER_GRANULARITY.md). schedule=AssetAny([Asset('x')])
+        is the deliberate escape hatch: same single required asset, but
+        OR semantics, which routes through notify_asset_consumers' Trigger_OR
+        path — no day-scoped dedup, fires on every materialization. This
+        must keep working; it's the documented way to get "trigger on every
+        event" for a single asset without inventing new DSL surface."""
+        result = normalize_asset_schedule(AssetAny([Asset("ns/a")]))
+        assert isinstance(result, AssetAny)
+        assert result.to_dict() == {
+            "operator": "OR",
+            "assets": ["ns/a"],
+        }
+
     def test_single_asset(self):
         res = normalize_asset_schedule(Asset("ns/x"))
         assert isinstance(res, AssetAll)
@@ -284,10 +357,59 @@ class TestNormalizeAssetSchedule:
         assert isinstance(res, AssetAll)
         assert res.asset_names == ["ns/a", "s/us"]
 
-    def test_mixed_operator_in_list_returns_as_is(self):
+    def test_nested_assetall_in_list_is_flattened(self):
+        """AND is associative: [a, AssetAll([b, c])] must flatten to a single
+        AssetAll([a, b, c]), not nest the AssetAll as a raw element. Before the
+        fix, leaving it nested crashed asset_names/to_dict downstream with
+        AttributeError ('AssetAll' object has no attribute 'name') the first
+        time anyone called get_asset_schedule_info() on such a DAG — a
+        completely reachable pattern (schedule=[asset_a, asset_b & asset_c]),
+        not a contrived edge case."""
         res = normalize_asset_schedule([Asset("ns/a"), AssetAll([Asset("ns/b"), Asset("ns/c")])])
         assert isinstance(res, AssetAll)
-        assert len(res.assets) == 2  # the nested AssetAll is kept as an element
+        assert res.asset_names == ["ns/a", "ns/b", "ns/c"]
+        assert res.to_dict() == {"operator": "AND", "assets": ["ns/a", "ns/b", "ns/c"]}
+
+    def test_nested_assetany_in_list_is_kept_as_a_single_operand(self):
+        """Unlike AssetAll, an AssetAny nested in the list must NOT be
+        flattened: [a, b | c] means a AND (b OR c), and flattening it would
+        silently change the semantics to a AND b AND c."""
+        res = normalize_asset_schedule([Asset("ns/a"), Asset("ns/b") | Asset("ns/c")])
+        assert isinstance(res, AssetAll)
+        assert len(res.assets) == 2
+        assert res.asset_names == ["ns/a", "(ns/b | ns/c)"]
+        assert res.to_dict() == {
+            "operator": "AND",
+            "assets": ["ns/a", {"operator": "OR", "assets": ["ns/b", "ns/c"]}],
+        }
+
+    def test_bare_asset_ref_in_list_is_not_dropped(self):
+        """A bare `asset.within(...)`/`.consecutive(...)` item in a multi-item
+        list previously matched none of the isinstance branches (Asset,
+        AssetAlias, AssetAll, AssetAny) and silently vanished from the
+        resulting AssetAll — a schedule=[a, b.within(hours=12)] would trigger
+        on `a` alone, silently ignoring the freshness-constrained `b`."""
+        res = normalize_asset_schedule([Asset("ns/a"), Asset("ns/b").within(hours=12)])
+        assert len(res.assets) == 2
+        assert res.asset_names == ["ns/a", "ns/b"]
+
+    def test_asset_ref_freshness_preserved_in_all_to_dict(self):
+        """AssetRef nested in an AssetAll (e.g. `a.within(hours=24) & b`) must
+        keep its freshness_hours in to_dict() — previously silently
+        downgraded to a bare name, losing the constraint entirely."""
+        combo = Asset("ns/a").within(hours=24) & Asset("ns/b")
+        assert combo.to_dict() == {
+            "operator": "AND",
+            "assets": [{"asset_name": "ns/a", "freshness_hours": 24}, "ns/b"],
+        }
+
+    def test_get_asset_schedule_info_does_not_crash_on_nested_and_in_list(self):
+        """End-to-end: the actual deploy-time function that computes
+        EventBridge trigger patterns must not crash on this input."""
+        dag = SimpleNamespace(dag_id="x", schedule=[Asset("ns/a"), Asset("ns/b") & Asset("ns/c")])
+        info = get_asset_schedule_info(dag)
+        assert info["assets"] == ["ns/a", "ns/b", "ns/c"]
+        assert info["eventbridge_rule_pattern"]["detail"]["asset_name"] == ["ns/a", "ns/b", "ns/c"]
 
 
 # ============================================================ #

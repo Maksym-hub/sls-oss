@@ -60,6 +60,39 @@ class TestScheduling:
         dag = DAG("d", schedule=Asset("ns/z"))
         assert dag.is_asset_triggered is True
 
+    def test_asset_schedule_via_bare_asset_ref(self):
+        """Regression test: `schedule=asset.within(hours=N)` (no list, no
+        plain Asset) previously fell through every type-check in both
+        DAG.__post_init__'s local check and normalize_asset_schedule itself,
+        leaving is_asset_triggered False and _eventbridge_schedule None —
+        a pipeline with no trigger mechanism at all, deployed silently."""
+        dag = DAG("d", schedule=Asset("ns/z").within(hours=6))
+        assert dag.is_asset_triggered is True
+        assert dag._eventbridge_schedule is None
+        assert dag.asset_schedule_info == {
+            "operator": "AND",
+            "assets": [{"asset_name": "ns/z", "freshness_hours": 6}],
+        }
+
+    def test_asset_schedule_via_bare_consecutive_ref(self):
+        dag = DAG("d", schedule=Asset("ns/z").consecutive(days=3))
+        assert dag.is_asset_triggered is True
+
+    def test_asset_schedule_list_with_ref_as_first_element(self):
+        """Regression test: DAG.__post_init__ previously only inspected
+        `schedule[0]`'s type to decide is_asset_based for a list, and only
+        recognized Asset/AssetAll/AssetAny there — an AssetRef in the first
+        position (e.g. `schedule=[asset_a.within(hours=1), asset_b]`) was
+        invisible to that check, even though the identical list with the
+        plain Asset first (`[asset_b, asset_a.within(hours=1)]`) worked
+        correctly — an entirely arbitrary, unexplainable distinction from
+        the user's point of view. Fixed by delegating to
+        normalize_asset_schedule as the single source of truth instead of
+        re-implementing a narrower, position-sensitive check."""
+        dag = DAG("d", schedule=[Asset("ns/a").within(hours=1), Asset("ns/b")])
+        assert dag.is_asset_triggered is True
+        assert dag._eventbridge_schedule is None
+
 
 # ============================================================ #
 # graph methods

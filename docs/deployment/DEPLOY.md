@@ -29,16 +29,26 @@ polyris-deploy --destroy
 
 # Multi-DAG file — deploy specific DAG
 polyris-deploy --select acme-daily
+
+# Bulk: every subdirectory of the current directory
+polyris-deploy --all
+
+# Bulk: only the listed subdirectories
+polyris-deploy --only acme/daily acme/hourly
+
+# Bulk + destroy, bulk + --select — see CLI.md for the full combination table
+polyris-deploy --destroy --all
 ```
 
-See [CLI.md](../reference/CLI.md) for full options reference.
+See [CLI.md](../reference/CLI.md) for full options reference, including the
+bulk-mode (`--all`/`--only`) discovery rules and failure-handling behavior.
 
 ## What it deploys
 
 For each pipeline:
 - `AWS::StepFunctions::StateMachine` — the pipeline
 - `AWS::Logs::LogGroup` — CloudWatch logs
-- `AWS::Events::Rule` — EventBridge schedule (if `schedule` set)
+- `AWS::Scheduler::Schedule` — EventBridge Scheduler (if `schedule` is a cron/rate string; not created for asset-triggered or `schedule=None` pipelines)
 
 State is managed by CloudFormation — create, update, and delete handled automatically.
 

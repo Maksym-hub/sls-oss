@@ -86,6 +86,7 @@ class TaskStatus:
     + snapshot tests on SFN templates pin the contract.
     """
     SUCCESS = 'success'
+    SUCCEEDED = 'succeeded'
     FAILED = 'failed'
     SKIPPED = 'skipped'
     RUNNING = 'running'
@@ -95,5 +96,4 @@ class TaskStatus:
     ABORTED = 'aborted'
     PAUSED = 'paused'
 
-    TERMINAL = frozenset({SUCCESS, FAILED, SKIPPED, UPSTREAM_FAILED, ABORTED})
-    SUCCESSFUL = frozenset({SUCCESS, SKIPPED})  # treated as "done" for skip_completed
+    SUCCESSFUL = frozenset({SUCCESS, SUCCEEDED, SKIPPED})  # treated as "done" for skip_completed

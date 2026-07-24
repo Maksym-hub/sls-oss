@@ -5,14 +5,17 @@ and Slack routes (slack.py) to avoid code duplication.
 
 Functions:
 - notify_dependents_via_sfn: Invoke notify_dependents_helper SFN
+- notify_asset_consumers_for_manual_success: Record asset event + notify
+  push-triggered consumers, for Mark Successful specifically (§7c)
 - get_terminal_statuses: Get set of terminal statuses
 - build_condition_expression_values: Build ExpressionAttributeValues for terminal check
 """
 import json
 import uuid
-from typing import Dict, Set
+from datetime import datetime, timezone
+from typing import Dict, List, Set
 
-from config import sfn, NOTIFY_DEPENDENTS_HELPER_ARN
+from config import sfn, NOTIFY_DEPENDENTS_HELPER_ARN, NOTIFY_ASSET_CONSUMERS_SFN_ARN
 from constants import TASK_TERMINAL_STATUSES
 from logger import log
 
@@ -36,8 +39,10 @@ def is_terminal_status(status: str) -> bool:
 def build_condition_expression_values(base_values: Dict = None) -> Dict:
     """Build ExpressionAttributeValues dict with all terminal statuses.
     
-    This ensures ConditionExpression checks include ALL terminal statuses:
-    - :success, :failed, :skipped, :aborted, :upstream_failed
+    This ensures ConditionExpression checks include ALL terminal statuses
+    (derived from the canonical TASK_TERMINAL_STATUSES — never a
+    hand-maintained duplicate list, which previously drifted: it was
+    missing ':succeeded').
     
     Args:
         base_values: Optional dict to merge with terminal status values
@@ -45,13 +50,7 @@ def build_condition_expression_values(base_values: Dict = None) -> Dict:
     Returns:
         Dict with terminal status values merged with base_values
     """
-    terminal_values = {
-        ':success': 'success',
-        ':failed': 'failed',
-        ':skipped': 'skipped',
-        ':aborted': 'aborted',
-        ':upstream_failed': 'upstream_failed'
-    }
+    terminal_values = {f':{s}': s for s in TASK_TERMINAL_STATUSES}
     
     if base_values:
         terminal_values.update(base_values)
@@ -59,8 +58,13 @@ def build_condition_expression_values(base_values: Dict = None) -> Dict:
     return terminal_values
 
 
-# Standard ConditionExpression for checking NOT in terminal state
-TERMINAL_CONDITION_EXPRESSION = 'NOT #s IN (:success, :failed, :skipped, :aborted, :upstream_failed)'
+# Standard ConditionExpression for checking NOT in terminal state. Derived
+# from the canonical TASK_TERMINAL_STATUSES (sorted for a deterministic,
+# readable expression string) rather than hand-typed, so it can never drift
+# from build_condition_expression_values' own :placeholders.
+TERMINAL_CONDITION_EXPRESSION = 'NOT #s IN ({})'.format(
+    ', '.join(f':{s}' for s in sorted(TASK_TERMINAL_STATUSES))
+)
 
 # For recovery operations (skip/mark_success on failed tasks) - only block on already-resolved states
 RESOLVED_CONDITION_EXPRESSION = 'NOT #s IN (:success, :skipped)'
@@ -124,6 +128,95 @@ def notify_dependents_via_sfn(
     except Exception as e:
         log.error("notify_dependents_via_sfn", "Failed to start SFN", task=task_name, error=str(e))
         return False
+
+
+def notify_asset_consumers_for_manual_success(
+    outlets: List[Dict],
+    task_name: str,
+    pipeline_name: str,
+    date: str,
+    dynamodb_resource,
+    asset_events_table: str,
+    asset_event_ttl_days: int = 30,
+) -> None:
+    """Record asset events and notify push-triggered consumer pipelines —
+    the same two steps the wrapper's own Record_Asset_Event +
+    Notify_Asset_Consumers_SFN states perform on a normal successful
+    completion (run_task/sfn.tpl.json's Emit_Asset_Events Map), invoked here
+    for Mark Successful specifically: it's the one manual action that
+    explicitly claims real work happened (its own doc line: "work completed,
+    verified via logs/S3"), so a downstream pipeline scheduled on this asset
+    (push model, schedule=[asset]) should be told the same way a normal
+    completion would tell it. Skip/Fail/Stop correctly do not call this —
+    they make no claim that anything was actually produced.
+
+    Best-effort per outlet: one outlet's failure (DDB or SFN) is logged and
+    does not stop the remaining outlets from being processed, matching the
+    wrapper's own per-item MaxConcurrency Map semantics where one item
+    failing fails that item, not the whole task's manual-resolution response.
+
+    Args:
+        outlets: list of dicts with at least a 'name' key (and optional
+            'uri'), as stored in the pipeline registry's dag_metadata nodes.
+        task_name: the task whose outlets these are.
+        pipeline_name: the owning pipeline (source_dag).
+        date: execution date (YYYY-MM-DD).
+        dynamodb_resource: a boto3 DynamoDB resource (passed in, not
+            imported here, to avoid a hard boto3 dependency in this shared
+            utils module beyond what callers already have).
+        asset_events_table: table name for the asset event record.
+        asset_event_ttl_days: TTL for the asset event record, matching the
+            wrapper template's own ${asset_event_ttl_days} default.
+    """
+    if not outlets:
+        return
+    if not NOTIFY_ASSET_CONSUMERS_SFN_ARN:
+        log.warn("notify_asset_consumers_for_manual_success", "NOTIFY_ASSET_CONSUMERS_SFN_ARN not configured")
+
+    now = datetime.now(timezone.utc)
+    ttl = int(now.timestamp()) + (asset_event_ttl_days * 24 * 60 * 60)
+
+    for outlet in outlets:
+        asset_name = outlet.get('name')
+        if not asset_name:
+            continue
+        uri = outlet.get('uri', '')
+
+        try:
+            dynamodb_resource.Table(asset_events_table).put_item(Item={
+                'asset_name': asset_name,
+                'event_time': now.isoformat(),
+                'uri': uri,
+                'source_task': task_name,
+                'source_dag': pipeline_name,
+                'execution_date': date,
+                'ttl': ttl,
+            })
+        except Exception as e:
+            log.error("notify_asset_consumers_for_manual_success", "Failed to record asset event",
+                      asset_name=asset_name, task_name=task_name, error=str(e))
+
+        if not NOTIFY_ASSET_CONSUMERS_SFN_ARN:
+            continue
+        try:
+            exec_id = uuid.uuid4().hex[:8]
+            safe_asset = asset_name.replace('/', '-').replace('.', '-')[:40]
+            sfn.start_execution(
+                stateMachineArn=NOTIFY_ASSET_CONSUMERS_SFN_ARN,
+                name=f"notify-asset-{safe_asset}-{date}-{exec_id}",
+                input=json.dumps({
+                    'asset_name': asset_name,
+                    'execution_date': date,
+                    'source_task': task_name,
+                    'source_dag': pipeline_name,
+                    'cascade_all': False,
+                }),
+            )
+            log.info("notify_asset_consumers_for_manual_success", "Started SFN",
+                     asset_name=asset_name, task_name=task_name)
+        except Exception as e:
+            log.error("notify_asset_consumers_for_manual_success", "Failed to start SFN",
+                      asset_name=asset_name, task_name=task_name, error=str(e))
 
 
 def extract_pipeline_execution_short(item: Dict, execution_name: str) -> str:

@@ -47,12 +47,27 @@ def list_pipelines(event: Dict) -> Dict:
         for item in registry_items:
             name = item.get('pipeline_name', '')
             if name:
+                # asset_schedule (JSON string, {'operator': 'AND'|'OR', 'assets': [...]})
+                # is set for asset-triggered pipelines instead of a cron 'schedule' —
+                # without surfacing it, the UI can't tell "genuinely manual" apart
+                # from "asset-triggered" (both have an empty schedule string).
+                asset_schedule = None
+                raw_asset_schedule = item.get('asset_schedule', '')
+                if raw_asset_schedule:
+                    try:
+                        parsed = json.loads(raw_asset_schedule)
+                        if parsed and parsed.get('assets'):
+                            asset_schedule = parsed
+                    except (json.JSONDecodeError, TypeError):
+                        log.warn("list_pipelines", "Malformed asset_schedule in registry",
+                                 pipeline_name=name, raw=raw_asset_schedule)
                 pipelines[name] = {
                     'name': name,
                     'arn': item.get('sfn_arn', ''),
                     'description': item.get('description', ''),
                     'group': item.get('pipeline_group', ''),
                     'schedule': item.get('schedule', ''),
+                    'asset_schedule': asset_schedule,
                     'status': 'idle',
                     'paused': False,
                     'sla': None,

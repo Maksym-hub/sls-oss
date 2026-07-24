@@ -3,7 +3,8 @@ Evaluate Dependencies Lambda
 
 Minimal Lambda for operations Step Functions cannot do natively:
 1. BatchGetItem - fetch all dependency statuses in one call
-2. Evaluate trigger_rule - complex logic (11 Airflow rules)
+2. Evaluate trigger_rule - complex logic (3 canonical + 8 Airflow-compat aliases,
+   ADR #115)
 3. Check pipeline paused status
 
 Called from notify_dependents SFN helper.
@@ -22,6 +23,7 @@ Output:
     "is_ready": true,
     "is_blocked": false,
     "is_paused": false,
+    "verdict": "ready",
     "reason": "all_success",
     "dep_statuses": ["success", "success"],
     "counts": {
@@ -32,10 +34,18 @@ Output:
         "pending": 0
     }
 }
+
+verdict (ADR #115) is one of:
+- "ready": deps_satisfied and not paused (or would-be-ready but currently paused)
+- "wait": not all deps are terminal yet
+- "skip": all deps terminal, rule not satisfied, but no real failure caused it —
+  the rule's trigger condition simply never occurred (legitimate no-op)
+- "upstream_failed": all deps terminal, rule not satisfied, and a real failure on a
+  success/no-failure-requiring rule caused the block (genuine upstream problem)
 """
 
 import os
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 
 from constants import (TASK_TERMINAL_STATUSES, TASK_SUCCESS_STATUSES, TASK_FAILURE_STATUSES)
 # v0.79.3 (ADR #75) — DAL repository pattern for all DynamoDB access.
@@ -57,6 +67,18 @@ TERMINAL_SUCCESS = TASK_SUCCESS_STATUSES
 SUCCESS_ONLY = TERMINAL_SUCCESS - {'skipped'}
 TERMINAL_FAILURE = TASK_FAILURE_STATUSES
 TERMINAL_STATUSES = TASK_TERMINAL_STATUSES
+
+# ADR #115/#117 — rules whose trigger condition *requires* success / absence-of-failure.
+# When one of these is blocked (all deps terminal, rule not satisfied), the block is a
+# genuine upstream problem only if a real failure is present among the deps; otherwise
+# the block is caused by a skip and is not an error. Rules NOT in this set (all_done,
+# all_skipped, none_skipped) never legitimately reach 'blocked' as a failure signal: their
+# own trigger condition is about done/skip *counts*, not about requiring success, so a
+# blocked verdict for them is always a no-op ('skip'), never 'upstream_failed'.
+FAILURE_AVERSE_RULES = frozenset({
+    'all_success',
+    'one_success',
+})
 
 
 def handler(event: Dict[str, Any], context) -> Dict[str, Any]:
@@ -83,6 +105,7 @@ def _handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             'is_blocked': False,
             'is_paused': False,
             'deps_satisfied': True,  # No deps = satisfied by default
+            'verdict': 'ready',
             'reason': 'no_deps',
             'dep_statuses': [],
             'counts': _empty_counts()
@@ -94,8 +117,20 @@ def _handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     # 2. Check if pipeline is paused
     is_paused = _is_pipeline_paused(pipeline_execution) if pipeline_execution else False
     
+    # 2b. ADR #115 step 1.2: only all_success cares whether a 'skipped' dep was
+    # rule-originated (cascades) vs manual/unknown (does not). Fetching skip_origin
+    # is a second, small DDB round-trip, so only do it when a skip is actually
+    # present — the common case (no skips) pays nothing extra.
+    rule_originated_skip = None
+    if 'skipped' in dep_statuses:
+        rule_originated_skip = _batch_get_rule_originated_skip(
+            dependencies, dep_statuses, date, pipeline_execution_short
+        )
+
     # 3. Evaluate trigger rule
-    deps_satisfied, reason = _check_trigger_rule(trigger_rule, dep_statuses)
+    deps_satisfied, reason, effective_rule = _check_trigger_rule(
+        trigger_rule, dep_statuses, rule_originated_skip
+    )
     
     # 4. Check if permanently blocked (all done but rule not satisfied)
     all_done = all(s in TERMINAL_STATUSES for s in dep_statuses)
@@ -103,7 +138,20 @@ def _handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     
     # 5. Calculate counts for observability
     counts = _calculate_counts(dep_statuses)
-    
+
+    # 6. Verdict for the blocked case (ADR #115). A blocked rule is a genuine upstream
+    # problem — 'upstream_failed' — only when the rule requires success/no-failure
+    # (FAILURE_AVERSE_RULES) AND a real failure is present. Otherwise the rule's trigger
+    # condition simply never occurred (e.g. all_skipped with nothing skipped, or a
+    # failure-averse rule blocked only by a skip) — that is a legitimate no-op, not an
+    # error, and verdicts 'skip'. Not blocked -> 'ready' or 'wait'.
+    if not is_blocked:
+        verdict = 'ready' if deps_satisfied else 'wait'
+    elif effective_rule in FAILURE_AVERSE_RULES and counts['failed'] > 0:
+        verdict = 'upstream_failed'
+    else:
+        verdict = 'skip'
+
     # is_ready = deps satisfied AND pipeline not paused
     # deps_satisfied = deps satisfy trigger_rule (regardless of pause)
     return {
@@ -111,6 +159,7 @@ def _handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         'is_blocked': is_blocked,
         'is_paused': is_paused,
         'deps_satisfied': deps_satisfied,  # NEW: true if deps satisfy rule (even if paused)
+        'verdict': verdict,  # ADR #115: 'ready' | 'wait' | 'skip' | 'upstream_failed'
         'reason': reason,
         'dep_statuses': dep_statuses,
         'counts': counts
@@ -143,6 +192,34 @@ def _batch_get_dep_statuses(
     return [results[name] for name in exec_names]
 
 
+def _batch_get_rule_originated_skip(
+    dependencies: List[str],
+    dep_statuses: List[str],
+    date: str,
+    pipeline_execution_short: str,
+) -> List[bool]:
+    """
+    For each dependency, True iff its status is 'skipped' AND its skip_origin is
+    'rule' (ADR #115 step 1.2). Aligned with dependencies/dep_statuses by index.
+
+    Only the skipped dependencies' execution_names are fetched — this narrows the
+    (already sparse, best-effort) batch_get_skip_origins call to just what's needed.
+    """
+    skipped_exec_names = [
+        f"{dep}-{date}-{pipeline_execution_short}"
+        for dep, status in zip(dependencies, dep_statuses)
+        if status == 'skipped'
+    ]
+    if not skipped_exec_names:
+        return [False] * len(dependencies)
+
+    origins = tokens_repo.batch_get_skip_origins(skipped_exec_names)
+    return [
+        status == 'skipped' and origins.get(f"{dep}-{date}-{pipeline_execution_short}") == 'rule'
+        for dep, status in zip(dependencies, dep_statuses)
+    ]
+
+
 def _is_pipeline_paused(pipeline_execution: str) -> bool:
     """Check if pipeline execution is paused."""
     if not pipeline_execution:
@@ -159,27 +236,51 @@ def _is_pipeline_paused(pipeline_execution: str) -> bool:
         raise
 
 
-def _check_trigger_rule(trigger_rule: str, dep_statuses: List[str]) -> Tuple[bool, str]:
+def _check_trigger_rule(
+    trigger_rule: str,
+    dep_statuses: List[str],
+    rule_originated_skip: Optional[List[bool]] = None,
+) -> Tuple[bool, str, str]:
     """
     Evaluate if trigger_rule is satisfied.
-    
-    Airflow 3.x compatible trigger rules:
+
+    5 rule names (ADR #117 — trimmed from Airflow's 11): each produces a
+    distinct, reachable behavior under polyris's intervention-first model. A
+    *confirmed* failure (resolved via Fail) cancels the whole pipeline's
+    Parallel before any downstream trigger_rule ever evaluates — so
+    dep_statuses passed here never actually contains 'failed'/'upstream_failed'
+    in practice. 6 of Airflow's original names were removed because, given
+    that, they either duplicated one of these 5 exactly (one_done/none_failed
+    -> all_done; none_failed_min_one_success/all_done_min_one_success ->
+    one_success) or could never be satisfied at all (all_failed/one_failed —
+    their only use case is reacting to a confirmed failure). See
+    docs/features/DSL.md for the full analysis.
+
     - all_success: All deps success/skipped (default)
     - one_success: At least one success (doesn't wait for all!)
-    - all_failed: All deps failed
-    - one_failed: At least one failed (doesn't wait for all!)
     - all_done: All deps terminal (any status)
-    - one_done: At least one terminal (doesn't wait for all!)
     - all_skipped: All deps skipped
-    - none_failed: No failures (success/skipped OK)
     - none_skipped: No skips
-    - none_failed_min_one_success: None failed + at least one success
-    - all_done_min_one_success: All done + at least one success
-    
-    Returns: (is_satisfied, reason)
+
+    Returns: (is_satisfied, reason, effective_rule) — effective_rule is trigger_rule
+    itself, except when trigger_rule is unrecognized, in which case it is 'all_success'
+    (the rule actually evaluated). Callers needing to classify the blocked case (ADR
+    #115) must use effective_rule, not the raw trigger_rule, so an unknown rule's
+    silent all_success fallback is classified consistently with the logic that ran.
+
+    rule_originated_skip (ADR #115, step 1.2): optional list aligned with
+    dep_statuses by index, True where that dependency is 'skipped' *and* the
+    skip was rule-originated (skip_origin='rule' — i.e. a downstream Auto_Skip
+    from a trigger_rule whose condition never occurred). Only all_success uses
+    this: a rule-originated skip no longer counts as 'ok' (it cascades — the
+    whole point of ADR #115 decision 2), but a skip with no origin info (a
+    manual skip, or any pre-existing/other skip with skip_origin absent) still
+    counts as ok, preserving today's behavior (ADR #115 decision 5). Passing
+    None (the default) is exactly equivalent to "every skip is non-cascading"
+    — today's behavior, unchanged for every caller that doesn't fetch origins.
     """
     if not dep_statuses:
-        return True, "no_deps"
+        return True, "no_deps", trigger_rule
     
     counts = _calculate_counts(dep_statuses)
     total = counts['total']
@@ -187,63 +288,45 @@ def _check_trigger_rule(trigger_rule: str, dep_statuses: List[str]) -> Tuple[boo
     failed = counts['failed']
     skipped = counts['skipped']
     pending = counts['pending']
-    done = total - pending
-    ok = success + skipped  # success or skipped = OK to continue
+    # ADR #115: a rule-originated skip does not count toward all_success's "ok"
+    # (it cascades); a skip with unknown/non-rule origin still does (unchanged
+    # default). Every other rule below uses `skipped` directly and is
+    # unaffected by rule_originated_skip.
+    cascading_skips = sum(1 for x in (rule_originated_skip or []) if x)
+    ok = success + (skipped - cascading_skips)  # success, or a non-cascading skip = OK
     
     rules = {
         'all_success': lambda: (
             (pending == 0 and ok == total, "all_success") if pending == 0 and ok == total
-            else (False, f"waiting for {pending} deps" if pending > 0 else f"{failed} failed")
+            else (False, f"waiting for {pending} deps" if pending > 0
+                  else (f"{failed} failed" if failed > 0 else f"{cascading_skips} rule-skipped"))
         ),
         'one_success': lambda: (
             (True, "one_success") if success >= 1
             else (False, "waiting, no success yet" if pending > 0 else "none succeeded")
         ),
-        'all_failed': lambda: (
-            (pending == 0 and failed == total, "all_failed") if pending == 0 and failed == total
-            else (False, f"waiting for {pending} deps" if pending > 0 else f"not all failed ({failed}/{total})")
-        ),
-        'one_failed': lambda: (
-            (True, "one_failed") if failed >= 1
-            else (False, "waiting, no failure yet" if pending > 0 else "none failed")
-        ),
         'all_done': lambda: (
             (True, "all_done") if pending == 0
             else (False, f"waiting for {pending} deps")
-        ),
-        'one_done': lambda: (
-            (True, "one_done") if done >= 1
-            else (False, "waiting for first completion")
         ),
         'all_skipped': lambda: (
             (pending == 0 and skipped == total, "all_skipped") if pending == 0 and skipped == total
             else (False, f"waiting for {pending} deps" if pending > 0 else f"not all skipped ({skipped}/{total})")
         ),
-        'none_failed': lambda: (
-            (False, f"{failed} deps failed") if failed > 0
-            else ((True, "none_failed") if pending == 0 else (False, f"waiting for {pending} deps"))
-        ),
         'none_skipped': lambda: (
             (False, f"{skipped} deps skipped") if skipped > 0
             else ((True, "none_skipped") if pending == 0 else (False, f"waiting for {pending} deps"))
         ),
-        'none_failed_min_one_success': lambda: (
-            (False, f"{failed} deps failed") if failed > 0
-            else ((True, "none_failed_min_one_success") if pending == 0 and success >= 1
-                  else (False, f"waiting for {pending} deps" if pending > 0 else "none failed but no success"))
-        ),
-        'all_done_min_one_success': lambda: (
-            (True, "all_done_min_one_success") if pending == 0 and success >= 1
-            else (False, f"waiting for {pending} deps" if pending > 0 else "all done but no success")
-        ),
     }
     
     if trigger_rule in rules:
-        return rules[trigger_rule]()
-    
+        satisfied, reason = rules[trigger_rule]()
+        return satisfied, reason, trigger_rule
+
     # Default to all_success for unknown rules
     log.warn("_check_trigger_rule", "Unknown trigger_rule; defaulting to all_success", trigger_rule=trigger_rule)
-    return rules['all_success']()
+    satisfied, reason = rules['all_success']()
+    return satisfied, reason, 'all_success'
 
 
 def _calculate_counts(dep_statuses: List[str]) -> Dict[str, int]:

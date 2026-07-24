@@ -186,6 +186,53 @@ class TestGeneratorOutputs:
         out = generate_all_assets([dag])
         assert isinstance(out, dict)
 
+    def test_asset_subscriptions_table_threaded_into_register_state(self):
+        """Regression test: generate_step_function_json's asset_subscriptions_table
+        parameter must reach Register_Asset_Subscriptions' WriteSubscription.TableName
+        verbatim, not fall through to the literal '${asset_subscriptions_table}'
+        placeholder — that placeholder has no substitution mechanism anywhere in
+        polyris-deploy's per-pipeline CloudFormation flow (confirmed via a real
+        AWS DynamoDB.AmazonDynamoDBException: 'tableName' failed to satisfy
+        constraint, the literal string was sent as the table name)."""
+        import json
+        from polyris.generators import generate_step_function_json
+
+        upstream = Asset("ns/trigger")
+        with DAG("asset-triggered", schedule=upstream) as dag:
+            @task.sfn(arn=ARN)
+            def go():
+                pass
+            go()
+
+        asl = json.loads(generate_step_function_json(
+            dag,
+            wrapper_arn=ARN,
+            registry_table="my-registry",
+            tokens_table="my-tokens",
+            asset_subscriptions_table="my-real-asset-subscriptions-table",
+        ))
+        write_sub = asl["States"]["Register_Asset_Subscriptions"]["ItemProcessor"]["States"]["WriteSubscription"]
+        assert write_sub["Arguments"]["TableName"] == "my-real-asset-subscriptions-table"
+
+    def test_asset_subscriptions_table_defaults_to_placeholder_when_omitted(self):
+        """Control: omitting the parameter still falls back to the placeholder
+        (matching registry_table/tokens_table's existing default behavior) —
+        this test exists so a future change can't silently make the parameter
+        required without noticing it changes the default-call contract."""
+        import json
+        from polyris.generators import generate_step_function_json
+
+        upstream = Asset("ns/trigger2")
+        with DAG("asset-triggered-2", schedule=upstream) as dag:
+            @task.sfn(arn=ARN)
+            def go():
+                pass
+            go()
+
+        asl = json.loads(generate_step_function_json(dag))
+        write_sub = asl["States"]["Register_Asset_Subscriptions"]["ItemProcessor"]["States"]["WriteSubscription"]
+        assert write_sub["Arguments"]["TableName"] == "${asset_subscriptions_table}"
+
     def test_dag_json_carries_wait_before(self):
         with DAG("wb", schedule=None) as dag:
             @task.sfn(arn=ARN, wait_before=timedelta(seconds=45))

@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { TASK_SETTLED_STATUSES } from '@/generated/enums';
 import { formatDate, buildAwsConsoleUrl, getUpstreamCount, getDownstreamCount } from '../../utils';
+import { formatFreshnessWindow, formatFreshnessWindowLong } from '../../utils/formatters';
 import { logger } from '../../utils/logger';
 import { useKeyboardShortcuts } from '../../hooks';
 import { useTaskOutput } from '../../hooks/useTaskOutput';
@@ -384,7 +385,7 @@ function DetailsTab({ task, tasks, dag, childPipeline, serverOffsetMs, onTaskSel
                                                     const title = consecutive 
                                                         ? `Requires ${consecutive} consecutive days of data`
                                                         : freshness 
-                                                            ? `Must be fresh within ${freshness} hours` 
+                                                            ? `Must be fresh within ${formatFreshnessWindowLong(freshness)}` 
                                                             : 'Latest available';
                                                     return (
                                                         <span 
@@ -394,7 +395,7 @@ function DetailsTab({ task, tasks, dag, childPipeline, serverOffsetMs, onTaskSel
                                                         >
                                                             <Database size={12} /> 
                                                             {name}
-                                                            {freshness && <span className="td-freshness-badge"><Hourglass size={10} /> {freshness}h</span>}
+                                                            {freshness && <span className="td-freshness-badge"><Hourglass size={10} /> {formatFreshnessWindow(freshness)}</span>}
                                                             {consecutive && <span className="td-freshness-badge"><Calendar size={10} /> {consecutive}d</span>}
                                                         </span>
                                                     );
@@ -689,7 +690,7 @@ function ActionsTab({ task, upstreamCount, downstreamCount, onAction, onRunActio
                             </span>
                         </button>
                     )}
-                    {task.status === 'running' && !task.error && (
+                    {((task.status === 'running' && !task.error) || task.status === 'waiting_decision') && (
                         <button className="action-btn secondary" onClick={() => onAction?.('stop')}>
                             <span className="action-btn-icon"><StopCircle size={18} /></span>
                             <span className="action-btn-text">
@@ -698,7 +699,7 @@ function ActionsTab({ task, upstreamCount, downstreamCount, onAction, onRunActio
                             </span>
                         </button>
                     )}
-                    {TASK_SETTLED_STATUSES.includes(task.status) && (
+                    {(TASK_SETTLED_STATUSES.includes(task.status) || task.status === 'waiting_decision') && (
                         <button className="action-btn primary" onClick={() => onAction?.('restart')}>
                             <span className="action-btn-icon"><RotateCcw size={18} /></span>
                             <span className="action-btn-text">

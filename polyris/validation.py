@@ -539,19 +539,81 @@ def _validate_single(dag_file: str, verbose: bool) -> bool:
 def validate_asl_from_dag(dag, verbose: bool = False) -> tuple:
     """Validate a single DAG object."""
     from polyris.generators import generate_step_function_json, validate_asl
+    from polyris.config import config
+    from polyris.constants import TriggerRuleLiteral
+    from typing import get_args
     import json as _json
 
     try:
+        # role must be 'same', a key in config.roles (pyproject.toml), or a
+        # raw ARN passed through directly. The common case is a key (see the
+        # role field's own inline comment listing example keys: 'acq', 'etl',
+        # 'processing', 'orchestration', 'same') — but `polyris.roles`'
+        # documented usage (`role=roles["data_warehouse"]`) passes the
+        # *resolved ARN value* directly, which _build_task_branch already
+        # accepts by falling through unresolved-as-is when a role isn't a
+        # config.roles key. A typo'd role KEY isn't caught anywhere else: it
+        # silently passes through generation as a plain string and only fails
+        # at AWS runtime, deep in the wrapper's execution, with a much less
+        # helpful error than catching it here would give — so an unrecognized
+        # non-ARN-looking value is a real error, not a warning. A value that
+        # looks like an ARN is accepted without a config.roles lookup, since
+        # there's nothing to look up — it's already resolved.
+        role_errors = []
+        for t in dag.tasks:
+            if (t.role and t.role != 'same' and t.role not in config.roles
+                    and not t.role.startswith('arn:')):
+                known = sorted(config.roles) if config.roles else '(none configured)'
+                role_errors.append(
+                    f"Task '{t.task_id}': role={t.role!r} is not 'same', not a "
+                    f"key in config.roles, and not an ARN. Known roles: {known}"
+                )
+
+        # trigger_rule is a Literal (type-checker-only) not runtime-enforced —
+        # an unrecognized string silently passes through construction and only
+        # surfaces at evaluate_deps' "Unknown trigger_rule; defaulting to
+        # all_success" fallback (ADR #117). Catch it here with a specific
+        # suggestion instead of a silent behavior change.
+        valid_rules = set(get_args(TriggerRuleLiteral))
+        removed_rule_suggestions = {
+            'one_done': "'all_done' (identical in every reachable state)",
+            'none_failed': "'all_done' (identical in every reachable state)",
+            'none_failed_min_one_success': "'one_success' (identical in every reachable state)",
+            'all_done_min_one_success': "'one_success' (identical in every reachable state)",
+            'all_failed': "no replacement — never satisfiable (a confirmed failure cancels the whole pipeline before this rule can evaluate)",
+            'one_failed': "no replacement — never satisfiable (a confirmed failure cancels the whole pipeline before this rule can evaluate)",
+        }
+        trigger_rule_errors = []
+        for t in dag.tasks:
+            if t.trigger_rule and t.trigger_rule not in valid_rules:
+                suggestion = removed_rule_suggestions.get(t.trigger_rule)
+                if suggestion:
+                    trigger_rule_errors.append(
+                        f"Task '{t.task_id}': trigger_rule={t.trigger_rule!r} was "
+                        f"removed (ADR #117). Use {suggestion}."
+                    )
+                else:
+                    trigger_rule_errors.append(
+                        f"Task '{t.task_id}': trigger_rule={t.trigger_rule!r} is not "
+                        f"a recognized rule. Valid rules: {sorted(valid_rules)}"
+                    )
+
         asl_json = generate_step_function_json(dag)
         asl = _json.loads(asl_json)
         is_valid, errors, warnings = validate_asl(asl)
+        errors = role_errors + trigger_rule_errors + errors
+        is_valid = is_valid and not role_errors and not trigger_rule_errors
 
         if verbose:
             print(f"  Schedule: {dag.schedule or 'manual'}")
             print(f"  Tasks: {len(dag.tasks)}")
             print(f"  States: {len(asl.get('States', {}))}")
 
-        if errors:  # pragma: no cover -- generated ASL for a DSL DAG has no errors; this prints validate_asl errors that only hand-written ASL triggers
+        if errors:  # pragma: no cover -- rare in practice (e.g. an empty DAG with
+                    # zero tasks/steps produces a real 'Parallel has no branches'
+                    # error, or a task references an undefined role — both
+                    # verified, both reachable, not hand-written-ASL-only);
+                    # deploy_pipeline's gate gets to it before AWS does either way.
             print(f"  ❌ Errors ({len(errors)}):")
             for e in errors:
                 print(f"     • {e}")

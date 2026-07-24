@@ -312,6 +312,69 @@ class TestValidateAslFromDag:
         assert errors and isinstance(errors[0], str)
         assert warnings == []
 
+    def test_role_same_passes(self):
+        """The default role='same' is always valid — no config.roles lookup needed."""
+        from polyris import DAG, task
+
+        with DAG("role-same", schedule=None) as dag:
+            @task.sfn(arn=ARN, role="same")
+            def t():
+                pass
+            t()
+        is_valid, errors, _ = validate_asl_from_dag(dag)
+        assert is_valid is True
+        assert errors == []
+
+    def test_undefined_role_is_a_validation_error(self):
+        """A role that is neither 'same' nor a key in config.roles previously
+        passed validation silently (verified) and reached the deployed task's
+        payload as a raw, unresolved string — only failing at AWS runtime with
+        a far less helpful error. It must be caught here instead."""
+        from polyris import DAG, task
+
+        with DAG("role-typo", schedule=None) as dag:
+            @task.sfn(arn=ARN, role="prod-analytis-role")  # not a real config.roles key
+            def t():
+                pass
+            t()
+        is_valid, errors, _ = validate_asl_from_dag(dag)
+        assert is_valid is False
+        assert any("prod-analytis-role" in e and "role" in e for e in errors)
+
+    def test_role_as_raw_arn_passthrough_is_valid(self):
+        """polyris.roles' own documented usage (`role=roles["data_warehouse"]`)
+        passes the *resolved ARN value* directly, not a config.roles key —
+        _build_task_branch already accepts this (falls through unresolved-
+        as-is when the value isn't found as a key), so the validator must not
+        reject it. An earlier version of this check did reject it, based on
+        the (incomplete) assumption that role is always a key, never a raw
+        ARN — contradicting polyris.roles' own documented example."""
+        from polyris import DAG, task
+
+        with DAG("role-arn-passthrough", schedule=None) as dag:
+            @task.sfn(arn=ARN, role="arn:aws:iam::111111111111:role/dw-role")
+            def t():
+                pass
+            t()
+        is_valid, errors, _ = validate_asl_from_dag(dag)
+        assert is_valid is True
+        assert errors == []
+
+    def test_undefined_role_does_not_mask_a_structurally_valid_dag(self):
+        """The role check must compose with the structural ASL check — an
+        undefined role on an otherwise well-formed DAG should be the *only*
+        reported error, not swallow or duplicate the structural pass."""
+        from polyris import DAG, task
+
+        with DAG("role-typo-2", schedule=None) as dag:
+            @task.sfn(arn=ARN, role="not-a-real-role")
+            def t():
+                pass
+            t()
+        is_valid, errors, _ = validate_asl_from_dag(dag)
+        assert is_valid is False
+        assert len(errors) == 1
+
 
 # ============================================================ #
 # validate_all  (full pipeline)

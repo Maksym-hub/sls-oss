@@ -344,7 +344,7 @@
 .cal-calendar-day.today { border-color: var(--text-muted); border-style: dashed; }
 .cal-calendar-day.selected { background: var(--accent-light); border-color: var(--accent); }
 .cal-calendar-day.today.selected { border-style: solid; }
-.cal-calendar-day.other-month { color: var(--text-muted); opacity: 0.5; }
+.cal-calendar-day.other-month { color: var(--text-muted); }
 .cal-calendar-dots {
     position: absolute;
     bottom: 3px;
@@ -450,7 +450,7 @@
 .gc-gantt-bar.success { background: var(--success); }
 .gc-gantt-bar.failed { background: var(--error); }
 .gc-gantt-bar.running { background: var(--running); }
-.gc-gantt-bar.waiting { background: var(--text-muted); opacity: 0.5; }
+.gc-gantt-bar.waiting { background: var(--text-muted); }
 .gc-gantt-bar.pending { background: var(--waiting); opacity: 0.6; }
 .gc-gantt-bar.skipped { background: var(--skipped); }
 .gc-gantt-bar.stopped { background: var(--stopped); }

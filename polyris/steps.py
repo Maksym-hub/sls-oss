@@ -123,6 +123,13 @@ class Wait(Step):
     timestamp_path: Optional[str] = None  # JSONPath to timestamp in input
     
     def __post_init__(self):
+        if not (self.seconds or self.timestamp or self.timestamp_path):
+            raise ValueError(
+                "Wait(...) requires exactly one of: seconds, timestamp, "
+                "timestamp_path. A Wait state with none of these generates "
+                "{'Type': 'Wait'} with no duration — locally valid-looking "
+                "ASL that AWS Step Functions rejects at deploy time."
+            )
         if not self.step_id:
             if self.seconds:
                 self.step_id = f"Wait_{self.seconds}s"
@@ -301,6 +308,13 @@ class HttpTask(Step):
     connection_arn: Optional[str] = None  # EventBridge connection ARN for auth
     
     def __post_init__(self):
+        if not self.url:
+            raise ValueError(
+                "HttpTask(...) requires 'url'. Without it, the generated "
+                "state has an empty ApiEndpoint, which passes local "
+                "validation but fails when the state actually tries to "
+                "make the HTTP call."
+            )
         if not self.step_id:
             self.step_id = "HttpTask"
         
@@ -596,6 +610,21 @@ class DynamoDBTask(Step):
     result_path: str = "$.dynamodb_result"
     
     def __post_init__(self):
+        if not self.table_name:
+            raise ValueError("DynamoDBTask(...) requires 'table_name'.")
+        _op_requires = {
+            "get_item": ("key", self.key),
+            "delete_item": ("key", self.key),
+            "put_item": ("item", self.item),
+            "update_item": ("update_expression", self.update_expression),
+            "query": ("key_condition", self.key_condition),
+        }
+        if self.operation in _op_requires:
+            field_name, value = _op_requires[self.operation]
+            if not value:
+                raise ValueError(
+                    f"DynamoDBTask(operation={self.operation!r}) requires '{field_name}'."
+                )
         if not self.step_id:
             self.step_id = f"DynamoDB_{self.operation}"
         dag = get_current_dag()
@@ -625,6 +654,10 @@ class SNSTask(Step):
     message_attributes: Optional[Dict[str, Any]] = None
     
     def __post_init__(self):
+        if not self.topic_arn:
+            raise ValueError("SNSTask(...) requires 'topic_arn'.")
+        if not self.message:
+            raise ValueError("SNSTask(...) requires 'message'.")
         if not self.step_id:
             self.step_id = "SNS_Publish"
         dag = get_current_dag()
@@ -654,6 +687,8 @@ class SQSTask(Step):
     message_group_id: Optional[str] = None  # For FIFO queues
     
     def __post_init__(self):
+        if not self.queue_url:
+            raise ValueError("SQSTask(...) requires 'queue_url'.")
         if not self.step_id:
             self.step_id = "SQS_SendMessage"
         dag = get_current_dag()
@@ -701,6 +736,14 @@ class S3Task(Step):
     result_path: str = "$.s3_result"
     
     def __post_init__(self):
+        if not self.bucket:
+            raise ValueError("S3Task(...) requires 'bucket'.")
+        if not self.key:
+            raise ValueError("S3Task(...) requires 'key'.")
+        if self.operation == "put_object" and not self.body:
+            raise ValueError("S3Task(operation='put_object') requires 'body'.")
+        if self.operation == "copy_object" and not self.copy_source:
+            raise ValueError("S3Task(operation='copy_object') requires 'copy_source'.")
         if not self.step_id:
             self.step_id = f"S3_{self.operation}"
         dag = get_current_dag()
@@ -734,6 +777,8 @@ class GlueTask(Step):
     wait_for_completion: bool = True
     
     def __post_init__(self):
+        if not self.job_name:
+            raise ValueError("GlueTask(...) requires 'job_name'.")
         if not self.step_id:
             self.step_id = f"Glue_{self.job_name}"
         dag = get_current_dag()
@@ -765,6 +810,12 @@ class AthenaTask(Step):
     wait_for_completion: bool = True
     
     def __post_init__(self):
+        if not self.query_string:
+            raise ValueError("AthenaTask(...) requires 'query_string'.")
+        if not self.database:
+            raise ValueError("AthenaTask(...) requires 'database'.")
+        if not self.output_location:
+            raise ValueError("AthenaTask(...) requires 'output_location'.")
         if not self.step_id:
             self.step_id = "Athena_Query"
         dag = get_current_dag()
@@ -811,6 +862,20 @@ class ECSTask(Step):
     wait_for_completion: bool = True
     
     def __post_init__(self):
+        if not self.cluster:
+            raise ValueError("ECSTask(...) requires 'cluster'.")
+        if not self.task_definition:
+            raise ValueError("ECSTask(...) requires 'task_definition'.")
+        # Mirrors @task.ecs()'s identical check (polyris/task.py) — Fargate
+        # tasks run in an ENI and require at least one subnet; an empty
+        # Subnets list fails opaquely at runTask. This is a separate,
+        # independent construction path (a direct Step, not the @task.ecs
+        # decorator) that previously had no such check at all.
+        if self.launch_type == "FARGATE" and not self.subnets:
+            raise ValueError(
+                "ECSTask(launch_type='FARGATE') requires subnets "
+                "(Fargate tasks run in an ENI). Pass subnets=[...]."
+            )
         if not self.step_id:
             self.step_id = "ECS_RunTask"
         dag = get_current_dag()
@@ -841,6 +906,10 @@ class EventBridgeTask(Step):
     detail: Optional[Dict[str, Any]] = None
     
     def __post_init__(self):
+        if not self.source:
+            raise ValueError("EventBridgeTask(...) requires 'source'.")
+        if not self.detail_type:
+            raise ValueError("EventBridgeTask(...) requires 'detail_type'.")
         if not self.step_id:
             self.step_id = "EventBridge_PutEvents"
         dag = get_current_dag()
@@ -874,6 +943,10 @@ class BedrockTask(Step):
     result_path: str = "$.ai_result"
     
     def __post_init__(self):
+        if not self.model_id:
+            raise ValueError("BedrockTask(...) requires 'model_id'.")
+        if not self.body:
+            raise ValueError("BedrockTask(...) requires 'body'.")
         if not self.step_id:
             self.step_id = "Bedrock_InvokeModel"
         dag = get_current_dag()

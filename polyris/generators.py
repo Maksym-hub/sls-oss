@@ -66,6 +66,14 @@ JSONATA_TOKEN = "{% $states.context.Task.Token %}"
 JSONATA_EXECUTION_NAME = "{% $states.context.Execution.Name %}"
 JSONATA_SKIP_TASKS = "{% $exists($states.input.skip_tasks) ? $states.input.skip_tasks : [] %}"
 JSONATA_VARIABLES = "{% $exists($states.input.variables) ? $states.input.variables : {} %}"
+# register_only must survive Define_Inputs the same way skip_tasks/variables do
+# (bug found & fixed: Define_Inputs' Output previously replaced the whole
+# state input and silently dropped register_only for any DAG with `variables`
+# set, so Check_Register_Only's `$states.input.register_only = true` check
+# always saw it as absent and fell through to Default: Run_All_Tasks — meaning
+# polyris-register / deploy-time auto-registration on such a DAG actually ran
+# the real pipeline instead of just registering metadata).
+JSONATA_REGISTER_ONLY = "{% $exists($states.input.register_only) ? $states.input.register_only : false %}"
 JSONATA_SFN_ARN = "{% $states.context.StateMachine.Id %}"
 JSONATA_NOW = "{% $now() %}"
 JSONATA_PASS_INPUT = "{% $states.input %}"
@@ -722,7 +730,21 @@ def _generate_step_state(step: Step) -> Dict:
     builder = _STEP_STATE_BUILDERS.get(step.step_type)
     if builder:
         return builder(step)
-    return {"Type": "Pass"}
+    # An unrecognized step_type most likely means the base `Step` class was
+    # instantiated directly (its default step_type is "step", which has no
+    # entry in _STEP_STATE_BUILDERS) instead of a concrete subclass like
+    # Pass/Wait/LambdaTask/etc. Silently falling back to a no-op Pass state
+    # here used to mean the mistake shipped: validate_asl/validate_asl_from_dag
+    # see a perfectly well-formed {"Type": "Pass"} and report zero errors or
+    # warnings, so the pipeline deploys and "succeeds" while doing nothing for
+    # this step — the worst kind of failure, because nothing ever surfaces it.
+    raise ValueError(
+        f"Step '{step.step_id}' has an unrecognized step_type={step.step_type!r} "
+        f"(known types: {sorted(_STEP_STATE_BUILDERS)}). If you constructed this "
+        f"with `Step(...)` directly, use a concrete subclass instead — e.g. "
+        f"Pass(...), Wait(...), or a @task decorator — Step itself is a base "
+        f"class and has no runnable behavior."
+    )
 
 
 def _build_wrapper_input(
@@ -767,37 +789,20 @@ def _build_wrapper_input(
     return wrapper_input
 
 
-def _build_task_branch(task: Task, dag: DAG, wrapper_arn: str) -> Dict:
-    """Build a single parallel branch for a Task (wrapper-based execution).
-    
-    Each Task runs via nested SFN (wrapper) with waitForTaskToken.
-    The wrapper handles dependency resolution, retries, and error reporting.
-    
-    Args:
-        task: Task to generate branch for
-        dag: Parent DAG (for dag_id)
-        wrapper_arn: ARN of the wrapper state machine
-    
-    Returns:
-        Branch dict: {"StartAt": "Task_{id}", "States": {...}}
+def _build_task_config_and_arn(task: Task) -> Tuple[Dict[TaskConfigKey, Any], Optional[str]]:
+    """Build task_config (task-type-specific settings + retry policy) and
+    resolve task_arn for task types (lambda) that derive it from a
+    different field than task.arn.
+
+    Shared between _build_task_branch (the original dispatch's own
+    wrapper_input) and _build_dag_visualization_nodes_edges (so task_config
+    is also stored in the registry's dag_metadata) — previously task_config
+    was never persisted anywhere retrievable after the original dispatch,
+    so restart_task_helper's Start_New_Wrapper had nothing to reconstruct
+    it from and always passed an empty {}, silently dropping a restarted
+    task's real retries/worker-type/etc settings.
     """
-    # Check if task depends on direct steps (which don't support deps)
-    direct_step_deps = [
-        d for d in task.dependencies 
-        if isinstance(d, Step) and d.step_type not in WRAPPER_STEP_TYPES
-    ]
-    if direct_step_deps:
-        dep_names = [d.step_id for d in direct_step_deps]
-        raise ValueError(
-            f"Task '{task.task_id}' depends on direct step(s): {dep_names}. "
-            f"Direct steps (wait/pass/sns/sqs/s3/...) do not support dependencies. "
-            f"Use @task with wait_before parameter instead."
-        )
-    
-    dep_names = [d.node_id for d in task.dependencies]
     task_arn = task.arn
-    
-    # Build task_config based on task_type
     task_config: Dict[TaskConfigKey, Any] = {}
     if task.task_type == 'lambda':
         task_config = {
@@ -847,7 +852,7 @@ def _build_task_branch(task: Task, dag: DAG, wrapper_arn: str) -> Dict:
             TaskConfigKey.PARAMETERS: task.batch_parameters or {}
         }
     # sfn type doesn't need task_config
-    
+
     # Thread the retry policy into task_config only when retries are requested
     # (ADR #107). When absent, the wrapper's Check_Should_Retry defaults to 0, so
     # no-retry tasks keep their existing contract untouched (including sfn's empty
@@ -861,7 +866,39 @@ def _build_task_branch(task: Task, dag: DAG, wrapper_arn: str) -> Dict:
                 task_config[TaskConfigKey.MAX_RETRY_DELAY] = task.max_retry_delay_seconds
         if task.retry_jitter:
             task_config[TaskConfigKey.RETRY_JITTER] = True
+
+    return task_config, task_arn
+
+
+def _build_task_branch(task: Task, dag: DAG, wrapper_arn: str) -> Dict:
+    """Build a single parallel branch for a Task (wrapper-based execution).
     
+    Each Task runs via nested SFN (wrapper) with waitForTaskToken.
+    The wrapper handles dependency resolution, retries, and error reporting.
+    
+    Args:
+        task: Task to generate branch for
+        dag: Parent DAG (for dag_id)
+        wrapper_arn: ARN of the wrapper state machine
+    
+    Returns:
+        Branch dict: {"StartAt": "Task_{id}", "States": {...}}
+    """
+    # Check if task depends on direct steps (which don't support deps)
+    direct_step_deps = [
+        d for d in task.dependencies 
+        if isinstance(d, Step) and d.step_type not in WRAPPER_STEP_TYPES
+    ]
+    if direct_step_deps:
+        dep_names = [d.step_id for d in direct_step_deps]
+        raise ValueError(
+            f"Task '{task.task_id}' depends on direct step(s): {dep_names}. "
+            f"Direct steps (wait/pass/sns/sqs/s3/...) do not support dependencies. "
+            f"Use @task with wait_before parameter instead."
+        )
+    
+    dep_names = [d.node_id for d in task.dependencies]
+    task_config, task_arn = _build_task_config_and_arn(task)
     # Resolve cross_account_role to ARN from config.roles (pyproject.toml)
     # If role is defined in config.roles, use the ARN; otherwise keep the string
     cross_account_role = task.role
@@ -1025,6 +1062,69 @@ def _build_step_branch(step: Step, dag: DAG, wrapper_arn: str) -> Dict:
         return {"StartAt": step.step_id, "States": {step.step_id: step_state}}
 
 
+def _build_dag_visualization_nodes_edges(dag: DAG) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Build the canonical (nodes, edges) pair for DAG visualization.
+
+    Single source of truth for what a "node" looks like in visualization JSON —
+    used by both generate_dag_json (the public polyris-output/polyris-validate
+    surface) and _build_pipeline_metadata (whose dag_metadata is what gets
+    stored in the pipeline registry and per-execution snapshots, and is what
+    /pipeline-dag's registry fallback returns for "current structure"/blueprint
+    mode). These were previously two independent implementations that had
+    quietly drifted apart: generate_dag_json had `type`/`trigger_rule`/tracked
+    steps that _build_pipeline_metadata's version lacked, while
+    _build_pipeline_metadata had `wait_for` (asset pull dependency) that
+    generate_dag_json lacked. Unifying means every consumer gets the full
+    field set, not whichever subset its particular caller happened to add
+    over time.
+
+    Only includes business tasks that go through the wrapper (@task.sfn,
+    GlueTask, ECSTask, AthenaTask, EMRTask, BatchTask) plus directly-tracked
+    steps (Glue/ECS/Athena run outside the wrapper too, via `dag.steps`).
+    Excludes infrastructure steps (Wait, Pass, SNS, etc.) — those don't
+    represent a "task" a user would want to see as a graph node.
+    """
+    nodes: List[Dict[str, Any]] = []
+    edges: List[Dict[str, Any]] = []
+
+    for t in dag.tasks:
+        node: Dict[str, Any] = {
+            "id": t.task_id,
+            "name": t.task_id,
+            "type": "task",
+            "task_type": t.task_type,
+        }
+        if t.wait_before_seconds > 0:
+            node["wait_before"] = t.wait_before_seconds
+        if t.trigger_rule and t.trigger_rule != 'all_success':
+            node["trigger_rule"] = t.trigger_rule
+        if t.outlets:
+            node["outlets"] = [_serialize_outlet(a) for a in t.outlets]
+        if t.inlets:
+            node["inlets"] = [_serialize_inlet(a) for a in t.inlets]
+        if t.wait_for:
+            wait_for_assets = _serialize_wait_for_metadata(t.wait_for)
+            if wait_for_assets:
+                node["wait_for"] = wait_for_assets
+        if t.skip_on_backfill:
+            node["skip_on_backfill"] = True
+        task_config, _ = _build_task_config_and_arn(t)
+        if task_config:
+            node["task_config"] = task_config
+        nodes.append(node)
+
+        for dep in t.dependencies:
+            edges.append({"from": dep.node_id, "to": t.task_id})
+
+    for s in dag.steps:
+        if s.step_type in TRACKED_STEP_TYPES:
+            nodes.append({"id": s.step_id, "name": s.step_id, "type": s.step_type})
+            for dep in s.dependencies:
+                edges.append({"from": dep.node_id, "to": s.step_id})
+
+    return nodes, edges
+
+
 def _build_pipeline_metadata(dag: DAG) -> Tuple[List, Dict, Dict]:
     """Build tasks_metadata, dag_metadata, and asset_schedule.
     
@@ -1053,28 +1153,9 @@ def _build_pipeline_metadata(dag: DAG) -> Tuple[List, Dict, Dict]:
                 task_meta["wait_for"] = wait_for_assets
         tasks_metadata.append(task_meta)
     
-    # DAG visualization metadata
-    dag_metadata: Dict[str, Any] = {
-        "nodes": [],
-        "edges": []
-    }
-    for t in dag.tasks:
-        node: Dict[str, Any] = {"id": t.task_id, "name": t.task_id}
-        if t.skip_on_backfill:
-            node["skip_on_backfill"] = True
-        if t.outlets:
-            node["outlets"] = [_serialize_outlet(a) for a in t.outlets]
-        if t.inlets:
-            node["inlets"] = [_serialize_inlet(a) for a in t.inlets]
-        if t.wait_for:
-            wait_for_assets = _serialize_wait_for_metadata(t.wait_for)
-            if wait_for_assets:
-                node["wait_for"] = wait_for_assets
-        dag_metadata["nodes"].append(node)
-    for task in dag.tasks:
-        for dep in task.dependencies:
-            dep_id = dep.node_id
-            dag_metadata["edges"].append({"from": dep_id, "to": task.task_id})
+    # DAG visualization metadata — shared builder (see _build_dag_visualization_nodes_edges)
+    _nodes, _edges = _build_dag_visualization_nodes_edges(dag)
+    dag_metadata: Dict[str, Any] = {"nodes": _nodes, "edges": _edges}
     
     # Asset schedule (for asset-triggered pipelines)
     asset_schedule = {}
@@ -1091,6 +1172,7 @@ def _build_registration_chain(
     asset_schedule: Dict,
     registry_table: str,
     tokens_table: str,
+    asset_subscriptions_table: str,
 ) -> Tuple[Dict, str]:
     """Build the registration state chain that runs before tasks.
     
@@ -1105,6 +1187,10 @@ def _build_registration_chain(
         asset_schedule: From _build_pipeline_metadata
         registry_table: DynamoDB table name for pipeline registry
         tokens_table: DynamoDB table name for tokens/snapshots
+        asset_subscriptions_table: DynamoDB table name for asset subscriptions
+            (consumed by the platform's notify_asset_consumers SFN — must match
+            its own ${asset_subscriptions_table} substitution, both ultimately
+            sourced from the same SSM parameter /polyris/{stage}/asset_subscriptions_table)
     
     Returns:
         Tuple of (states_dict, start_at_state_name)
@@ -1123,6 +1209,9 @@ def _build_registration_chain(
             "Output": {
                 "variables": variables_output,
                 "skip_tasks": JSONATA_SKIP_TASKS,
+                "register_only": JSONATA_REGISTER_ONLY,
+                "_suppress_asset_event": JSONATA_SUPPRESS_ASSET_EVENT,
+                "cascade_all": JSONATA_CASCADE_ALL,
                 "current_date": "{% $exists($states.input.current_date) ? $states.input.current_date : null %}",
                 "PARTITION_ARG": "{% $exists($states.input.PARTITION_ARG) ? $states.input.PARTITION_ARG : ($exists($states.input.current_date) ? $states.input.current_date : null) %}"
             },
@@ -1189,7 +1278,7 @@ def _build_registration_chain(
                         "Type": "Task",
                         "Resource": "arn:aws:states:::dynamodb:putItem",
                         "Arguments": {
-                            "TableName": "${asset_subscriptions_table}",
+                            "TableName": asset_subscriptions_table,
                             "Item": {
                                 "asset_name": {"S": "{% $states.input %}"},
                                 "pipeline_name": {"S": dag.dag_id},
@@ -1233,6 +1322,7 @@ def generate_step_function_json(
     wrapper_arn: Optional[str] = None,
     registry_table: Optional[str] = None,
     tokens_table: Optional[str] = None,
+    asset_subscriptions_table: Optional[str] = None,
 ) -> str:
     """
     Generate AWS Step Functions JSON from DAG.
@@ -1243,6 +1333,11 @@ def generate_step_function_json(
         wrapper_arn: ARN of wrapper state machine (default: ${wrapper_arn})
         registry_table: Name of pipeline registry table (default: ${registry_table})
         tokens_table: Name of pipeline tokens table (default: ${tokens_table})
+        asset_subscriptions_table: Name of the asset subscriptions table that
+            asset-triggered pipelines register into (default:
+            ${asset_subscriptions_table}). Must match the platform's own
+            AssetSubscriptionsTable — both are sourced from the SSM parameter
+            /polyris/{stage}/asset_subscriptions_table (see deploy.py).
     
     Features:
     - variables: Creates Define_Inputs Pass state at start
@@ -1259,6 +1354,7 @@ def generate_step_function_json(
     _wrapper_arn = wrapper_arn or dependency_wrapper_arn or "${wrapper_arn}"
     _registry_table = registry_table or "${registry_table}"
     _tokens_table = tokens_table or "${tokens_table}"
+    _asset_subscriptions_table = asset_subscriptions_table or "${asset_subscriptions_table}"
     
     # 1. Build parallel branches (one per task/step)
     branches = []
@@ -1274,7 +1370,7 @@ def generate_step_function_json(
     # 3. Build registration state chain
     states, start_at = _build_registration_chain(
         dag, tasks_metadata, dag_metadata, asset_schedule,
-        _registry_table, _tokens_table,
+        _registry_table, _tokens_table, _asset_subscriptions_table,
     )
     
     # 4. Add parallel execution + failure handler
@@ -1317,58 +1413,12 @@ def generate_step_function_json(
 
 def generate_dag_json(dag: DAG) -> Dict:
     """Generate DAG visualization JSON.
-    
-    Only includes business tasks that go through wrapper:
-    - @task (SFN)
-    - GlueTask
-    - ECSTask  
-    - AthenaTask
-    
-    Excludes infrastructure steps (Wait, Pass, SNS, etc.)
+
+    See _build_dag_visualization_nodes_edges for exactly what's included
+    (business tasks + tracked Glue/ECS/Athena steps; excludes infrastructure
+    steps like Wait/Pass/SNS).
     """
-    nodes = []
-    edges = []
-    
-    # Add tasks (always included)
-    for t in dag.tasks:
-        node: Dict[str, Any] = {
-            "id": t.task_id, 
-            "name": t.task_id,
-            "type": "task"
-        }
-        # Add wait_before info if present
-        if t.wait_before_seconds > 0:
-            node["wait_before"] = t.wait_before_seconds
-        # Add trigger_rule if not default
-        if t.trigger_rule and t.trigger_rule != 'all_success':
-            node["trigger_rule"] = t.trigger_rule
-        # Add outlets (assets this task produces)
-        if t.outlets:
-            node["outlets"] = [_serialize_outlet(a) for a in t.outlets]
-        # Add inlets (assets this task consumes)
-        if t.inlets:
-            node["inlets"] = [_serialize_inlet(a) for a in t.inlets]
-        # Add skip_on_backfill flag
-        if t.skip_on_backfill:
-            node["skip_on_backfill"] = True
-        nodes.append(node)
-        
-        for dep in t.dependencies:
-            dep_id = dep.node_id
-            edges.append({"from": dep_id, "to": t.task_id})
-    
-    # Add only tracked steps (Glue, ECS, Athena)
-    for s in dag.steps:
-        if s.step_type in TRACKED_STEP_TYPES:
-            nodes.append({
-                "id": s.step_id,
-                "name": s.step_id,
-                "type": s.step_type
-            })
-            for dep in s.dependencies:
-                dep_id = dep.node_id
-                edges.append({"from": dep_id, "to": s.step_id})
-    
+    nodes, edges = _build_dag_visualization_nodes_edges(dag)
     return {"name": dag.dag_id, "nodes": nodes, "edges": edges}
 
 
@@ -1502,75 +1552,6 @@ def generate_assets_json(dag: DAG) -> str:
     }
     
     return json.dumps(result, indent=2)
-
-
-def generate_asset_eventbridge_rules(dags: List[DAG]) -> Dict[str, Any]:
-    """
-    Generate EventBridge rules for asset-triggered DAGs.
-    
-    For each DAG with asset-based schedule:
-    - AND logic: Creates a Lambda target that tracks received events and triggers when all ready
-    - OR logic: Creates direct SFN target that triggers on any event
-    
-    Returns CloudFormation-compatible configuration.
-    """
-    rules = {}
-    
-    for dag in dags:
-        if not dag.is_asset_triggered:
-            continue
-        
-        schedule_info = dag.asset_schedule_info
-        if not schedule_info:  # pragma: no cover -- is_asset_triggered implies a non-empty schedule_info; defensive guard
-            continue
-        
-        rule_name = f"asset-trigger-{dag.dag_id}"
-        
-        if schedule_info["operator"] == "AND":
-            # AND logic - need to track state
-            # Route to a Lambda that checks if all assets are ready
-            rules[rule_name] = {
-                "event_pattern": json.dumps({
-                    "source": ["polyris.assets"],
-                    "detail-type": ["Asset Materialized"],
-                    "detail": {
-                        "asset_name": schedule_info["assets"]
-                    }
-                }),
-                "target_type": "lambda",
-                "target_arn": "${asset_trigger_lambda_arn}",
-                "input_transformer": {
-                    "input_template": json.dumps({
-                        "dag_id": dag.dag_id,
-                        "required_assets": schedule_info["assets"],
-                        "operator": "AND",
-                        "event": "<event>"
-                    })
-                }
-            }
-        else:
-            # OR logic - trigger directly on any event
-            rules[rule_name] = {
-                "event_pattern": json.dumps({
-                    "source": ["polyris.assets"],
-                    "detail-type": ["Asset Materialized"],
-                    "detail": {
-                        "asset_name": schedule_info["assets"]
-                    }
-                }),
-                "target_type": "step_function",
-                "target_arn": f"${{sfn_{dag.dag_id}_arn}}",
-                "input_transformer": {
-                    "input_template": json.dumps({
-                        "triggered_by": "asset",
-                        "asset": "<$.detail.asset_name>",
-                        "source_task": "<$.detail.source_task>",
-                        "source_dag": "<$.detail.source_dag>"
-                    })
-                }
-            }
-    
-    return rules
 
 
 def generate_all_assets(dags: List[DAG]) -> Dict[str, Any]:

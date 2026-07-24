@@ -229,12 +229,28 @@ export const formatRelativeTime = (iso: string | null | undefined): string => {
     return iso.slice(0, 10);
 };
 
-// Human-readable schedule label for a pipeline. Empty / no schedule → "Manual"
-// (on-demand: the pipeline only runs on manual trigger, no EventBridge rule).
-// Single source of truth for schedule display — used by the sidebar, command
-// palette, and anywhere else a schedule is shown.
-export function formatSchedule(schedule: string | undefined | null): string {
-    if (!schedule) return 'Manual';
+// Human-readable schedule label for a pipeline. Single source of truth for
+// schedule display — used by the sidebar, command palette, and anywhere else
+// a schedule is shown.
+//
+// assetSchedule (optional): an asset-triggered pipeline has an empty
+// `schedule` string (it has no cron/rate — see ADR on asset_subscriptions_table
+// registration) but a populated asset_schedule instead. Without checking it,
+// such a pipeline is indistinguishable from a genuinely manual one — both
+// hit the `!schedule` branch below and show "Manual", which is wrong: an
+// asset-triggered pipeline runs automatically, just not on a timer.
+export function formatSchedule(
+    schedule: string | undefined | null,
+    assetSchedule?: { operator: 'AND' | 'OR'; assets: string[] } | null,
+): string {
+    if (!schedule) {
+        if (assetSchedule && assetSchedule.assets.length > 0) {
+            const joiner = assetSchedule.operator === 'OR' ? ' | ' : ' & ';
+            const label = assetSchedule.assets.join(joiner);
+            return label.length > 24 ? label.substring(0, 24) + '…' : label;
+        }
+        return 'Manual';
+    }
 
     // Rate expressions: rate(1 hour), rate(6 hours)
     const rateMatch = schedule.match(/rate\((\d+)\s*(minute|hour|day)s?\)/i);
@@ -257,4 +273,33 @@ export function formatSchedule(schedule: string | undefined | null): string {
 
     // Fallback: show raw but truncated
     return schedule.length > 20 ? schedule.substring(0, 20) + '…' : schedule;
+}
+
+// Human-readable freshness window for an asset dependency (wait_for's
+// freshness_hours). The raw value can be a long repeating decimal —
+// Asset.within(minutes=2) produces 0.0333333333333333 — so this picks
+// whichever unit (days/hours/minutes) renders cleanly, rounding to at most
+// one decimal place rather than showing the raw float.
+export function formatFreshnessWindow(hours: number): string {
+    if (hours >= 24 && hours % 24 === 0) return `${hours / 24}d`;
+    if (hours >= 1) {
+        const rounded = Math.round(hours * 10) / 10;
+        return `${rounded}h`;
+    }
+    return `${Math.round(hours * 60)}m`;
+}
+
+// Same conversion, as a full sentence fragment for tooltips
+// ("Must be fresh within {formatFreshnessWindowLong(hours)}").
+export function formatFreshnessWindowLong(hours: number): string {
+    if (hours >= 24 && hours % 24 === 0) {
+        const days = hours / 24;
+        return `${days} day${days !== 1 ? 's' : ''}`;
+    }
+    if (hours >= 1) {
+        const rounded = Math.round(hours * 10) / 10;
+        return `${rounded} hour${rounded !== 1 ? 's' : ''}`;
+    }
+    const minutes = Math.round(hours * 60);
+    return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
 }

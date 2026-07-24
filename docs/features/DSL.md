@@ -98,18 +98,29 @@ DAG(schedule="rate(1 day)")
 
 ```python
 from polyris import Asset
+from polyris.assets import AssetAny
 
 asset_a = Asset("processed/acme")
 asset_b = Asset("processed/ulta")
 
-# Single asset (OR)
+# Single asset — AND-of-one: any ONE materialization satisfies it, but the
+# trigger itself is deduplicated per calendar day (a producer that
+# materializes asset_a more than once on the same day only triggers this
+# consumer once — see docs/reference/SPIKE_ASSET_TRIGGER_GRANULARITY.md).
 DAG(schedule=asset_a)
 
-# Multiple assets - ALL required (AND)
+# Multiple assets - ALL required (AND, also day-deduplicated)
 DAG(schedule=[asset_a & asset_b])
 
-# Multiple assets - ANY triggers (OR)
+# Multiple assets - ANY triggers (OR) — fires on every materialization of
+# either asset, no day-scoped dedup at all.
 DAG(schedule=[asset_a | asset_b])
+
+# Single asset, but fire on EVERY materialization (no day-scoped dedup) —
+# explicit AssetAny with one item, rather than the bare-asset shorthand
+# above. Use this for a producer that runs more than once a day by design
+# (hourly, etc.) where every run should recompute the consumer.
+DAG(schedule=AssetAny([asset_a]))
 ```
 
 ### Manual Only
@@ -275,48 +286,76 @@ def my_task():
 
 ## Trigger Rules
 
-> **Full Airflow parity** — polyris supports all 11 trigger rules from Apache Airflow.
-> This is unique among serverless orchestrators; Prefect and Dagster have no equivalent.
+> **polyris is intervention-first, not autonomous (ADR #114).** A task that exhausts
+> its retries pauses for a human decision (`retry` / `mark_success` / `skip` / `fail`)
+> rather than propagating failure automatically. That's a deliberate differentiator —
+> most orchestrators just fail and stop; polyris lets you fix it inline, in the same
+> run. One consequence: a *confirmed* failure (resolved with `fail`) cancels the whole
+> pipeline's `Parallel` before any downstream `trigger_rule` ever evaluates — so a rule
+> whose only purpose is reacting to a confirmed failure can never fire. See ADR #117
+> for the full reachable-state analysis.
+
+polyris supports 5 trigger rules — trimmed from Airflow's 11 (ADR #117). The other 6
+names are **rejected at validation time** (`polyris-validate` / `polyris-deploy`), each
+with a specific suggestion, rather than silently accepted and then behaving
+differently than their Airflow name implies.
 
 | Rule | Description | Use Case |
 |------|-------------|----------|
 | `all_success` | All deps must succeed (default) | Standard ETL: extract → transform → load |
 | `one_success` | At least one dep succeeded (immediate!) | Redundant sources: run if any data arrived |
-| `all_done` | All deps finished (any status) | Cleanup: always run after pipeline, even on failure |
-| `all_done_min_one_success` | All done + at least one success | Report: send results even if some branches failed |
-| `one_done` | At least one dep finished (any status, immediate!) | Fan-out monitoring: react as soon as any task completes |
-| `one_failed` | At least one dep failed (immediate!) | Alert: notify immediately when first failure happens |
-| `all_failed` | All deps failed | Fallback: activate only when everything else failed |
-| `none_failed` | No deps failed | Safe continue: proceed if nothing went wrong |
-| `none_failed_min_one_success` | None failed + at least one success | Conditional merge: combine results from optional branches |
-| `all_skipped` | All deps skipped | Skip handler: run only when entire branch was skipped |
-| `none_skipped` | No deps skipped | Strict pipeline: ensure every step actually ran |
+| `all_done` | All deps finished (any status) | Cleanup: run after the success path, or once `all_done` propagation ships (ADR #116) |
+| `all_skipped` | All deps skipped | Fallback for an entirely-optional branch |
+| `none_skipped` | No dep skipped | Only proceed if nothing upstream was intentionally skipped |
+
+### Removed rules (ADR #117) and what to use instead
+
+Re-deriving the reachable-state analysis against the common case — a paused task
+resolved via the UI's **manual** Skip/Mark-Success buttons — shows the other 6 of
+Airflow's 11 names either duplicate one of the 5 above in every reachable state, or can
+never fire at all:
+
+| Removed rule | Use instead | Why |
+|------|-------------|----------|
+| `one_done` | `all_done` | Identical in every reachable state |
+| `none_failed` | `all_done` | Identical in every reachable state |
+| `none_failed_min_one_success` | `one_success` | Identical in every reachable state |
+| `all_done_min_one_success` | `one_success` | Identical in every reachable state |
+| `all_failed` | *(no replacement)* | Never satisfiable — its only use case, reacting to a confirmed failure, is exactly the state `Parallel`-abort prevents it from reaching |
+| `one_failed` | *(no replacement)* | Same as above |
+
+> **Blocked-rule terminal (ADR #115).** When a rule's trigger condition never occurs
+> (e.g. `all_skipped` when nothing was skipped), the task resolves **`skipped`** and
+> the run stays **`success`** — this is a legitimate no-op, not an error, not
+> `upstream_failed`/`aborted`. Only a rule that *requires* success (`all_success`,
+> `one_success`) blocked by a **genuine, resolved** failure resolves **`upstream_failed`**.
+>
+> **`all_done` and a confirmed failure.** `all_done` on the success path (no failures
+> at all) works today; reacting to a *resolved* failure specifically is a planned,
+> scoped exception (ADR #116), not yet shipped — a confirmed failure still cancels this
+> marker's branch before it can evaluate.
+>
+> **Skip cascades for `all_success` (ADR #115).** A skipped upstream blocks
+> `all_success` — matching Airflow — but only when the skip came from a *rule*
+> resolving `skipped`. A **manual** skip (an operator explicitly skipping a paused task
+> to unblock it) does not cascade — a human tolerating one gap shouldn't silently
+> no-op an entire downstream chain.
 
 ### Examples
 
 ```python
-# Cleanup that always runs (teardown pattern)
+# Redundant sources — one_success, no caveats
+@task.sfn(arn=..., trigger_rule="one_success")
+def merge_results():
+    """Runs as soon as any upstream source succeeds — doesn't wait for the rest."""
+    pass
+
+# Cleanup that runs after the success path — all_done
 @task.sfn(arn=..., trigger_rule="all_done")
 def cleanup():
-    """Tear down resources regardless of success/failure."""
-    pass
-
-# Alert on first failure (don't wait for other tasks)
-@task.lambda_(function_name=f"alert-{STAGE}", trigger_rule="one_failed")
-def alert_on_failure():
-    """Send immediate Slack alert."""
-    pass
-
-# Fallback data source
-@task.sfn(arn=..., trigger_rule="all_failed")
-def use_cached_data():
-    """Only use cache if all primary sources failed."""
-    pass
-
-# Safe merge from optional branches
-@task.sfn(arn=..., trigger_rule="none_failed_min_one_success")
-def merge_results():
-    """Combine outputs from whichever branches ran successfully."""
+    """Tears down resources once every upstream has finished. Reacting to a
+    *resolved failure* specifically is a planned exception (ADR #116), not yet
+    shipped — today this fires reliably once the success path completes."""
     pass
 ```
 

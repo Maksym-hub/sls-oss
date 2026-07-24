@@ -176,7 +176,18 @@ def find_sfn_arn(name: str, region: str, namespace: Optional[str] = None, profil
         for page in paginator.paginate():
             for sm in page['stateMachines']:
                 sm_name = sm['name']
-                # Match exact name or namespace-prefixed name
+                # Match exact name or namespace-prefixed name. When a
+                # namespace is given, it must actually match (as the prefix
+                # segment deploy_pipeline uses: f"{namespace}-{stage}-
+                # polyris-{dag_id}") — previously `namespace` was accepted
+                # and documented (--namespace CLI help, this docstring) but
+                # never actually checked, so two different namespaces
+                # sharing a dag_id (e.g. "orders" registered under both
+                # "team-a" and "team-b") silently resolved to whichever one
+                # the AWS API happened to list first, regardless of which
+                # namespace was explicitly requested.
+                if namespace and not sm_name.startswith(f"{namespace}-"):
+                    continue
                 if sm_name == name or sm_name.endswith(f'-{name}'):
                     return sm['stateMachineArn']
         

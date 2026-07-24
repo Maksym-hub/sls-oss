@@ -216,15 +216,47 @@ with DAG('consumer', schedule=[data_file]) as dag:
 
 ### Trigger Rules
 
+polyris supports 5 of Airflow's 11 trigger-rule names (ADR #117). The other 6 are
+**rejected at validation time** with a specific suggestion — each either duplicated one
+of the 5 in every state reachable under polyris's intervention-first failure model
+(ADR #114), or could never fire at all.
+
 | Airflow | polyris | Description |
 |---------|---------|-------------|
 | `all_success` | `all_success` | All deps succeeded (default) |
 | `one_success` | `one_success` | At least one succeeded |
-| `all_failed` | `all_failed` | All deps failed |
-| `one_failed` | `one_failed` | At least one failed |
-| `all_done` | `all_done` | All deps finished |
-| `none_failed` | `none_failed` | No deps failed |
-| `none_failed_min_one_success` | `none_failed_min_one_success` | None failed + one success |
+| `all_done` | `all_done` | All deps finished (success path — see note below) |
+| `all_skipped` | `all_skipped` | All deps skipped |
+| `none_skipped` | `none_skipped` | No deps skipped |
+| `one_done` | *(use `all_done`)* | Identical in every reachable state |
+| `none_failed` | *(use `all_done`)* | Identical in every reachable state |
+| `none_failed_min_one_success` | *(use `one_success`)* | Identical in every reachable state |
+| `all_done_min_one_success` | *(use `one_success`)* | Identical in every reachable state |
+| `all_failed` | *(none)* | Never satisfiable — see note below |
+| `one_failed` | *(none)* | Never satisfiable — see note below |
+
+> **A failure pauses before any rule sees it (ADR #114), and a confirmed one cancels
+> everything (ADR #117).** Airflow's `one_failed`/`all_failed` are Airflow's core
+> "react to a failure" primitives; in polyris, a failing task pauses in
+> `waiting_decision` for a human first, and a *confirmed* failure (resolved with
+> `fail`) then cancels the whole pipeline's `Parallel` before a sibling task can ever
+> evaluate its trigger_rule — not "unreliable," structurally impossible until a
+> de-abort mechanism ships (`all_done` reacting to a resolved failure specifically is
+> planned via a scoped exception, ADR #116 — not yet shipped). This is why polyris
+> doesn't offer `one_failed`/`all_failed` at all: a rule name that can never fire is
+> worse than not having it, since it teaches the wrong mental model right up until a
+> real failure occurs in production and it silently doesn't work. polyris already
+> fires a PagerDuty/Slack alert automatically as soon as a task pauses for a decision
+> (ADR #103) — you likely don't need a dedicated alert task at all.
+>
+> **Skip cascades (ADR #115).** Unlike an earlier version of polyris, a skipped
+> upstream now blocks `all_success` (Airflow's actual behavior) — it no longer
+> silently counts as "OK to continue." A rule-triggered skip cascades through
+> `all_success` tasks below it. A **manual** skip (an operator explicitly clicking
+> "skip" to unblock a paused task) does **not** cascade, on the reasoning that a human
+> tolerating one specific gap shouldn't silently no-op an entire downstream success
+> chain. If you want a task to proceed regardless of an upstream skip, use `all_done`
+> instead of `all_success`.
 
 ---
 

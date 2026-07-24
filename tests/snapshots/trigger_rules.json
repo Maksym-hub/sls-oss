@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"trigger_rules\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"source\", \"task_type\": \"sfn\", \"dependencies\": []}, {\"task_id\": \"needs_all_done\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}, {\"task_id\": \"needs_one_failed\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}, {\"task_id\": \"needs_none_skipped\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}], \"dag\": {\"nodes\": [{\"id\": \"source\", \"name\": \"source\"}, {\"id\": \"needs_all_done\", \"name\": \"needs_all_done\"}, {\"id\": \"needs_one_failed\", \"name\": \"needs_one_failed\"}, {\"id\": \"needs_none_skipped\", \"name\": \"needs_none_skipped\"}], \"edges\": [{\"from\": \"source\", \"to\": \"needs_all_done\"}, {\"from\": \"source\", \"to\": \"needs_one_failed\"}, {\"from\": \"source\", \"to\": \"needs_none_skipped\"}]}, \"polyris_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"trigger_rules\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"extract_a\", \"task_type\": \"sfn\", \"dependencies\": []}, {\"task_id\": \"extract_b\", \"task_type\": \"sfn\", \"dependencies\": []}, {\"task_id\": \"cleanup\", \"task_type\": \"sfn\", \"dependencies\": [\"extract_a\", \"extract_b\"]}], \"dag\": {\"nodes\": [{\"id\": \"extract_a\", \"name\": \"extract_a\", \"type\": \"task\", \"task_type\": \"sfn\"}, {\"id\": \"extract_b\", \"name\": \"extract_b\", \"type\": \"task\", \"task_type\": \"sfn\"}, {\"id\": \"cleanup\", \"name\": \"cleanup\", \"type\": \"task\", \"task_type\": \"sfn\", \"trigger_rule\": \"all_done\"}], \"edges\": [{\"from\": \"extract_a\", \"to\": \"cleanup\"}, {\"from\": \"extract_b\", \"to\": \"cleanup\"}]}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -23,10 +23,10 @@
             "S": ""
           },
           "tasks": {
-            "S": "[{\"task_id\": \"source\", \"task_type\": \"sfn\", \"dependencies\": []}, {\"task_id\": \"needs_all_done\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}, {\"task_id\": \"needs_one_failed\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}, {\"task_id\": \"needs_none_skipped\", \"task_type\": \"sfn\", \"dependencies\": [\"source\"]}]"
+            "S": "[{\"task_id\": \"extract_a\", \"task_type\": \"sfn\", \"dependencies\": []}, {\"task_id\": \"extract_b\", \"task_type\": \"sfn\", \"dependencies\": []}, {\"task_id\": \"cleanup\", \"task_type\": \"sfn\", \"dependencies\": [\"extract_a\", \"extract_b\"]}]"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"source\", \"name\": \"source\"}, {\"id\": \"needs_all_done\", \"name\": \"needs_all_done\"}, {\"id\": \"needs_one_failed\", \"name\": \"needs_one_failed\"}, {\"id\": \"needs_none_skipped\", \"name\": \"needs_none_skipped\"}], \"edges\": [{\"from\": \"source\", \"to\": \"needs_all_done\"}, {\"from\": \"source\", \"to\": \"needs_one_failed\"}, {\"from\": \"source\", \"to\": \"needs_none_skipped\"}]}"
+            "S": "{\"nodes\": [{\"id\": \"extract_a\", \"name\": \"extract_a\", \"type\": \"task\", \"task_type\": \"sfn\"}, {\"id\": \"extract_b\", \"name\": \"extract_b\", \"type\": \"task\", \"task_type\": \"sfn\"}, {\"id\": \"cleanup\", \"name\": \"cleanup\", \"type\": \"task\", \"task_type\": \"sfn\", \"trigger_rule\": \"all_done\"}], \"edges\": [{\"from\": \"extract_a\", \"to\": \"cleanup\"}, {\"from\": \"extract_b\", \"to\": \"cleanup\"}]}"
           },
           "schedule": {
             "S": ""
@@ -62,7 +62,7 @@
             "S": "{% $states.context.Execution.Name %}"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"source\", \"name\": \"source\"}, {\"id\": \"needs_all_done\", \"name\": \"needs_all_done\"}, {\"id\": \"needs_one_failed\", \"name\": \"needs_one_failed\"}, {\"id\": \"needs_none_skipped\", \"name\": \"needs_none_skipped\"}], \"edges\": [{\"from\": \"source\", \"to\": \"needs_all_done\"}, {\"from\": \"source\", \"to\": \"needs_one_failed\"}, {\"from\": \"source\", \"to\": \"needs_none_skipped\"}]}"
+            "S": "{\"nodes\": [{\"id\": \"extract_a\", \"name\": \"extract_a\", \"type\": \"task\", \"task_type\": \"sfn\"}, {\"id\": \"extract_b\", \"name\": \"extract_b\", \"type\": \"task\", \"task_type\": \"sfn\"}, {\"id\": \"cleanup\", \"name\": \"cleanup\", \"type\": \"task\", \"task_type\": \"sfn\", \"trigger_rule\": \"all_done\"}], \"edges\": [{\"from\": \"extract_a\", \"to\": \"cleanup\"}, {\"from\": \"extract_b\", \"to\": \"cleanup\"}]}"
           },
           "snapshot_at": {
             "S": "{% $now() %}"
@@ -94,18 +94,18 @@
       "Type": "Parallel",
       "Branches": [
         {
-          "StartAt": "Task_source",
+          "StartAt": "Task_extract_a",
           "States": {
-            "Task_source": {
+            "Task_extract_a": {
               "Type": "Task",
               "Resource": "arn:aws:states:::states:startExecution.waitForTaskToken",
               "TimeoutSeconds": 86400,
               "Arguments": {
                 "StateMachineArn": "${wrapper_arn}",
-                "Name": "{% $substring('source-' & ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'))) & '-' & ($length($states.context.Execution.Name) > 8 ? $substring($states.context.Execution.Name, $length($states.context.Execution.Name) - 8) : $states.context.Execution.Name), 0, 80) %}",
+                "Name": "{% $substring('extract_a-' & ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'))) & '-' & ($length($states.context.Execution.Name) > 8 ? $substring($states.context.Execution.Name, $length($states.context.Execution.Name) - 8) : $states.context.Execution.Name), 0, 80) %}",
                 "Input": {
-                  "task_name": "source",
-                  "task_arn": "arn:aws:states:us-east-1:123:stateMachine:source",
+                  "task_name": "extract_a",
+                  "task_arn": "arn:aws:states:us-east-1:123:stateMachine:a",
                   "task_type": "sfn",
                   "dependencies": [],
                   "cross_account_role": "same",
@@ -130,21 +130,58 @@
           }
         },
         {
-          "StartAt": "Task_needs_all_done",
+          "StartAt": "Task_extract_b",
           "States": {
-            "Task_needs_all_done": {
+            "Task_extract_b": {
               "Type": "Task",
               "Resource": "arn:aws:states:::states:startExecution.waitForTaskToken",
               "TimeoutSeconds": 86400,
               "Arguments": {
                 "StateMachineArn": "${wrapper_arn}",
-                "Name": "{% $substring('needs_all_done-' & ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'))) & '-' & ($length($states.context.Execution.Name) > 8 ? $substring($states.context.Execution.Name, $length($states.context.Execution.Name) - 8) : $states.context.Execution.Name), 0, 80) %}",
+                "Name": "{% $substring('extract_b-' & ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'))) & '-' & ($length($states.context.Execution.Name) > 8 ? $substring($states.context.Execution.Name, $length($states.context.Execution.Name) - 8) : $states.context.Execution.Name), 0, 80) %}",
                 "Input": {
-                  "task_name": "needs_all_done",
-                  "task_arn": "arn:aws:states:us-east-1:123:stateMachine:all_done",
+                  "task_name": "extract_b",
+                  "task_arn": "arn:aws:states:us-east-1:123:stateMachine:b",
+                  "task_type": "sfn",
+                  "dependencies": [],
+                  "cross_account_role": "same",
+                  "token": "{% $states.context.Task.Token %}",
+                  "pipeline_name": "trigger_rules",
+                  "pipeline_execution": "{% $states.context.Execution.Name %}",
+                  "skip_tasks": "{% $exists($states.input.skip_tasks) ? $states.input.skip_tasks : [] %}",
+                  "_suppress_asset_event": "{% $exists($states.input._suppress_asset_event) ? $states.input._suppress_asset_event : false %}",
+                  "cascade_all": "{% $exists($states.input.cascade_all) ? $states.input.cascade_all : false %}",
+                  "date": "{% $exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')) %}",
+                  "current_date": "{% $exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')) %}",
+                  "PARTITION_ARG": "{% $exists($states.input.variables.PARTITION_ARG) ? $states.input.variables.PARTITION_ARG : ($exists($states.input.PARTITION_ARG) ? $states.input.PARTITION_ARG : ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')))) %}",
+                  "variables": "{% $exists($states.input.variables) ? $states.input.variables : {} %}",
+                  "orchestration_timeout": 86400,
+                  "wait_before": 0,
+                  "trigger_rule": "all_success",
+                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Task_cleanup",
+          "States": {
+            "Task_cleanup": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.waitForTaskToken",
+              "TimeoutSeconds": 86400,
+              "Arguments": {
+                "StateMachineArn": "${wrapper_arn}",
+                "Name": "{% $substring('cleanup-' & ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'))) & '-' & ($length($states.context.Execution.Name) > 8 ? $substring($states.context.Execution.Name, $length($states.context.Execution.Name) - 8) : $states.context.Execution.Name), 0, 80) %}",
+                "Input": {
+                  "task_name": "cleanup",
+                  "task_arn": "arn:aws:states:us-east-1:123:stateMachine:cleanup",
                   "task_type": "sfn",
                   "dependencies": [
-                    "source"
+                    "extract_a",
+                    "extract_b"
                   ],
                   "cross_account_role": "same",
                   "token": "{% $states.context.Task.Token %}",
@@ -160,82 +197,6 @@
                   "orchestration_timeout": 86400,
                   "wait_before": 0,
                   "trigger_rule": "all_done",
-                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
-                }
-              },
-              "End": true
-            }
-          }
-        },
-        {
-          "StartAt": "Task_needs_one_failed",
-          "States": {
-            "Task_needs_one_failed": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::states:startExecution.waitForTaskToken",
-              "TimeoutSeconds": 86400,
-              "Arguments": {
-                "StateMachineArn": "${wrapper_arn}",
-                "Name": "{% $substring('needs_one_failed-' & ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'))) & '-' & ($length($states.context.Execution.Name) > 8 ? $substring($states.context.Execution.Name, $length($states.context.Execution.Name) - 8) : $states.context.Execution.Name), 0, 80) %}",
-                "Input": {
-                  "task_name": "needs_one_failed",
-                  "task_arn": "arn:aws:states:us-east-1:123:stateMachine:one_failed",
-                  "task_type": "sfn",
-                  "dependencies": [
-                    "source"
-                  ],
-                  "cross_account_role": "same",
-                  "token": "{% $states.context.Task.Token %}",
-                  "pipeline_name": "trigger_rules",
-                  "pipeline_execution": "{% $states.context.Execution.Name %}",
-                  "skip_tasks": "{% $exists($states.input.skip_tasks) ? $states.input.skip_tasks : [] %}",
-                  "_suppress_asset_event": "{% $exists($states.input._suppress_asset_event) ? $states.input._suppress_asset_event : false %}",
-                  "cascade_all": "{% $exists($states.input.cascade_all) ? $states.input.cascade_all : false %}",
-                  "date": "{% $exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')) %}",
-                  "current_date": "{% $exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')) %}",
-                  "PARTITION_ARG": "{% $exists($states.input.variables.PARTITION_ARG) ? $states.input.variables.PARTITION_ARG : ($exists($states.input.PARTITION_ARG) ? $states.input.PARTITION_ARG : ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')))) %}",
-                  "variables": "{% $exists($states.input.variables) ? $states.input.variables : {} %}",
-                  "orchestration_timeout": 86400,
-                  "wait_before": 0,
-                  "trigger_rule": "one_failed",
-                  "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
-                }
-              },
-              "End": true
-            }
-          }
-        },
-        {
-          "StartAt": "Task_needs_none_skipped",
-          "States": {
-            "Task_needs_none_skipped": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::states:startExecution.waitForTaskToken",
-              "TimeoutSeconds": 86400,
-              "Arguments": {
-                "StateMachineArn": "${wrapper_arn}",
-                "Name": "{% $substring('needs_none_skipped-' & ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T'))) & '-' & ($length($states.context.Execution.Name) > 8 ? $substring($states.context.Execution.Name, $length($states.context.Execution.Name) - 8) : $states.context.Execution.Name), 0, 80) %}",
-                "Input": {
-                  "task_name": "needs_none_skipped",
-                  "task_arn": "arn:aws:states:us-east-1:123:stateMachine:none_skipped",
-                  "task_type": "sfn",
-                  "dependencies": [
-                    "source"
-                  ],
-                  "cross_account_role": "same",
-                  "token": "{% $states.context.Task.Token %}",
-                  "pipeline_name": "trigger_rules",
-                  "pipeline_execution": "{% $states.context.Execution.Name %}",
-                  "skip_tasks": "{% $exists($states.input.skip_tasks) ? $states.input.skip_tasks : [] %}",
-                  "_suppress_asset_event": "{% $exists($states.input._suppress_asset_event) ? $states.input._suppress_asset_event : false %}",
-                  "cascade_all": "{% $exists($states.input.cascade_all) ? $states.input.cascade_all : false %}",
-                  "date": "{% $exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')) %}",
-                  "current_date": "{% $exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')) %}",
-                  "PARTITION_ARG": "{% $exists($states.input.variables.PARTITION_ARG) ? $states.input.variables.PARTITION_ARG : ($exists($states.input.PARTITION_ARG) ? $states.input.PARTITION_ARG : ($exists($states.input.variables.current_date) ? $states.input.variables.current_date : ($exists($states.input.current_date) ? $states.input.current_date : $substringBefore($now(), 'T')))) %}",
-                  "variables": "{% $exists($states.input.variables) ? $states.input.variables : {} %}",
-                  "orchestration_timeout": 86400,
-                  "wait_before": 0,
-                  "trigger_rule": "none_skipped",
                   "pipeline_execution_short": "{% ( $exec := $states.context.Execution.Name; $short := $length($exec) > 20 ? $substring($exec, $length($exec) - 20) : $exec; $replace($replace($short, '.', ''), ':', '') ) %}"
                 }
               },

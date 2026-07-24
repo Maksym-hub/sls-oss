@@ -16,7 +16,7 @@
         },
         "Task_Skipped": {
             "Type": "Pass",
-            "Comment": "Task was in skip_tasks list — emit synthetic 'skipped' result so downstream tasks with trigger_rule including 'none_failed_or_skipped' or 'all_done' proceed correctly.",
+            "Comment": "Task was in skip_tasks list — emit synthetic 'skipped' result so downstream tasks with trigger_rule 'all_done' proceed correctly.",
             "Output": "{% { 'task_name': $states.input.task_name, 'pipeline_name': $states.input.pipeline_name, 'pipeline_execution': $states.input.pipeline_execution, 'status': 'skipped', 'date': $states.input.date, 'result': {} } %}",
             "End": true
         },
@@ -307,7 +307,64 @@
                 "retry_attempt": "{% 0 %}"
             },
             "Output": "{% ( $cd := $states.input.current_date; $dt := $toMillis($cd & 'T00:00:00Z'); $dateVars := { 'current_date': $cd, 'PARTITION_ARG': $exists($states.input.PARTITION_ARG) ? $states.input.PARTITION_ARG : $cd, 'date_iso': $cd, 'date_compact': $replace($cd, '-', ''), 'date_slash': $substring($cd,0,4) & '/' & $substring($cd,5,2) & '/' & $substring($cd,8,2), 'date_underscore': $replace($cd, '-', '_'), 'year': $substring($cd, 0, 4), 'month': $substring($cd, 5, 2), 'day': $substring($cd, 8, 2), 'day_of_week': (['thursday','friday','saturday','sunday','monday','tuesday','wednesday'])[$floor($dt / 86400000) % 7], 'previous_date': $fromMillis($dt - 86400000, '[Y0001]-[M01]-[D01]'), 'next_date': $fromMillis($dt + 86400000, '[Y0001]-[M01]-[D01]'), 'minus_7_days': $fromMillis($dt - 604800000, '[Y0001]-[M01]-[D01]'), 'minus_14_days': $fromMillis($dt - 1209600000, '[Y0001]-[M01]-[D01]'), 'minus_30_days': $fromMillis($dt - 2592000000, '[Y0001]-[M01]-[D01]'), 'minus_7_days_compact': $replace($fromMillis($dt - 604800000, '[Y0001]-[M01]-[D01]'), '-', ''), 'minus_30_days_compact': $replace($fromMillis($dt - 2592000000, '[Y0001]-[M01]-[D01]'), '-', ''), 'partition_key': $exists($states.input.partition_key) ? $states.input.partition_key : $cd, 'backfill_id': $exists($states.input.backfill_id) ? $states.input.backfill_id : '', 'is_backfill': $exists($states.input.is_backfill) ? $states.input.is_backfill : false, 'ALLOW_UNSUCCESSFUL_SPIDER_RUN': 'True' }; $vars := $exists($states.input.variables) ? $states.input.variables : {}; $merged := $merge([$dateVars, $vars]); $states.input ~> |$| {'variables': $merged, 'upstream': $exists($states.input.upstream) ? $states.input.upstream : {}} | ) %}",
-            "Next": "Check_Task_Type"
+            "Next": "Save_Task_Input"
+        },
+        "Save_Task_Input": {
+            "Type": "Task",
+            "Comment": "Save task_input (upstream+variables) as soon as the task actually starts, independent of eventual success/failure/waiting_decision — Save_Canonical_Output only fires on the success path, which previously meant running/failed/manually-resolved tasks never had a recorded input to debug from. Deliberately updateItem, not putItem like Save_Canonical_Output: this key (output#pipeline#task#date) is shared across same-day runs of this task, so a blind full-item replace here could momentarily blank out a prior successful run's real 'result' while this run is still in flight. SET only touches task_input/updated_at; ttl is set only if not already present, so it isn't reset by every subsequent run.",
+            "Resource": "arn:aws:states:::dynamodb:updateItem",
+            "Arguments": {
+                "TableName": "${tokens_table}",
+                "Key": {
+                    "execution_name": {
+                        "S": "{% 'output#' & $states.input.pipeline_name & '#' & $states.input.task_name & '#' & $states.input.date %}"
+                    }
+                },
+                "UpdateExpression": "SET task_name = :tn, task_input = :ti, updated_at = :ua, #ttl_field = if_not_exists(#ttl_field, :ttl)",
+                "ExpressionAttributeNames": {
+                    "#ttl_field": "ttl"
+                },
+                "ExpressionAttributeValues": {
+                    ":tn": {
+                        "S": "{% $states.input.task_name %}"
+                    },
+                    ":ti": {
+                        "S": "{% ( $ti := $string({'upstream': $exists($states.input.upstream) ? $states.input.upstream : {}, 'variables': $exists($states.input.variables) ? $states.input.variables : {}}); $length($ti) > 25000 ? $string({'variables': $exists($states.input.variables) ? $states.input.variables : {}, '_upstream_omitted': true, '_size': $length($ti)}) : $ti ) %}"
+                    },
+                    ":ua": {
+                        "S": "{% $now() %}"
+                    },
+                    ":ttl": {
+                        "N": "{% $string($states.input.ttl) %}"
+                    }
+                }
+            },
+            "Output": "{% $states.input %}",
+            "Next": "Check_Task_Type",
+            "Retry": [
+                {
+                    "ErrorEquals": [
+                        "DynamoDB.ProvisionedThroughputExceededException",
+                        "DynamoDB.ThrottlingException",
+                        "DynamoDB.InternalServerError",
+                        "States.Timeout"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 3,
+                    "BackoffRate": 2,
+                    "JitterStrategy": "FULL"
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Comment": "DDB failure - continue with execution; input recording is best-effort, same pattern as every other status write in this template",
+                    "Output": "{% $states.input %}",
+                    "Next": "Check_Task_Type"
+                }
+            ]
         },
         "Check_Task_Type": {
             "Type": "Choice",
@@ -349,7 +406,7 @@
             },
             "Arguments": {
                 "StateMachineArn": "{% $states.input.task_arn %}",
-                "Name": "{% $substring($states.input.execution_name & '-' & $substring($string($toMillis($now())), 7), 0, 80) %}",
+                "Name": "{% $substring(($exists($states.input.attempt) and $states.input.attempt > 1 ? 'restart-' : '') & $states.input.execution_name & '-' & $substring($string($toMillis($now())), 7), 0, 80) %}",
                 "Input": "{% $merge([{'current_date': $states.input.current_date, 'PARTITION_ARG': $states.input.PARTITION_ARG, 'pipeline_name': $states.input.pipeline_name, 'date': $states.input.date, '_polyris_table': '${tokens_table}'}, $exists($states.input.variables) ? $states.input.variables : {}, $exists($states.input.upstream) and $count($keys($states.input.upstream)) > 0 ? {'upstream': $states.input.upstream} : {}]) %}"
             },
             "Output": "{% ( $raw := $exists($states.result.Output) ? $string($states.result.Output) : '{}'; $truncated := $length($raw) > 350000 ? '{\"_truncated\":true,\"_size\":' & $string($length($raw)) & '}' : $raw; $states.input ~> |$| {'task_output': $truncated, 'task_execution_arn': $exists($states.result.ExecutionArn) ? $states.result.ExecutionArn : ''} | ) %}",
@@ -568,6 +625,7 @@
                     }
                 },
                 "UpdateExpression": "SET #s = :status, #e = :error, task_execution_arn = :taskArn",
+                "ConditionExpression": "attempt = :expectedAttempt",
                 "ExpressionAttributeNames": {
                     "#s": "status",
                     "#e": "error"
@@ -581,6 +639,9 @@
                     },
                     ":taskArn": {
                         "S": "{% $exists($states.input.task_execution_arn) ? $states.input.task_execution_arn : '' %}"
+                    },
+                    ":expectedAttempt": {
+                        "N": "{% $string($exists($states.input.attempt) ? $states.input.attempt : 1) %}"
                     }
                 }
             },
@@ -603,6 +664,14 @@
             "Catch": [
                 {
                     "ErrorEquals": [
+                        "DynamoDB.ConditionalCheckFailedException"
+                    ],
+                    "Comment": "A newer attempt (restart) has already progressed past this attempt's status - this write was correctly rejected. End quietly rather than telling Slack/the UI this attempt is awaiting a decision, which would be stale and misleading now that a newer attempt is in flight.",
+                    "Output": "{% $states.input %}",
+                    "Next": "Stale_Attempt_Superseded"
+                },
+                {
+                    "ErrorEquals": [
                         "States.ALL"
                     ],
                     "Comment": "DDB failure - continue with execution (status update is best-effort)",
@@ -610,6 +679,10 @@
                     "Next": "Get_Decision_Timeout"
                 }
             ]
+        },
+        "Stale_Attempt_Superseded": {
+            "Type": "Succeed",
+            "Comment": "§9: a newer attempt (restart) has already progressed past this attempt's own status write - this execution's outcome is superseded and must not report itself as finished, waiting, or failed. Ends quietly with no further side effects (no TASK_FINISHED event, no dependent notification, no Slack message) - the newer attempt's own eventual outcome is what downstream should see."
         },
         "Save_Success": {
             "Type": "Task",
@@ -623,6 +696,7 @@
                     }
                 },
                 "UpdateExpression": "SET #s = :status, #r = :result, finished_at = :finished, task_execution_arn = :taskArn",
+                "ConditionExpression": "attempt = :expectedAttempt",
                 "ExpressionAttributeNames": {
                     "#s": "status",
                     "#r": "result"
@@ -639,6 +713,9 @@
                     },
                     ":taskArn": {
                         "S": "{% $exists($states.input.task_execution_arn) ? $states.input.task_execution_arn : '' %}"
+                    },
+                    ":expectedAttempt": {
+                        "N": "{% $string($exists($states.input.attempt) ? $states.input.attempt : 1) %}"
                     }
                 }
             },
@@ -659,6 +736,14 @@
                 }
             ],
             "Catch": [
+                {
+                    "ErrorEquals": [
+                        "DynamoDB.ConditionalCheckFailedException"
+                    ],
+                    "Comment": "A newer attempt (restart) has already progressed past this attempt's status - this write was correctly rejected. End quietly rather than saving canonical output / notifying dependents with an outcome that's already been superseded.",
+                    "Output": "{% $states.input %}",
+                    "Next": "Stale_Attempt_Superseded"
+                },
                 {
                     "ErrorEquals": [
                         "States.ALL"
@@ -1121,6 +1206,7 @@
                     }
                 },
                 "UpdateExpression": "SET #s = :status, #e = :error, finished_at = :finished, task_execution_arn = :taskArn",
+                "ConditionExpression": "attempt = :expectedAttempt",
                 "ExpressionAttributeNames": {
                     "#s": "status",
                     "#e": "error"
@@ -1137,6 +1223,9 @@
                     },
                     ":taskArn": {
                         "S": "{% $exists($states.input.task_execution_arn) ? $states.input.task_execution_arn : '' %}"
+                    },
+                    ":expectedAttempt": {
+                        "N": "{% $string($exists($states.input.attempt) ? $states.input.attempt : 1) %}"
                     }
                 }
             },
@@ -1157,6 +1246,14 @@
                 }
             ],
             "Catch": [
+                {
+                    "ErrorEquals": [
+                        "DynamoDB.ConditionalCheckFailedException"
+                    ],
+                    "Comment": "A newer attempt (restart) has already progressed past this attempt's status - this write was correctly rejected. End quietly rather than notifying dependents/alerting with a failure outcome that's already been superseded by a restart.",
+                    "Output": "{% $states.input %}",
+                    "Next": "Stale_Attempt_Superseded"
+                },
                 {
                     "ErrorEquals": [
                         "States.ALL"
@@ -1238,7 +1335,7 @@
         },
         "Notify_Dependents_Failed": {
             "Type": "Task",
-            "Comment": "Notify waiting tasks of failure (critical for trigger_rules like one_failed, all_done)",
+            "Comment": "Notify waiting tasks of failure (critical for trigger_rules like all_done)",
             "Resource": "arn:aws:states:::aws-sdk:sfn:startSyncExecution",
             "Arguments": {
                 "StateMachineArn": "${notify_dependents_helper_arn}",

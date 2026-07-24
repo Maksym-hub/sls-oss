@@ -153,7 +153,7 @@ describe('formatRelativeTime', () => {
     });
 });
 
-import { formatSchedule } from './formatters';
+import { formatSchedule, formatFreshnessWindow, formatFreshnessWindowLong } from './formatters';
 
 describe('formatSchedule', () => {
     it('returns "Manual" for empty / missing schedule (on-demand pipelines)', () => {
@@ -174,5 +174,75 @@ describe('formatSchedule', () => {
 
     it('truncates unrecognized long schedules', () => {
         expect(formatSchedule('some-very-long-custom-expression-here')).toBe('some-very-long-custo…');
+    });
+
+    it('still returns "Manual" for a genuinely manual pipeline (no asset_schedule either)', () => {
+        expect(formatSchedule('', null)).toBe('Manual');
+        expect(formatSchedule('', undefined)).toBe('Manual');
+        expect(formatSchedule(undefined, null)).toBe('Manual');
+    });
+
+    it('shows the trigger asset for an asset-triggered pipeline instead of "Manual"', () => {
+        // This is the exact shape reported as a bug: an asset-triggered
+        // pipeline's `schedule` field is empty, which previously fell
+        // through to "Manual" — indistinguishable from a truly manual one.
+        expect(formatSchedule('', { operator: 'AND', assets: ['clean/orders'] }))
+            .toBe('clean/orders');
+    });
+
+    it('joins multiple assets with "&" for AND and "|" for OR', () => {
+        expect(formatSchedule('', { operator: 'AND', assets: ['sales', 'inventory'] }))
+            .toBe('sales & inventory');
+        expect(formatSchedule('', { operator: 'OR', assets: ['sales', 'inventory'] }))
+            .toBe('sales | inventory');
+    });
+
+    it('truncates a long asset-schedule label the same way as a raw schedule', () => {
+        expect(formatSchedule('', { operator: 'AND', assets: ['some/very/long/asset/name/here'] }))
+            .toBe('some/very/long/asset/nam…');
+    });
+
+    it('ignores asset_schedule entirely when schedule is already a real cron/rate', () => {
+        // A time-based pipeline should never show an asset label even if
+        // asset_schedule were somehow present — schedule takes priority.
+        expect(formatSchedule('rate(6 hours)', { operator: 'AND', assets: ['clean/orders'] }))
+            .toBe('every 6h');
+    });
+});
+
+describe('formatFreshnessWindow', () => {
+    it('formats the exact repeating decimal that prompted this — 2 minutes', () => {
+        // Asset.within(minutes=2) produces freshness_hours = 0.0333333333333333 —
+        // this must not be shown raw.
+        expect(formatFreshnessWindow(2 / 60)).toBe('2m');
+    });
+
+    it('formats whole hours without a decimal', () => {
+        expect(formatFreshnessWindow(12)).toBe('12h');
+        expect(formatFreshnessWindow(1)).toBe('1h');
+    });
+
+    it('formats a fractional-hour value that is not exactly on a minute boundary', () => {
+        expect(formatFreshnessWindow(1.5)).toBe('1.5h');
+    });
+
+    it('formats whole multiples of 24h as days, including exactly 24', () => {
+        expect(formatFreshnessWindow(48)).toBe('2d');
+        expect(formatFreshnessWindow(24)).toBe('1d');
+    });
+
+    it('formats sub-hour values as minutes', () => {
+        expect(formatFreshnessWindow(0.5)).toBe('30m');
+    });
+});
+
+describe('formatFreshnessWindowLong', () => {
+    it('pluralizes correctly at each boundary', () => {
+        expect(formatFreshnessWindowLong(2 / 60)).toBe('2 minutes');
+        expect(formatFreshnessWindowLong(1 / 60)).toBe('1 minute');
+        expect(formatFreshnessWindowLong(1)).toBe('1 hour');
+        expect(formatFreshnessWindowLong(12)).toBe('12 hours');
+        expect(formatFreshnessWindowLong(24)).toBe('1 day');
+        expect(formatFreshnessWindowLong(48)).toBe('2 days');
     });
 });

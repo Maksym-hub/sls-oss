@@ -192,14 +192,19 @@ notify_dependents SFN
               ├─ evaluate_deps Lambda
               │    input: dependencies[], trigger_rule, date, execution
               │    reads: pipeline_tokens [BatchGetItem] — all dep statuses
-              │    logic: apply trigger_rule (11 rules)
-              │    output: {is_ready, is_blocked, reason, dep_statuses}
+              │    reads: pipeline_tokens [BatchGetItem] — skip_origin, only if a dep is skipped
+              │    logic: apply trigger_rule (5 rules — ADR #117)
+              │    output: {is_ready, is_blocked, verdict, reason, dep_statuses}
               │
               ├─ If is_ready ────► SendTaskSuccess(wait_token)
               │    └─ wrapper resumes at step 3 (Emit_Deps_Ready)
               │
-              ├─ If is_blocked ──► SendTaskSuccess({blocked: true})
-              │    └─ wrapper goes to Emit_Deps_Blocked → failure path
+              ├─ If verdict='skip' ──► SendTaskSuccess({signal: 'deps_skip'})
+              │    └─ wrapper resolves 'skipped', run stays 'success' (ADR #115) —
+              │       the rule's condition never occurred; not an error
+              │
+              ├─ If verdict='upstream_failed' ──► SendTaskSuccess({signal: 'deps_blocked'})
+              │    └─ wrapper goes to Emit_Deps_Blocked → failure path → resolves 'upstream_failed'
               │
               └─ Otherwise ──────► skip (still waiting for other deps)
 ```
@@ -373,19 +378,29 @@ Task Failure
 
 ## Trigger Rules
 
+Canonical: `all_success` (default), `one_success`, `all_done`. The other 8 are accepted
+Airflow-compat aliases — see `docs/features/DSL.md#trigger-rules` for which behave
+distinctly vs. collapse onto a canonical one under the intervention-first failure
+model (ADR #114), and `docs/reference/adr-115-canonical-trigger-rules-and-skip-semantics.md`
+for the full rationale.
+
 | Rule | When triggers |
 |------|---------------|
-| `all_success` | All deps = success/skipped (default) |
-| `all_failed` | All deps = failed |
+| `all_success` | All deps = success, or skipped with `skip_origin != 'rule'` (default) — a rule-originated skip does *not* count as ok (ADR #115) |
 | `all_done` | All deps finished (any status) |
-| `all_done_min_one_success` | All deps done + at least one success |
 | `all_skipped` | All deps = skipped |
 | `one_success` | At least one dep = success (immediate!) |
-| `one_failed` | At least one dep = failed (immediate!) |
-| `one_done` | At least one dep done (immediate!) |
-| `none_failed` | No deps failed (all success/skipped) |
-| `none_failed_min_one_success` | No deps failed + at least one success |
 | `none_skipped` | No deps skipped |
+
+5 rules total (ADR #117 — trimmed from Airflow's 11; the other 6 either duplicated one
+of these in every state reachable under the intervention-first model, ADR #114, or
+could never fire at all — see `docs/features/DSL.md#trigger-rules`).
+
+A blocked rule (all deps terminal, condition not satisfied) resolves one of two ways
+(`evaluate_deps`'s `verdict` field, ADR #115): `upstream_failed` when a
+success/no-failure-requiring rule is blocked by a genuine failure; `skip` (the task
+resolves `skipped`, run stays `success`) when the condition simply never occurred —
+not an error.
 
 ---
 
@@ -394,8 +409,9 @@ Task Failure
 | Status | Description |
 |--------|-------------|
 | `waiting` | Waiting for dependencies |
-| `deps_blocked` | Dependencies failed (based on trigger_rule) |
-| `deps_ready` | Dependencies ready |
+| `deps_ready` *(signal, not persisted)* | `notify_dependents`/`registration`'s callback payload when deps satisfy the rule — the wrapper resumes and the task actually runs; not a status you'll see stored |
+| `deps_blocked` *(signal, not persisted)* | Callback payload when a genuine failure blocks a success-requiring rule — resolves to the persisted `upstream_failed` |
+| `deps_skip` *(signal, not persisted)* | Callback payload when a rule's condition legitimately never occurred (ADR #115) — resolves to the persisted `skipped` |
 | `waiting_delay` | wait_before countdown |
 | `waiting_paused` | Pipeline paused, task waiting for resume |
 | `waiting_decision` | Waiting for manual decision (interactive Slack) |
@@ -403,7 +419,7 @@ Task Failure
 | `running` | Executing |
 | `success` | Completed successfully |
 | `failed` | Failed |
-| `skipped` | Skipped (manual or trigger_rule) |
+| `skipped` | Skipped — manually (task action, `skip_origin='manual'`), by the pre-execution `skip_tasks` list (`skip_reason='auto_skipped'`), or by a trigger_rule condition that never occurred (`skip_origin='rule'`) |
 | `stopped` | Manually stopped (can restart) |
 | `aborted` | Force stopped (terminal) |
 | `upstream_failed` | Blocked due to upstream failure |

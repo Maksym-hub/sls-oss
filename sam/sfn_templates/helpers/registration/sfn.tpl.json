@@ -188,7 +188,7 @@
                         }
                       }
                     },
-                    "Output": "{% { 'dep': $states.input.dep, 'status': $exists($states.result.Item.status.S) ? $states.result.Item.status.S : 'not_found' } %}",
+                    "Output": "{% { 'dep': $states.input.dep, 'status': $exists($states.result.Item.status.S) ? $states.result.Item.status.S : 'not_found', 'skip_origin': $exists($states.result.Item.skip_origin.S) ? $states.result.Item.skip_origin.S : '' } %}",
                     "End": true
                   }
                 }
@@ -199,7 +199,7 @@
             "Eval_Task_Deps": {
               "Type": "Pass",
               "Comment": "Evaluate trigger rule for task dependencies",
-              "Output": "{% ( $results := $states.input.dep_results; $tr := $exists($states.input.trigger_rule) ? $states.input.trigger_rule : 'all_success'; $c := { 'success': $count($results[status = 'success']), 'skipped': $count($results[status = 'skipped']), 'failed': $count($results[status in ['failed', 'upstream_failed', 'aborted']]), 'done': $count($results[status in ['success', 'failed', 'skipped', 'upstream_failed', 'aborted']]), 'not_found': $count($results[status = 'not_found']), 'total': $count($results) }; $pending := $c.total - $c.done; $ok := $c.success + $c.skipped; $ready := $tr = 'all_success' ? ($pending = 0 and $ok = $c.total) : $tr = 'one_success' ? $c.success > 0 : $tr = 'all_failed' ? ($pending = 0 and $c.failed = $c.total) : $tr = 'one_failed' ? $c.failed > 0 : $tr = 'all_done' ? $pending = 0 : $tr = 'one_done' ? $c.done > 0 : $tr = 'none_failed' ? ($pending = 0 and $c.failed = 0) : $tr = 'none_failed_min_one_success' ? ($pending = 0 and $c.failed = 0 and $c.success > 0) : $tr = 'all_done_min_one_success' ? ($pending = 0 and $c.success > 0) : $tr = 'all_skipped' ? ($pending = 0 and $c.skipped = $c.total) : $tr = 'none_skipped' ? ($pending = 0 and $c.skipped = 0) : ($pending = 0 and $ok = $c.total); { 'type': 'task_deps', 'ready': $ready, 'trigger_rule': $tr, 'counts': $c } ) %}",
+              "Output": "{% ( $results := $states.input.dep_results; $tr := $exists($states.input.trigger_rule) ? $states.input.trigger_rule : 'all_success'; $c := { 'success': $count($results[status = 'success']), 'skipped': $count($results[status = 'skipped']), 'failed': $count($results[status in ['failed', 'upstream_failed', 'aborted']]), 'done': $count($results[status in ['success', 'failed', 'skipped', 'upstream_failed', 'aborted']]), 'not_found': $count($results[status = 'not_found']), 'total': $count($results) }; $pending := $c.total - $c.done; $cascading_skips := $count($results[status = 'skipped' and skip_origin = 'rule']); $ok := $c.success + ($c.skipped - $cascading_skips); $ready := $tr = 'all_success' ? ($pending = 0 and $ok = $c.total) : $tr = 'one_success' ? $c.success > 0 : $tr = 'all_done' ? $pending = 0 : $tr = 'all_skipped' ? ($pending = 0 and $c.skipped = $c.total) : $tr = 'none_skipped' ? ($pending = 0 and $c.skipped = 0) : ($pending = 0 and $ok = $c.total); { 'type': 'task_deps', 'ready': $ready, 'trigger_rule': $tr, 'counts': $c } ) %}",
               "End": true
             }
           }

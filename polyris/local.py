@@ -551,57 +551,69 @@ def _run_localstack(
 
 
 def _evaluate_trigger_rule(task: Task, previous_results: List[TaskResult]) -> tuple:
-    """Evaluate if task should run based on trigger rule."""
-    
+    """Evaluate if task should run based on trigger rule.
+
+    Mirrors the 11 rules evaluate_deps implements for the real deployed
+    pipeline (docs/features/DSL.md#trigger-rules), adapted to this mock
+    runner's synchronous execution model: `run()` processes tasks in
+    topological order, so every dependency of `task` has already produced a
+    terminal TaskResult (success/failed/skipped) by the time this function is
+    called — there is no 'pending'/'wait' case here, unlike evaluate_deps'
+    async DDB-polling model. This mock also has no skip_origin concept (no
+    manual-vs-rule distinction — see ADR #115): every skip here comes from a
+    trigger_rule not being satisfied, so `all_success` correctly treats ANY
+    skipped upstream as blocking (no cascade nuance needed).
+    """
+
     # Get upstream task results
     upstream_ids = {t.node_id for t in task.dependencies}
     upstream_results = [r for r in previous_results if r.task_id in upstream_ids]
-    
+
     if not upstream_ids:
         return True, "no upstream dependencies"
-    
+
     success_count = sum(1 for r in upstream_results if r.status == 'success')
-    failed_count = sum(1 for r in upstream_results if r.status == 'failed')
+    skipped_count = sum(1 for r in upstream_results if r.status == 'skipped')
+    done_count = len(upstream_results)  # always == total in this synchronous model
     total = len(upstream_ids)
-    
+
     rule = task.trigger_rule
-    
+
     if rule == 'all_success':
         if success_count == total:
             return True, "all_success"
         return False, f"not all succeeded ({success_count}/{total})"
-    
-    elif rule == 'all_failed':
-        if failed_count == total:
-            return True, "all_failed"
-        return False, f"not all failed ({failed_count}/{total})"
-    
+
     elif rule == 'all_done':
-        if len(upstream_results) == total:
+        if done_count == total:
             return True, "all_done"
-        return False, f"not all done ({len(upstream_results)}/{total})"
-    
+        return False, f"not all done ({done_count}/{total})"
+
+    elif rule == 'all_skipped':
+        if done_count == total and skipped_count == total:
+            return True, "all_skipped"
+        return False, (f"not all done ({done_count}/{total})" if done_count < total
+                        else f"not all skipped ({skipped_count}/{total})")
+
     elif rule == 'one_success':
         if success_count >= 1:
             return True, "one_success"
         return False, "no success yet"
-    
-    elif rule == 'one_failed':
-        if failed_count >= 1:
-            return True, "one_failed"
-        return False, "no failures"
-    
-    elif rule == 'none_failed':
-        if failed_count == 0:
-            return True, "none_failed"
-        return False, f"{failed_count} failed"
-    
-    elif rule == 'none_failed_min_one_success':
-        if failed_count == 0 and success_count >= 1:
-            return True, "none_failed_min_one_success"
-        return False, f"{failed_count} failed, {success_count} success"
-    
-    return True, "default"
+
+    elif rule == 'none_skipped':
+        if skipped_count == 0:
+            return True, "none_skipped"
+        return False, f"{skipped_count} skipped"
+
+    # Unknown rule name (including any of ADR #117's 6 removed names): default
+    # to all_success's semantics, matching evaluate_deps' fallback for
+    # consistency (ADR #115) rather than silently letting an unrecognized
+    # rule always run. validate_asl_from_dag catches removed/unknown rules
+    # earlier with a specific message — this is a defensive fallback, not
+    # the primary way a user finds out a rule name isn't supported.
+    if success_count == total:
+        return True, "unknown_rule_defaulted_to_all_success"
+    return False, f"unknown trigger_rule {rule!r}; defaulted to all_success, not all succeeded ({success_count}/{total})"
 
 
 def _parse_execution_history(events: List[Dict]) -> List[TaskResult]:

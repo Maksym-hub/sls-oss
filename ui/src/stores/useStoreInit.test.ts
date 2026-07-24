@@ -199,4 +199,48 @@ describe('useStoreInit › navigateToExecution', () => {
         expect(mockRouterPush).toHaveBeenCalledWith('/pipelines/');
         expect(useAppStore.getState().date).toBe('2026-05-22');
     });
+
+    it('selects the target execution when navigating within the SAME pipeline and no targetDate is given (matches the notification-click call shape: navigateToExecution(name, execId))', () => {
+        const pipelines = [
+            { name: 'acme-daily', display_name: 'ACME Daily' },
+        ] as any[];
+
+        // Pre-set: already viewing acme-daily on some date, no execution selected.
+        act(() => {
+            useAppStore.getState().setSelectedPipeline(pipelines[0]);
+            useAppStore.getState().setDate('2026-05-22');
+            useAppStore.getState().setSelectedExecution(null);
+        });
+
+        const { result, rerender } = renderHook(() => useStoreInit({ pipelines }));
+
+        act(() => {
+            // Exactly App.tsx's onNotificationNavigate shape: no third arg.
+            result.current.navigateToExecution('acme-daily', 'exec-456');
+        });
+        rerender();
+
+        expect(useAppStore.getState().selectedExecution?.execution_id).toBe('exec-456');
+    });
+
+    it('selects the target execution directly when pipeline AND explicit date both match the current state', () => {
+        const pipelines = [
+            { name: 'acme-daily', display_name: 'ACME Daily' },
+        ] as any[];
+
+        act(() => {
+            useAppStore.getState().setSelectedPipeline(pipelines[0]);
+            useAppStore.getState().setDate('2026-05-22');
+            useAppStore.getState().setSelectedExecution(null);
+        });
+
+        const { result, rerender } = renderHook(() => useStoreInit({ pipelines }));
+
+        act(() => {
+            result.current.navigateToExecution('acme-daily', 'exec-789', '2026-05-22');
+        });
+        rerender();
+
+        expect(useAppStore.getState().selectedExecution?.execution_id).toBe('exec-789');
+    });
 });

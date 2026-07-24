@@ -171,36 +171,6 @@ def _build_wait_before():
     return dag
 
 
-def _build_trigger_rules():
-    """Tasks with various trigger rules."""
-    from polyris import DAG, task
-
-    with DAG("trigger_rules", schedule=None) as dag:
-        @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:source")
-        def source():
-            pass
-        @task.sfn(
-            arn="arn:aws:states:us-east-1:123:stateMachine:all_done",
-            trigger_rule="all_done"
-        )
-        def needs_all_done():
-            pass
-        @task.sfn(
-            arn="arn:aws:states:us-east-1:123:stateMachine:one_failed",
-            trigger_rule="one_failed"
-        )
-        def needs_one_failed():
-            pass
-        @task.sfn(
-            arn="arn:aws:states:us-east-1:123:stateMachine:none_skipped",
-            trigger_rule="none_skipped"
-        )
-        def needs_none_skipped():
-            pass
-        s = source()
-        needs_all_done(s)
-        needs_one_failed(s)
-        needs_none_skipped(s)
     return dag
 
 
@@ -364,6 +334,29 @@ def _build_consecutive_wait_for():
         def mark_weekly_complete():
             pass
         mark_weekly_complete()
+    return dag
+
+
+def _build_trigger_rules():
+    """Fan-in with a non-default trigger_rule on the downstream task."""
+    from polyris import DAG, task
+
+    with DAG("trigger_rules", schedule=None) as dag:
+        @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:a")
+        def extract_a():
+            pass
+        @task.sfn(arn="arn:aws:states:us-east-1:123:stateMachine:b")
+        def extract_b():
+            pass
+        @task.sfn(
+            arn="arn:aws:states:us-east-1:123:stateMachine:cleanup",
+            trigger_rule="all_done",
+        )
+        def cleanup():
+            pass
+        a = extract_a()
+        b = extract_b()
+        cleanup(a, b)
     return dag
 
 

@@ -193,6 +193,16 @@ describe('Header', () => {
             fireEvent.click(screen.getByText('Pipelines'));
             expect(pushMock).toHaveBeenCalledWith('/pipelines/');
         });
+
+        it('shows a properly-cased "Backfills" label, not the raw lowercase mainView', () => {
+            // Was missing from SECTION_LABEL entirely — would have fallen
+            // through to the raw pathname-derived string "backfills"
+            // instead of matching every other section's Title Case label.
+            setPathname('/backfills/');
+            render(<Header {...props} />);
+            expect(screen.getByText('Backfills')).toBeInTheDocument();
+            expect(screen.queryByText('backfills')).not.toBeInTheDocument();
+        });
     });
 
     describe('Backfills nav tab (paid surface)', () => {

@@ -68,17 +68,11 @@ except ImportError:
 
 
 class TriggerRule:
-    """Airflow-compatible trigger rules."""
+    """5 trigger rules (ADR #117 — trimmed from Airflow's 11)."""
     ALL_SUCCESS = 'all_success'
-    ALL_FAILED = 'all_failed'
-    ALL_DONE = 'all_done'
-    ALL_DONE_MIN_ONE_SUCCESS = 'all_done_min_one_success'
-    ALL_SKIPPED = 'all_skipped'
     ONE_SUCCESS = 'one_success'
-    ONE_FAILED = 'one_failed'
-    ONE_DONE = 'one_done'
-    NONE_FAILED = 'none_failed'
-    NONE_FAILED_MIN_ONE_SUCCESS = 'none_failed_min_one_success'
+    ALL_DONE = 'all_done'
+    ALL_SKIPPED = 'all_skipped'
     NONE_SKIPPED = 'none_skipped'
 
 

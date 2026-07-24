@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError, BotoCoreError
 from boto3.dynamodb.conditions import Key, Attr
 
 from config import sfn
+from constants import Limits
 from dal import executions_repo, pipelines_repo, circuit_breakers_repo
 from response import cors_response
 from logger import log
@@ -261,6 +262,7 @@ def get_metrics(event: Dict) -> Dict:
         # to avoid skewing failed/success counts.
         items = executions_repo.query_by_date(
             today,
+            max_items=Limits.MAX_FETCH_ITEMS,
             projection='execution_name, #s',
             expr_names={'#s': 'status'}
         )

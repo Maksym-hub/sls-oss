@@ -73,7 +73,7 @@ export function PipelinesSidebar() {
                 continue;
             }
             // Auto-expand if: ≤12 total pipelines, or group has failing/running, or group has selected pipeline
-            const hasFailing = items.some(p => p.status === 'failed' || p.status === 'timed_out' || p.status === 'running');
+            const hasFailing = items.some(p => p.status === 'failed' || p.status === 'aborted' || p.status === 'running');
             const hasSelected = items.some(p => selectedPipeline?.name === p.name);
             auto[group] = totalPipelines <= 12 || hasFailing || hasSelected || !!search;
         }
@@ -199,8 +199,8 @@ function PipelineItem({ pipeline, selected, onClick }: PipelineItemProps) {
                 <div className="sb-pipeline-name" title={p.name}>{p.name}</div>
                 <div className="sb-pipeline-meta">
                     <span>{p.status || 'idle'}</span>
-                    <span className="sb-pipeline-schedule" title={formatSchedule(p.schedule)}>
-                        {' · '}{formatSchedule(p.schedule)}
+                    <span className="sb-pipeline-schedule" title={formatSchedule(p.schedule, p.asset_schedule)}>
+                        {' · '}{formatSchedule(p.schedule, p.asset_schedule)}
                     </span>
                 </div>
                 {p.recent_runs && p.recent_runs.length > 0 && (

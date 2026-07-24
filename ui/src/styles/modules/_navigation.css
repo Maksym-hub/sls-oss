@@ -97,6 +97,41 @@
     padding: 0.25rem;
 }
 
+/* Structure/History merged toggle — one seamless control, two halves.
+   Unlike .nav-pills (separated pills with gaps), this reads as a single
+   control: shared border, no gap, an internal divider between halves.
+   overflow: visible is required — ExecutionDropdown's history panel is an
+   absolutely-positioned child and must not be clipped by this wrapper. */
+.structure-source-toggle {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: visible;
+}
+.structure-source-toggle-btn {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 5px 0 0 5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.structure-source-toggle-btn:hover {
+    background: var(--bg-secondary);
+}
+.structure-source-toggle-btn.active {
+    background: var(--accent-light);
+    color: var(--accent);
+}
+.structure-source-toggle-divider {
+    width: 1px;
+    background: var(--border);
+}
+
 /* Plain variant - no background */
 .bf-nav-pills--plain {
     background: transparent;

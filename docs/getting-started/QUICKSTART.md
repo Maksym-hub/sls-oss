@@ -107,7 +107,7 @@ Install the Polyris CLI, then deploy one of the bundled examples:
 # From the repo root, once — installs the polyris-* commands:
 pip install -e .
 
-cd examples/01_hello_world
+cd examples/01_single_task
 polyris-validate      # check the DAG is valid
 polyris-deploy        # build + deploy via CloudFormation
 ```

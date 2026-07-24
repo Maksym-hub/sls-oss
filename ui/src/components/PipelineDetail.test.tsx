@@ -20,7 +20,7 @@ const mockRunsQuery: { data: unknown; fetchNextPage: () => void; hasNextPage: bo
     isFetchingNextPage: false, isLoading: false,
 };
 const mockExecQuery = { data: mockExecList };
-const mockPipelinesQuery = { data: [createPipeline()] };
+const mockPipelinesQuery = { data: [createPipeline({ recent_runs: [{ date: '2024-01-15' }] })] };
 const mockTaskEventsQuery = { data: [], isLoading: false };
 
 vi.mock('../hooks/queries', () => ({
@@ -123,6 +123,7 @@ function setStore(overrides: Record<string, unknown> = {}) {
     store.setViewMode((overrides.viewMode ?? 'dag') as 'dag' | 'gantt' | 'calendar');
     store.setDate((overrides.date ?? '2024-01-15') as string);
     store.setExecutionPaused((overrides.executionPaused ?? false) as boolean);
+    store.setDagViewSource((overrides.dagViewSource ?? 'run') as 'run' | 'current');
 }
 
 const defaultProps = {
@@ -139,6 +140,7 @@ describe('PipelineDetail', () => {
         // Reset mock query data
         mockDetailQuery.data = { tasks: mockTasks, dag: mockDag, serverOffsetMs: 0, selectedExecution: null };
         mockDetailQuery.isLoading = false;
+        mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ date: '2024-01-15' }] })];
     });
 
     describe('rendering', () => {
@@ -294,7 +296,7 @@ describe('PipelineDetail', () => {
 
     describe('history dropdown', () => {
         afterEach(() => {
-            mockPipelinesQuery.data = [createPipeline()];
+            mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ date: '2024-01-15' }] })];
             mockRunsQuery.data = { pages: [] };   // don't leak runs between tests
         });
 
@@ -367,6 +369,109 @@ describe('PipelineDetail', () => {
     // to a different endpoint — and vanished whenever the two disagreed, leaving a
     // bare graph with no explanation and no way out (ADR #106 follow-up).
     // ──────────────────────────────────────────────────────────────────────
+    describe('run / current structure toggle', () => {
+        it('renders "Structure" and the History button as one merged control', () => {
+            render(<PipelineDetail {...defaultProps} />);
+            expect(screen.getByText('Structure')).toBeInTheDocument();
+            expect(screen.getByRole('button', { name: /History/ })).toBeInTheDocument();
+        });
+
+        it('reflects the active half via aria-pressed on both buttons', () => {
+            render(<PipelineDetail {...defaultProps} />);
+            // Default is 'run' — History side pressed, Structure not.
+            expect(screen.getByText('Structure')).toHaveAttribute('aria-pressed', 'false');
+            expect(screen.getByRole('button', { name: /History/ })).toHaveAttribute('aria-pressed', 'true');
+
+            fireEvent.click(screen.getByText('Structure'));
+            expect(screen.getByText('Structure')).toHaveAttribute('aria-pressed', 'true');
+            expect(screen.getByRole('button', { name: /History/ })).toHaveAttribute('aria-pressed', 'false');
+        });
+
+        it('clicking "Structure" updates the store', () => {
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByText('Structure'));
+            expect(useAppStore.getState().dagViewSource).toBe('current');
+        });
+
+        it('clicking the History button only opens the picker — does not itself change dagViewSource', () => {
+            // The History button keeps its existing job (open the execution
+            // picker); it does not double as a one-click "back to run" action.
+            // Returning to run mode happens by picking a specific execution
+            // from the list (covered by setSelectedExecution's centralized
+            // reset, tested in useAppStore.test.ts and PipelinesSidebar.test.tsx).
+            setStore({ dagViewSource: 'current' });
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: /History/ }));
+            expect(useAppStore.getState().dagViewSource).toBe('current');
+        });
+
+        it('clicking "Structure" closes the history picker if it was open', () => {
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByRole('button', { name: /History/ }));
+            expect(screen.getByRole('dialog', { name: /Execution history/ })).toBeInTheDocument();
+            fireEvent.click(screen.getByText('Structure'));
+            expect(screen.queryByRole('dialog', { name: /Execution history/ })).not.toBeInTheDocument();
+        });
+
+        it('shows the current-structure banner instead of "No executions", even with real tasks loaded', () => {
+            // The whole point: real tasks exist (a run happened today), but the
+            // person deliberately asked for current structure — PipelineDetail
+            // must ignore mockDetailQuery's tasks in this mode, not show a
+            // "No executions" message that implies something's wrong.
+            mockDetailQuery.data = { tasks: mockTasks, dag: mockDag, serverOffsetMs: 0, selectedExecution: null };
+            setStore({ dagViewSource: 'current' });
+
+            render(<PipelineDetail {...defaultProps} />);
+
+            expect(screen.getByText(/Showing the current deployed structure/)).toBeInTheDocument();
+            expect(screen.queryByText(/No executions for/)).not.toBeInTheDocument();
+        });
+
+        it('"View latest run" from current-structure mode resets dagViewSource', () => {
+            mockPipelinesQuery.data = [createPipeline({ recent_runs: [{ date: '2024-01-10' }] })];
+            setStore({ dagViewSource: 'current' });
+
+            render(<PipelineDetail {...defaultProps} />);
+            fireEvent.click(screen.getByText(/View latest run/));
+
+            expect(useAppStore.getState().dagViewSource).toBe('run');
+        });
+
+        it('auto-defaults to "current" for a pipeline that has never run at all', () => {
+            // No recent_runs at all — latestRunDate resolves to null. The
+            // toggle would otherwise show "History" as active while the
+            // content displayed is actually the pre-existing "no
+            // executions" blueprint fallback — a mismatch between what the
+            // control claims and what's on screen.
+            mockPipelinesQuery.data = [createPipeline({ name: 'acme-daily' })];
+
+            render(<PipelineDetail {...defaultProps} />);
+
+            expect(useAppStore.getState().dagViewSource).toBe('current');
+        });
+
+        it('does not auto-default when the pipeline has actually run before', () => {
+            mockPipelinesQuery.data = [createPipeline({ name: 'acme-daily', recent_runs: [{ date: '2024-01-10' }] })];
+
+            render(<PipelineDetail {...defaultProps} />);
+
+            expect(useAppStore.getState().dagViewSource).toBe('run');
+        });
+
+        it('does not auto-default while the pipelines list is still loading', () => {
+            // usePipelinesQuery defaults to [] while loading — without the
+            // pipelines.length > 0 guard, a not-yet-loaded pipeline would
+            // look identical to a genuinely never-run one and incorrectly
+            // flip to 'current', with no way back once real data arrives
+            // (the effect only acts when latestRunDate is null).
+            mockPipelinesQuery.data = [];
+
+            render(<PipelineDetail {...defaultProps} />);
+
+            expect(useAppStore.getState().dagViewSource).toBe('run');
+        });
+    });
+
     describe('empty-graph banner', () => {
         it('explains an empty graph even when runs exist elsewhere', () => {
             mockDetailQuery.data = { tasks: [], dag: mockDag, serverOffsetMs: 0, selectedExecution: null };

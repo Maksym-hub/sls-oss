@@ -63,7 +63,7 @@ def test_skip_tasks_choice_exists(template):
 def test_task_skipped_terminal_state(template):
     """Skipped task must reach a terminal state (End: true) emitting
     a synthetic 'skipped' status. Downstream tasks with trigger_rule
-    handling skipped (e.g. 'none_failed_or_skipped') rely on this."""
+    'all_done' rely on this."""
     states = template["States"]
     assert "Task_Skipped" in states
     skipped = states["Task_Skipped"]

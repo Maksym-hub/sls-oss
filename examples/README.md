@@ -4,30 +4,33 @@ Self-contained pipelines that build up the DSL. Every one runs **locally with no
 AWS account** — explore the DSL, see the generated Step Functions definition, and
 iterate before you deploy anything.
 
-The first three are minimal intros; `04`–`08` each exercise a slice of the full
-feature surface (task types, branching, direct steps, operational settings, and a
-realistic end-to-end run).
+The first few are minimal intros; the rest each exercise a slice of the full
+feature surface (task types, branching, direct steps, DAG/task settings, and a
+composite end-to-end run).
 
 | Example | Concept |
 |---|---|
-| [`01_hello_world`](01_hello_world/dag.py) | The smallest pipeline — one scheduled task |
-| [`02_linear_etl`](02_linear_etl/dag.py) | `extract → transform → load`; passing data between tasks |
-| [`03_fan_in_trigger_rule`](03_fan_in_trigger_rule/dag.py) | Parallel tasks + a `trigger_rule` (`all_done`) |
-| [`04_multi_service`](04_multi_service/dag.py) | Six AWS task types: `sfn`, `lambda_`, `glue`, `athena`, `ecs`, `batch` + `default_args` + cross-account `role` (`emr` is supported too but omitted here — it needs a live cluster) |
-| [`05_branching`](05_branching/dag.py) | Fan-out / fan-in, trigger rules, `chain()` / `cross_downstream()` |
+| [`01_single_task`](01_single_task/dag.py) | The smallest pipeline — one scheduled task |
+| [`02_linear_chain`](02_linear_chain/dag.py) | `extract → transform → load`; passing data between tasks |
+| [`03_fan_in`](03_fan_in/dag.py) | Parallel tasks + a `trigger_rule` (`all_done`) |
+| [`04_task_types`](04_task_types/dag.py) | Six AWS task types: `sfn`, `lambda_`, `glue`, `athena`, `ecs`, `batch` + `default_args` + cross-account `role` (`emr` is supported too but omitted here — it needs a live cluster) |
+| [`05_chain_cross_downstream`](05_chain_cross_downstream/dag.py) | Fan-out / fan-in, trigger rules, `chain()` / `cross_downstream()` |
 | [`06_direct_steps`](06_direct_steps/dag.py) | Direct service steps (`Wait`, `Pass`, `SNS`, `SQS`, `S3`), `wait_before`, `rate(...)`, `variables` |
-| [`07_operational`](07_operational/dag.py) | Retries + backoff, timeouts, `skip_on_backfill`, `catchup`, concurrency limits |
-| [`08_realistic`](08_realistic/dag.py) | A plausible daily analytics pipeline combining several services end to end |
-| [`09_trigger_rules`](09_trigger_rules/dag.py) | All ten fan-in `trigger_rule` conditions side by side |
-| [`10_manual`](10_manual/dag.py) | An on-demand pipeline with **no schedule** (manual trigger only) |
-| [`11_assets_basic`](11_assets_basic/dag.py) | Declaring asset `inlets`/`outlets` for lineage *(experimental)* |
-| [`12_assets_lineage`](12_assets_lineage/dag.py) | Cross-pipeline asset lineage + asset-triggered runs *(experimental)* |
+| [`07_dag_and_task_settings`](07_dag_and_task_settings/dag.py) | Retries + backoff, timeouts, `skip_on_backfill`, `catchup`, concurrency limits |
+| [`08_composite_example`](08_composite_example/dag.py) | A plausible daily analytics pipeline combining several services end to end — not a single feature, the full picture |
+| [`09_trigger_rules`](09_trigger_rules/dag.py) | All five supported `trigger_rule` conditions side by side (ADR #117) |
+| [`10_no_schedule`](10_no_schedule/dag.py) | An on-demand pipeline with **`schedule=None`** (manual trigger only) |
+| [`11_assets_outlets_inlets`](11_assets_outlets_inlets/dag.py) | Declaring asset `outlets`/`inlets` on tasks *(experimental)* |
+| [`12_assets_schedule_trigger`](12_assets_schedule_trigger/dag.py) | `schedule=[asset]` — a pipeline triggered by another pipeline's asset (push model) *(experimental)* |
+| [`13_assets_wait_for`](13_assets_wait_for/dag.py) | `wait_for=[asset]` — a task pauses for asset freshness (pull model) *(experimental)* |
+| [`14_assets_and_or`](14_assets_and_or/dag.py) | AND vs OR trigger logic with two independent assets *(experimental)* |
+| [`15_assets_every_event`](15_assets_every_event/dag.py) | `AssetAny([x])` for one asset — trigger on every event, no day dedup *(experimental)* |
 
 ## Run one locally
 
 ```bash
 pip install -e .                 # from the repo root, once
-cd examples/01_hello_world
+cd examples/01_single_task
 
 polyris-validate                 # is the DAG valid?
 polyris-validate -v              # verbose: tasks, dependencies, ASL preview
@@ -43,7 +46,7 @@ them with your own before deploying.
 ## Deploy one for real
 
 ```bash
-cd examples/02_linear_etl
+cd examples/02_linear_chain
 polyris-deploy                   # builds + deploys via CloudFormation
 ```
 

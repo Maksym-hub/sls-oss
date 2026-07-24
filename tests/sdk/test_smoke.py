@@ -359,10 +359,8 @@ def test_trigger_rule_sync():
     with open(constants_path) as f:
         constants_content = f.read()
     
-    # All trigger rules that should be supported
-    rules = ['all_success', 'one_success', 'all_failed', 'one_failed', 
-             'all_done', 'one_done', 'none_failed', 'none_failed_min_one_success',
-             'all_done_min_one_success', 'all_skipped', 'none_skipped']
+    # All trigger rules that should be supported (ADR #117 — trimmed to 5)
+    rules = ['all_success', 'one_success', 'all_done', 'all_skipped', 'none_skipped']
     
     for rule in rules:
         assert rule in jsonata_content, f"trigger_rule '{rule}' missing in JSONata"

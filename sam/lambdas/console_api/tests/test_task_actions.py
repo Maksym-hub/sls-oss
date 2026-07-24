@@ -42,3 +42,52 @@ class TestExtractPipelineExecutionShort:
         """All three sources present at once — the stored value must win."""
         item = {'pipeline_execution_short': 'winner', 'pipeline_execution': 'p-loses-too'}
         assert extract_pipeline_execution_short(item, 'extract-2026-07-16-loses') == 'winner'
+
+
+class TestTerminalConditionExpression:
+    """Regression tests for a real drift found in a code-review pass:
+    TERMINAL_CONDITION_EXPRESSION and build_condition_expression_values were
+    a hand-maintained duplicate of the canonical TASK_TERMINAL_STATUSES set
+    (aborted/failed/skipped/succeeded/success/upstream_failed — 6 values) —
+    the hardcoded version had only 5, missing ':succeeded' entirely, despite
+    this function's own docstring promising "ALL terminal statuses". Currently
+    harmless in practice ('succeeded' is a declared-but-never-actually-written
+    status at runtime, confirmed against every SFN template — same as
+    'pending' elsewhere in this codebase), but any future addition to the
+    canonical set would have silently NOT been reflected here without
+    deriving both from TASK_TERMINAL_STATUSES directly."""
+
+    def test_condition_expression_values_cover_every_canonical_terminal_status(self):
+        from task_actions import build_condition_expression_values
+        from constants import TASK_TERMINAL_STATUSES
+
+        values = build_condition_expression_values()
+        assert set(values.keys()) == {f':{s}' for s in TASK_TERMINAL_STATUSES}
+        assert set(values.values()) == set(TASK_TERMINAL_STATUSES)
+
+    def test_succeeded_is_present_not_just_success(self):
+        """The exact drift found: ':succeeded' (distinct from ':success')
+        was silently missing from both the expression string and the values
+        dict."""
+        from task_actions import build_condition_expression_values, TERMINAL_CONDITION_EXPRESSION
+
+        assert ':succeeded' in build_condition_expression_values()
+        assert ':succeeded' in TERMINAL_CONDITION_EXPRESSION
+
+    def test_expression_placeholders_match_values_dict_keys_exactly(self):
+        """Every :placeholder referenced in the expression string must have a
+        corresponding key in the values dict, and vice versa — a mismatch
+        either way means DynamoDB rejects the update_item call outright."""
+        import re
+        from task_actions import build_condition_expression_values, TERMINAL_CONDITION_EXPRESSION
+
+        placeholders_in_expr = set(re.findall(r':\w+', TERMINAL_CONDITION_EXPRESSION))
+        placeholders_in_values = set(build_condition_expression_values().keys())
+        assert placeholders_in_expr == placeholders_in_values
+
+    def test_base_values_merge_without_dropping_terminal_values(self):
+        from task_actions import build_condition_expression_values
+
+        merged = build_condition_expression_values({':status': 'running'})
+        assert merged[':status'] == 'running'
+        assert ':succeeded' in merged  # terminal values still present

@@ -27,7 +27,7 @@ from polyris.generators import (
     generate_eventbridge_schedule,
     generate_assets_json,
     generate_all_assets,
-    generate_asset_eventbridge_rules,
+    _build_dag_visualization_nodes_edges,
 )
 
 ARN = "arn:aws:states:us-east-1:123456789012:stateMachine:test"
@@ -221,6 +221,63 @@ def _asset_dag():
     return dag
 
 
+def _asset_triggered_dag():
+    """A DAG with both a triggering (schedule=) and a produced (outlets=)
+    asset, and a plain scheduled sibling task — exercises Register_Pipeline,
+    Register_Asset_Subscriptions, and Emit_Asset_Events in one generation,
+    the three states most likely to reference a DynamoDB table by name."""
+    from polyris import DAG, task, Asset
+
+    trigger_asset = Asset("ns/trigger")
+    output_asset = Asset("ns/output")
+    with DAG("gen_asset_triggered", schedule=trigger_asset) as dag:
+        @task.sfn(arn=ARN, outlets=[output_asset])
+        def produce():
+            pass
+        produce()
+    return dag
+
+
+class TestNoUnsubstitutedTemplateVariables:
+    """Guard against the class of bug where generators.py hardcodes a new
+    '${some_table}'-style placeholder in a state definition without also
+    adding it as a real parameter to generate_step_function_json — the
+    placeholder then has no substitution mechanism anywhere in polyris-deploy's
+    per-pipeline CloudFormation flow (no DefinitionSubstitutions there, unlike
+    the platform's helper SFN templates) and gets deployed to AWS verbatim as
+    the literal string, which then fails at the first real API call that uses
+    it (confirmed in practice: DynamoDB rejected TableName='${asset_subscriptions_table}'
+    with a ValidationException). Every known substitutable variable must be
+    fully resolved — zero '${' left anywhere in the output — once a complete,
+    realistic parameter set is supplied."""
+
+    def test_full_parameter_set_leaves_no_placeholder_in_output(self):
+        for dag in (_chain_dag(), _scheduled_dag(), _asset_dag(), _asset_triggered_dag()):
+            asl_json = generate_step_function_json(
+                dag,
+                wrapper_arn="arn:aws:states:us-east-1:123456789012:stateMachine:wrapper",
+                registry_table="real-registry-table",
+                tokens_table="real-tokens-table",
+                asset_subscriptions_table="real-asset-subscriptions-table",
+            )
+            assert "${" not in asl_json, (
+                f"Unsubstituted '${{...}}' placeholder found in generated ASL for "
+                f"DAG '{dag.dag_id}' despite a complete parameter set — a new "
+                f"template variable was added to generators.py without threading "
+                f"it through generate_step_function_json's parameters (and, in "
+                f"deploy.py, an SSM read + call-site argument). Offending JSON:\n"
+                f"{asl_json}"
+            )
+
+    def test_omitted_parameters_do_fall_back_to_placeholders(self):
+        """Control: confirms the assertion above is meaningful — without a
+        parameter set, placeholders ARE present, so the previous test's
+        'no ${{' check is actually exercising the substitution, not vacuously
+        passing because nothing ever produces '${' in the first place."""
+        asl_json = generate_step_function_json(_asset_triggered_dag())
+        assert "${" in asl_json
+
+
 class TestPublicGeneration:
     def test_generated_machine_is_valid_asl(self):
         # The generator must emit a machine that passes our own ASL validator.
@@ -232,6 +289,24 @@ class TestPublicGeneration:
         result = generate_dag_json(_chain_dag())
         assert isinstance(result, dict)
         assert "gen_chain" in json.dumps(result)
+
+    def test_generate_dag_json_nodes_include_task_type(self):
+        """The frontend reads node.task_type to render the task-type badge
+        (SFN/Lambda/Glue/etc.) on the graph — including in 'current structure'
+        (blueprint) mode, where there's no execution data to source it from
+        otherwise. Without this, blueprint nodes show a bare box with no type
+        information at all."""
+        result = generate_dag_json(_chain_dag())
+        assert all(n.get("task_type") == "sfn" for n in result["nodes"])
+
+    def test_register_pipeline_dag_snapshot_includes_task_type(self):
+        """Register_Pipeline's stored 'dag' field is what /pipeline-dag's
+        registry fallback returns for 'current structure' (blueprint) mode.
+        Must carry task_type or blueprint nodes render with no type badge."""
+        asl = json.loads(generate_step_function_json(_chain_dag()))
+        item = asl["States"]["Register_Pipeline"]["Arguments"]["Item"]
+        dag = json.loads(item["dag"]["S"])
+        assert all(n.get("task_type") == "sfn" for n in dag["nodes"])
 
     def test_generate_dag_hash_is_deterministic(self):
         h1 = generate_dag_hash(_chain_dag())
@@ -263,6 +338,160 @@ class TestPublicGeneration:
         assert isinstance(result, dict)
         assert "shop/orders" in json.dumps(result)
 
-    def test_generate_asset_eventbridge_rules_runs(self):
-        rules = generate_asset_eventbridge_rules([_asset_dag()])
-        assert isinstance(rules, dict)
+
+class TestDagVisualizationNodesEdgesUnified:
+    """generate_dag_json (the public polyris-output/polyris-validate surface)
+    and _build_pipeline_metadata (whose dag_metadata is stored in the pipeline
+    registry and per-execution snapshots — what /pipeline-dag's registry
+    fallback returns for 'current structure' mode) used to build their own,
+    independent (nodes, edges) — and had quietly drifted: generate_dag_json
+    had type/trigger_rule/tracked-steps that _build_pipeline_metadata's
+    version lacked; _build_pipeline_metadata had wait_for (asset pull
+    dependency) that generate_dag_json lacked. Both now call
+    _build_dag_visualization_nodes_edges — one source of truth, full field
+    set for both consumers, not whichever subset each caller happened to
+    accumulate over time."""
+
+    def test_both_callers_produce_identical_nodes_and_edges(self):
+        """The core regression guard: if this ever drifts again, it fails
+        here — not silently, three years from now, as two subtly different
+        graphs depending which endpoint you hit."""
+        dag = _chain_dag()
+        from_public = generate_dag_json(dag)
+        asl = json.loads(generate_step_function_json(dag))
+        registry_dag = json.loads(asl["States"]["Register_Pipeline"]["Arguments"]["Item"]["dag"]["S"])
+        assert from_public["nodes"] == registry_dag["nodes"]
+        assert from_public["edges"] == registry_dag["edges"]
+
+    def test_includes_type_marker_and_trigger_rule(self):
+        """Both fields used to be generate_dag_json-only — trigger_rule was
+        entirely absent from the registry/blueprint-mode data before this
+        unification, so a non-default trigger_rule never showed on a
+        current-structure node."""
+        from polyris import DAG, task
+        with DAG("d") as dag:
+            @task.sfn(arn=ARN)
+            def a():
+                pass
+            @task.sfn(arn=ARN, trigger_rule="all_done")
+            def b():
+                pass
+            b(a())
+        nodes, _ = _build_dag_visualization_nodes_edges(dag)
+        by_id = {n["id"]: n for n in nodes}
+        assert by_id["a"]["type"] == "task"
+        assert "trigger_rule" not in by_id["a"]  # default, not surfaced
+        assert by_id["b"]["trigger_rule"] == "all_done"
+
+    def test_includes_wait_for(self):
+        """wait_for used to be _build_pipeline_metadata-only — absent from
+        generate_dag_json (polyris-output --json) before this unification."""
+        from polyris import DAG, task, Asset
+        upstream = Asset("ns/upstream")
+        with DAG("d") as dag:
+            @task.sfn(arn=ARN, wait_for=[upstream.within(hours=24)])
+            def consumer():
+                pass
+            consumer()
+        nodes, _ = _build_dag_visualization_nodes_edges(dag)
+        assert nodes[0]["wait_for"][0]["name"] == "ns/upstream"
+
+    def test_includes_tracked_steps_glue_ecs_athena(self):
+        """Direct Glue/ECS/Athena steps (not through @task) used to be
+        entirely absent from _build_pipeline_metadata's dag_metadata — a
+        pipeline using a direct step would show an incomplete graph in
+        'current structure' mode, missing that step's node altogether."""
+        from polyris import DAG, task, GlueTask
+        with DAG("d") as dag:
+            @task.sfn(arn=ARN)
+            def prepare():
+                pass
+            etl = GlueTask(step_id="run_etl", job_name="etl")
+            prepare() >> etl
+        nodes, edges = _build_dag_visualization_nodes_edges(dag)
+        glue_nodes = [n for n in nodes if n.get("type") == "glue"]
+        assert len(glue_nodes) == 1
+        assert any(e["from"] == "prepare" for e in edges)
+
+    def test_excludes_infrastructure_steps(self):
+        """Wait/Pass/SNS/etc. direct steps are not tasks a user wants to see
+        as a graph node — only Glue/ECS/Athena are tracked."""
+        from polyris import DAG
+        from polyris.steps import Succeed
+        with DAG("d") as dag:
+            Succeed(step_id="done")
+        nodes, _ = _build_dag_visualization_nodes_edges(dag)
+        assert nodes == []
+
+
+class TestDefineInputsPreservesControlFields:
+    """Regression tests for a real bug: Define_Inputs' Output (added whenever
+    a DAG declares `variables=`) used to REPLACE the whole state input rather
+    than extend it, silently dropping three fields any *caller* of the
+    execution may have set on the initial input:
+
+      - register_only: used by polyris-register / deploy-time auto-registration
+        to register metadata without running the pipeline. Dropped -> the
+        Check_Register_Only Choice always saw it as absent and fell through to
+        Default: Run_All_Tasks, meaning a "register only" invocation on any
+        DAG with variables actually ran the real pipeline.
+      - _suppress_asset_event / cascade_all: backfill isolation/cascade
+        controls (ADR #57, set by bulk_backfill's cascade='none'/'all').
+        Dropped -> a `cascade='none'` isolated backfill on a DAG with
+        variables would silently NOT suppress downstream asset-triggered
+        consumers, defeating the whole point of an isolated backfill.
+
+    Only DAGs with `variables=` were affected; without variables, Define_Inputs
+    isn't in the chain at all and $states.input passes through registration
+    untouched (see the other _build_registration_chain states' explicit
+    Output: JSONATA_PASS_INPUT).
+    """
+
+    def _dag_with_variables(self):
+        from polyris import DAG, task
+
+        with DAG("define-inputs-fields", variables={"env": "'prod'"}) as dag:
+            @task.sfn(arn=ARN)
+            def extract():
+                pass
+            extract()
+        return dag
+
+    def test_register_only_survives_define_inputs(self):
+        asl = json.loads(generate_step_function_json(self._dag_with_variables()))
+        output = asl["States"]["Define_Inputs"]["Output"]
+        assert "register_only" in output
+        assert output["register_only"] == (
+            "{% $exists($states.input.register_only) ? "
+            "$states.input.register_only : false %}"
+        )
+
+    def test_suppress_asset_event_survives_define_inputs(self):
+        asl = json.loads(generate_step_function_json(self._dag_with_variables()))
+        output = asl["States"]["Define_Inputs"]["Output"]
+        assert "_suppress_asset_event" in output
+        assert output["_suppress_asset_event"] == (
+            "{% $exists($states.input._suppress_asset_event) ? "
+            "$states.input._suppress_asset_event : false %}"
+        )
+
+    def test_cascade_all_survives_define_inputs(self):
+        asl = json.loads(generate_step_function_json(self._dag_with_variables()))
+        output = asl["States"]["Define_Inputs"]["Output"]
+        assert "cascade_all" in output
+        assert output["cascade_all"] == (
+            "{% $exists($states.input.cascade_all) ? "
+            "$states.input.cascade_all : false %}"
+        )
+
+    def test_check_register_only_reads_the_same_field_define_inputs_writes(self):
+        """End-to-end wiring check: the field name Define_Inputs writes must be
+        exactly the field name Check_Register_Only's Choice condition reads —
+        a typo'd key name on either side would silently reintroduce the bug
+        without any error, since JSONata property access on a mismatched key
+        just evaluates to undefined/falsy rather than raising."""
+        asl = json.loads(generate_step_function_json(self._dag_with_variables()))
+        output = asl["States"]["Define_Inputs"]["Output"]
+        condition = asl["States"]["Check_Register_Only"]["Choices"][0]["Condition"]
+        assert "register_only" in output
+        assert "$states.input.register_only" in condition

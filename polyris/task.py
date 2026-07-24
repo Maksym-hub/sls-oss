@@ -121,14 +121,65 @@ class TaskInstance:
             self._set_downstream(other)
             return other
     
-    def __lshift__(self, other: Union['TaskInstance', List['TaskInstance']]) -> 'TaskInstance':
-        """task2() << task1() sets task2 downstream of task1"""
-        if isinstance(other, list):
+    def __lshift__(self, other: Union['TaskInstance', List['TaskInstance']]) -> Union['TaskInstance', List['TaskInstance']]:
+        """task2() << task1() sets task2 downstream of task1.
+
+        Two bugs fixed here:
+
+        1. Chain-breaking: every branch previously returned `self` instead
+           of `other`. For `a << b << c` (Python evaluates left-to-right as
+           `(a << b) << c`), returning `self` from `a << b` means the second
+           operation becomes `a << c` again — `b` is silently skipped out of
+           the chain entirely. This is exactly the common Airflow idiom
+           `load << transform << extract` (a real, three-or-more-item chain,
+           not a contrived case) — it silently produced `load` depending on
+           BOTH `transform` and `extract` directly, with `transform` having
+           no dependency on `extract` at all, and no error anywhere to
+           reveal the wrong graph. `__rshift__` already returns `other` for
+           exactly this reason (verified: `>>` chaining is correct); `<<` now
+           matches.
+
+        2. Type-asymmetry: every operand type __rshift__ supports (TaskGroup,
+           Step, Label, list-with-Steps) must also work reversed via <<, or
+           the two operators silently stop being equivalent ways to write the
+           same edge. Previously only a bare TaskInstance/list-of-instances
+           worked; TaskGroup, Step, and Label all raised AttributeError
+           ('object has no attribute _set_downstream'), since that method
+           only exists on TaskInstance.
+        """
+        from .task_group import TaskGroup
+        from .steps import Step
+        from .helpers import Label
+
+        if isinstance(other, TaskGroup):
+            # Mirror of __rshift__'s "connect to all roots": here self is
+            # downstream, so connect it after all of the group's leaves.
+            for leaf in other.leaves:
+                if leaf not in self.task.dependencies:
+                    self.task.dependencies.append(leaf)
+            return other
+        elif isinstance(other, Label):
+            # Delegate to Label's own reverse-chain support (task2 << Label
+            # << task1 completes as task1 >> task2 once both ends are known).
+            return other.__rlshift__(self)
+        elif isinstance(other, Step):
+            # Mirror of __rshift__'s Step branch (which adds the *task* as a
+            # dependency of the step): here self is downstream, so add the
+            # step as a dependency of self.task instead.
+            if other not in self.task.dependencies:
+                self.task.dependencies.append(other)
+            return other
+        elif isinstance(other, list):
             for t in other:
-                t._set_downstream(self)
+                if isinstance(t, Step):
+                    if t not in self.task.dependencies:
+                        self.task.dependencies.append(t)
+                else:
+                    t._set_downstream(self)
+            return other
         else:
             other._set_downstream(self)
-        return self
+            return other
     
     def __rrshift__(self, other) -> 'TaskInstance':
         """[task1(), task2()] >> task3() or Step >> task()"""
@@ -338,16 +389,22 @@ class Task:
         return NotImplemented
     
     def __lshift__(self, other):
-        """task << other"""
+        """task << other.
+
+        Returns `other` (not `self`), matching __rshift__'s convention —
+        see TaskInstance.__lshift__'s docstring for why: returning `self`
+        breaks 3+-item chains like `c << b << a`, silently dropping `b` out
+        of the chain (verified: this exact bug, at the raw-Task level).
+        """
         if isinstance(other, Task):
             if other not in self.dependencies:
                 self.dependencies.append(other)
-            return self
+            return other
         elif isinstance(other, list):
             for t in other:
                 if isinstance(t, Task) and t not in self.dependencies:
                     self.dependencies.append(t)
-            return self
+            return other
         return NotImplemented
     
     def __rrshift__(self, other):
@@ -468,8 +525,8 @@ class TaskDecorator:
         wait_before: int = 0,
         retries: Optional[int] = None,
         retry_delay: Optional[timedelta] = None,
-        retry_exponential_backoff: bool = False,
-        retry_jitter: bool = False,
+        retry_exponential_backoff: Optional[bool] = None,
+        retry_jitter: Optional[bool] = None,
         max_retry_delay: Optional[timedelta] = None,
         execution_timeout: Optional[timedelta] = None,
         orchestration_timeout: Optional[timedelta] = None,
@@ -528,12 +585,30 @@ class TaskDecorator:
                 arn=arn or "",
                 role=role,
                 retries=retries if retries is not None else default_args.get('retries', 0),
-                retry_delay=retry_delay or default_args.get('retry_delay', timedelta(minutes=5)),
-                retry_exponential_backoff=retry_exponential_backoff or default_args.get('retry_exponential_backoff', False),
-                retry_jitter=retry_jitter or default_args.get('retry_jitter', False),
-                max_retry_delay=max_retry_delay or default_args.get('max_retry_delay'),
-                execution_timeout=execution_timeout or default_args.get('execution_timeout', timedelta(hours=24)),
-                orchestration_timeout=orchestration_timeout or default_args.get('orchestration_timeout'),
+                retry_delay=(
+                    retry_delay if retry_delay is not None
+                    else default_args.get('retry_delay', timedelta(minutes=5))
+                ),
+                retry_exponential_backoff=(
+                    retry_exponential_backoff if retry_exponential_backoff is not None
+                    else default_args.get('retry_exponential_backoff', False)
+                ),
+                retry_jitter=(
+                    retry_jitter if retry_jitter is not None
+                    else default_args.get('retry_jitter', False)
+                ),
+                max_retry_delay=(
+                    max_retry_delay if max_retry_delay is not None
+                    else default_args.get('max_retry_delay')
+                ),
+                execution_timeout=(
+                    execution_timeout if execution_timeout is not None
+                    else default_args.get('execution_timeout', timedelta(hours=24))
+                ),
+                orchestration_timeout=(
+                    orchestration_timeout if orchestration_timeout is not None
+                    else default_args.get('orchestration_timeout')
+                ),
                 trigger_rule=trigger_rule,
                 doc=docstring,
                 doc_md=doc_md or "",

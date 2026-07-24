@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"cross_account\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"remote_task\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"remote_task\", \"name\": \"remote_task\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"cross_account\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"remote_task\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"remote_task\", \"name\": \"remote_task\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -26,7 +26,7 @@
             "S": "[{\"task_id\": \"remote_task\", \"task_type\": \"sfn\", \"dependencies\": []}]"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"remote_task\", \"name\": \"remote_task\"}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"remote_task\", \"name\": \"remote_task\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}"
           },
           "schedule": {
             "S": ""
@@ -62,7 +62,7 @@
             "S": "{% $states.context.Execution.Name %}"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"remote_task\", \"name\": \"remote_task\"}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"remote_task\", \"name\": \"remote_task\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}"
           },
           "snapshot_at": {
             "S": "{% $now() %}"

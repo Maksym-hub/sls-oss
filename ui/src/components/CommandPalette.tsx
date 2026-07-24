@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
     Workflow,
     Package,
@@ -48,6 +49,7 @@ export function CommandPalette({
     const [selectedIndex, setSelectedIndex] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
     const listRef = useRef<HTMLDivElement>(null);
+    const queryClient = useQueryClient();
     
     // Reset state when opened
     useEffect(() => {
@@ -72,7 +74,7 @@ export function CommandPalette({
             { id: 'cmd-tasks', type: 'command', icon: <ListTodo size={16} />, label: 'Go to History (Tasks)', shortcut: '3', action: () => onNavigate('tasks') },
             { id: 'cmd-runs', type: 'command', icon: <Activity size={16} />, label: 'Go to History (Runs)', shortcut: '4', action: () => onNavigate('runs') },
             { id: 'cmd-theme', type: 'command', icon: theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />, label: `Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`, shortcut: 'T', action: onToggleTheme },
-            { id: 'cmd-refresh', type: 'command', icon: <RefreshCw size={16} />, label: 'Refresh Data', shortcut: 'R', action: () => { onClose(); } },
+            { id: 'cmd-refresh', type: 'command', icon: <RefreshCw size={16} />, label: 'Refresh Data', shortcut: 'R', action: () => { queryClient.invalidateQueries(); onClose(); } },
             { id: 'cmd-help', type: 'command', icon: <HelpCircle size={16} />, label: 'Show Keyboard Shortcuts', shortcut: '?', action: () => { onClose(); onNavigate('help'); } },
         ];
         
@@ -104,7 +106,7 @@ export function CommandPalette({
                         type: 'pipeline',
                         icon: statusIcon,
                         label: p.name,
-                        sublabel: formatSchedule(p.schedule),
+                        sublabel: formatSchedule(p.schedule, p.asset_schedule),
                         action: () => onSelectPipeline(p)
                     });
                 });
@@ -117,7 +119,7 @@ export function CommandPalette({
         }
         
         return items;
-    }, [query, pipelines, theme, onNavigate, onSelectPipeline, onToggleTheme, onClose]);
+    }, [query, pipelines, theme, onNavigate, onSelectPipeline, onToggleTheme, onClose, queryClient]);
     
     // Get selectable items (not headers)
     const selectableItems = results.filter(r => r.type !== 'header' && r.type !== 'empty');

@@ -86,10 +86,16 @@ export interface WaitForAsset {
   name?: string;
 }
 
+export interface AssetScheduleInfo {
+  operator: 'AND' | 'OR';
+  assets: string[];
+}
+
 export interface Pipeline {
   name: string;
   description?: string;
   schedule?: string;
+  asset_schedule?: AssetScheduleInfo | null;
   is_paused?: boolean;
   task_count?: number;
   stats?: PipelineStats;

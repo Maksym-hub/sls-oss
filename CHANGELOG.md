@@ -1,5 +1,260 @@
 ## Unreleased
 
+### Fixed — restart silently lost task_config and outlets
+
+- `task_config` (retries, worker-type, etc.) and `outlets` are deploy-time
+  DAG properties, never stored on the per-execution DynamoDB record —
+  `Start_New_Wrapper` (`restart_task/sfn.tpl.json`) tried to reconstruct
+  them from `item.task_config.S`/`item.outlets.S`, fields that never
+  existed, always silently yielding `{}`/`[]` regardless of the task's real
+  configuration. Fixed by having `restart_task`'s Python handler look these
+  up from the pipeline registry (same source as ADR #119's unified
+  `dag_metadata`) and pass them explicitly in `restart_task_helper`'s
+  input; `task_config` is now also stored in the registry's `dag_metadata`
+  itself (extracted `_build_task_config_and_arn`, shared between the
+  original dispatch and the DAG builder, so this can't drift).
+
+### Added — restarted attempts get a `restart-` name prefix
+
+- The underlying business SFN invocation (`Run_Task_SFN` — the only
+  `Run_Task_*` variant that names a child Step Function execution; the
+  others call AWS services directly) now prefixes its execution name with
+  `restart-` when `attempt > 1`. Makes it immediately visible in the AWS
+  console which invocations are original vs. restarted, without checking
+  duration/timestamps. Also gives real purpose to `attempt`'s threading
+  through `Start_New_Wrapper` — removed the `is_restart` flag it also set,
+  which was never read anywhere (dead code; `attempt > 1` already captures
+  the same thing, more precisely).
+
+### Fixed — unified duplicate DAG visualization builders (ADR #119)
+
+- `generate_dag_json` and `_build_pipeline_metadata`'s `dag_metadata` construction
+  were two independent implementations of "build (nodes, edges) for
+  visualization" that had quietly drifted apart — `generate_dag_json` had
+  `type`/`trigger_rule`/tracked Glue-ECS-Athena steps that the registry-facing
+  version lacked; the registry-facing version had `wait_for` that
+  `generate_dag_json` lacked. Unified into one shared
+  `_build_dag_visualization_nodes_edges`, with a regression guard asserting
+  both callers now produce identical output for the same DAG.
+- As a consequence: a pipeline using a direct Glue/ECS/Athena step (not
+  through `@task`) previously showed an **incomplete graph** in "current
+  structure" mode — that step's node was missing from the registry data
+  entirely. Also fixed: `trigger_rule` badges and `wait_for` now appear on
+  the correct surfaces regardless of which endpoint served the data.
+- All 27 ASL snapshot tests regenerated to reflect the new `type` field now
+  present in registry-stored `dag_metadata` (confirmed to be the only diff
+  before regenerating, not a side effect of anything else).
+
+### Fixed — "Backfills" breadcrumb label missing (blueprint spike side-finding)
+
+- `SECTION_LABEL` (`Header.tsx`) had every section's properly-cased breadcrumb
+  label except `backfills` — it would have fallen through to the raw,
+  lowercase pathname-derived string "backfills" instead. EE-only relevant
+  today (`BackfillsView` is gated, unreachable in this OSS build), found
+  while investigating whether the flat History breadcrumb vs. Pipelines'
+  three-level trail was an inconsistency (it isn't — see
+  `docs/reference/SPIKE_BREADCRUMB_DEPTH.md`).
+
+### Fixed — DAG zoom/fit-view controls barely visible in dark mode
+
+- The zoom in/out, fit-view, and lock icons (React Flow's built-in
+  `<Controls>`) were nearly invisible in dark mode. The button's own `color`
+  was already correctly set to `var(--text-primary)`, but SVG `fill` doesn't
+  automatically inherit CSS `color` — React Flow's own default, hardcoded
+  fill was winning instead. Added `fill: currentColor` to the controls
+  button's SVG, the same fix already proven working for the asset lineage
+  view (`_assets.css`) — applied to the main DAG view (`_dag.css`), which
+  had been missed.
+
+### Fixed — blueprint mode barely visible in dark mode
+
+- Blueprint-mode nodes and edges (used by "current structure" mode and the
+  pre-existing "no executions for this date" fallback) were nearly invisible
+  in dark mode. Edges used `--border` (already a subtle token) with an
+  additional 0.5 opacity multiplier on top — compounding into a near-invisible
+  dashed line (`#334155` at 50% against a dark page background). Nodes had
+  the same issue on their border, plus the 0.5 opacity was applied to the
+  *entire* node — dimming the task name and type badge along with it,
+  undermining the earlier fix that made type badges visible in blueprint
+  mode in the first place.
+- Switched to `--text-muted` for edges (meaningfully more visible in dark
+  mode: `#64748b` vs `#334155`) and `--border-strong` for node borders, and
+  removed the opacity multipliers entirely — the dashed border already
+  signals "not yet executed" without also fading the text into illegibility.
+- Swept the same pattern (`--text-muted` + an additional `opacity: 0.5` on
+  top) across the shared CSS and found 3 more instances — all in CSS for
+  EE-tier components not present in this repo (`AssetMatrixView`'s empty
+  state, `CalendarView`'s other-month days, `GanttChart`'s waiting bars),
+  so not currently reachable from the OSS build, but live once the EE
+  overlay's actual components render them. Fixed all three the same way.
+
+### Added/Fixed — Restart works directly from `waiting_decision`, plus the full data-lifecycle investigation that led there
+
+Full investigation and reasoning in `docs/reference/SPIKE_TASK_ACTIONS_DATA_LIFECYCLE.md`.
+Six changes, delivered in dependency order (each verified independently
+before the next, riskiest one — the wrapper template used by every task —
+was attempted):
+
+- **`task_input` now recorded as soon as a task starts**, not only on
+  success. Previously only a successfully-completed task had a recorded
+  input to debug from — a task that was still running, had genuinely
+  failed, or was manually resolved showed an empty Input tab even though it
+  had a real input worth showing. New `Save_Task_Input` state
+  (`run_task/sfn.tpl.json`), positioned right after upstream/variables are
+  resolved but before dispatch to the actual task type. Uses `updateItem`
+  (not `putItem` like `Save_Canonical_Output`) so a same-day re-run's input
+  write never clobbers a prior run's real `result`.
+- **`xcom.pull()` no longer crashes a downstream task just because an
+  upstream task was manually resolved.** Skip / Mark Successful / Mark
+  Failed / Stop all bypass `Save_Canonical_Output` (they resolve the
+  orchestration token directly, not through the wrapper's normal
+  completion), so a downstream task calling `xcom.pull("upstream_task")`
+  used to raise `PullError` — a pipeline break caused entirely by a manual
+  decision on a different task. All four actions now write a synthetic
+  marker (`{"_manually_resolved": true, "_resolution": "skip", ...}`) to
+  the same canonical key `xcom.pull()` reads — conditioned on a real
+  `result` not already being there, so a genuine prior successful output
+  is never overwritten.
+- **Mark Successful now emits asset events for push-triggered consumers**,
+  the same way a normal completion would — it's the one manual action that
+  explicitly claims real work happened ("verified via logs/S3"), so a
+  pipeline scheduled on this task's outlet (`schedule=[asset]`) is notified.
+  Skip / Fail / Stop correctly continue not to — they make no claim that
+  anything was produced. Looks up outlets from the pipeline registry's
+  `dag_metadata` (outlets are a deploy-time DAG property, never stored on
+  the per-execution record). Scoped to the push-model SFN notification,
+  which was already fully wired in the SAM template; the pull-based
+  subscriber Lambda notification was not added — it would need a new IAM
+  permission/environment variable, a real infrastructure change out of
+  scope here.
+- **Restarting a task must stop TWO separate executions, in a specific
+  order — not one.** There are two levels: the OUTER `dependency_wrapper`
+  (handles dependency waiting, then synchronously calls the INNER
+  `run_task` via `startExecution.sync:2`) and the inner `run_task` itself
+  (the one with `Wait_For_Decision`/`waiting_decision`). An initial fix
+  attempt here read `wrapper_execution_arn` and, finding that field never
+  written anywhere in `run_task`'s own template, concluded it must be a
+  typo for `run_task_helper_arn` and switched to that — reasoning that
+  turned out to be incomplete: `wrapper_execution_arn` **is** genuinely
+  written, by `registration_helper`'s `Save_Task_Record`, for the *outer*
+  wrapper specifically — a fact only visible by checking that template too,
+  not just `run_task`'s.
+  Killing only the inner `run_task` directly (while leaving the outer
+  wrapper alive, synchronously waiting on it) caused a confirmed, live bug:
+  the outer wrapper's `Run_Task` call sees its child forcibly aborted —
+  which is an internal error from the outer wrapper's own perspective, so
+  its own `Catch` fires, cascading through `Handle_Failure` →
+  `failure_handler` → `notify_dependents('failed')` **immediately**, well
+  before the new attempt's own work even began. Caught via live testing:
+  clicking Restart marked the downstream task `upstream_failed` within
+  seconds, while the restarted task's own underlying work was still
+  genuinely running — and later genuinely succeeded, confirmed via its own
+  execution history — a false failure notification racing ahead of the
+  real outcome.
+  Fixed by splitting into `Stop_Old_Outer_Wrapper` (kills the outer
+  wrapper **first** — an external `StopExecution` doesn't trigger a
+  wrapper's own internal `Catch`, so this cannot cascade a false
+  notification) then `Stop_Old_Inner_Wrapper` (kills `run_task` **second**,
+  safe now that the outer wrapper is already dead and can't react to it).
+- **Added an attempt-keyed `ConditionExpression` to every status-writing
+  state in the wrapper** (`Save_Success`, `Save_Failed`, `Save_Error_Waiting`)
+  — the fix above only makes killing a stale execution *likely* to succeed;
+  this is what makes a stale write structurally impossible to apply,
+  regardless of whether the kill worked. A write only applies if the
+  record's current `attempt` still matches the one that execution started
+  with; otherwise it's rejected by DynamoDB itself and the execution ends
+  quietly via a new `Stale_Attempt_Superseded` state — no misleading
+  finished/failed event, no stale dependent notification.
+- **Restart now works directly from `waiting_decision`** — no need to Stop
+  first. `restart_task`'s `RESTARTABLE_STATUSES` now includes
+  `waiting_decision`; the fallback (no-SFN-helper) path's own condition
+  expression is now derived from `RESTARTABLE_STATUSES` directly instead of
+  a separately hand-maintained string (which was already missing
+  `waiting_decision` — the same class of drift this change eliminates
+  going forward). `restart_task_helper`'s `Stop_Old_Wrapper` hard-kills the
+  still-live wrapper via `states:StopExecution` — unlike Stop, this never
+  calls `send_task_success`/`send_task_failure`, so it never triggers
+  `notify_dependents_via_sfn`'s immediate, unconditional downstream
+  notification. Stop remains available alongside Restart for a different
+  intent: "this is done, tell everyone now" vs. "let me retry, don't tell
+  anyone yet."
+
+### Added — "Structure" toggle merged with the History picker on the pipeline detail page
+
+- The pipeline detail page defaults to showing the graph exactly as it ran — a
+  specific execution's structure and statuses, frozen at that point in time
+  even after a later `polyris-deploy` changes the pipeline. A new "Structure"
+  button, merged into a single seamless control with the existing History
+  button (the one showing the execution count, e.g. "📖 4"), lets you see
+  what's actually deployed right now instead, without needing to trigger a
+  new run first. The History button keeps its exact existing job — opens the
+  picker, lists every run — and now also doubles as the visual "active"
+  indicator for run mode, highlighted whenever you're viewing an execution
+  rather than the structure. No separate "Latest run" label; the merged
+  control reads as one thing with two states, not two independent buttons.
+  Reuses an existing backend capability (`/api/pipeline-dag`'s registry
+  fallback, already used by the backfill modal's task picker) — no API
+  changes.
+- "Current structure" mode forces task/status data to empty client-side,
+  regardless of what `/pipeline-status` returns — its own same-day fallback
+  (when no specific execution is requested) could otherwise surface an
+  earlier run's real statuses layered onto the newly-deployed structure.
+- Renders through the DAG view's existing "blueprint" mode (dashed nodes,
+  "not yet executed") — built previously for a different case ("no runs for
+  the selected date") and reused here rather than duplicated.
+- Clicking a blueprint node no longer opens the task detail modal — it
+  previously fell through to a fake `{status:'waiting', pipeline_name:'',
+  execution_name:''}` placeholder and opened a modal with misleading status
+  and fields that would fail any real API call. The node's cursor is now
+  `default` instead of `pointer` in this mode, so hovering doesn't suggest
+  it's clickable when it isn't. This existed before this feature (the
+  pre-existing "no executions for {date}" case could already trigger it) but
+  was a rarely-explored transient state; "current structure" makes blueprint
+  mode a deliberate, standing view, so clicking around in it is far more
+  likely.
+- See `docs/reference/SPIKE_CURRENT_STRUCTURE_VS_LATEST_RUN.md` for the full
+  investigation and the options considered.
+- Auto-defaults to "current structure" for a pipeline that has never run at
+  all — otherwise the toggle showed "History" as active while the content
+  displayed was actually the pre-existing "no executions" blueprint
+  fallback, a mismatch between what the control claimed and what was on
+  screen. Guarded against a loading-race condition: `usePipelinesQuery`
+  defaults to `[]` while loading, which would otherwise make a not-yet-loaded
+  pipeline look identical to a genuinely never-run one and incorrectly flip
+  the toggle with no way back once real data arrived.
+- Fixed ARIA semantics on the merged control: `role="tablist"`/`role="tab"`
+  was incorrect (the History side opens a dialog, not a tab panel) — now
+  `role="group"` with `aria-pressed` (toggle-button pattern) on both halves.
+
+### Added — `polyris-deploy --all` / `--only` (bulk deploy and destroy, ADR #118)
+
+- `polyris-deploy --all` deploys every immediate subdirectory of the current
+  directory; `polyris-deploy --only dir1 dir2` deploys just the listed ones.
+  Both work with `--destroy` too. Each directory is scanned for *every* `.py`
+  file (not just `dag.py`) and every DAG object found in every file is
+  deployed — a directory can hold more than one independent pipeline file,
+  and a file with zero DAGs (a shared `config.py`, a `utils.py`) is silently
+  skipped, not an error.
+- `--select DAG_ID` (existing, single-DAG-per-file selector) composes with
+  `--all`/`--only`: applied within each directory independently, so a
+  directory without a matching `dag_id` is skipped rather than treated as a
+  failure.
+- One DAG failing (validation error, AWS error — anything that would
+  `sys.exit(1)` in the single-pipeline path) does not stop the rest of the
+  batch; every DAG in every directory is attempted, and a summary prints at
+  the end listing what succeeded and what failed. Exit code is non-zero if
+  anything failed, so this is safe to use as a CI/script gate.
+- `--all`/`--only` are mutually exclusive with each other and with `--file`
+  (bulk mode discovers files itself); `--file`'s default changed internally
+  from `"dag.py"` to `None` to make "not passed" distinguishable from "passed
+  explicitly", with no change to its observable behavior in single-file mode.
+- Deploy is sequential, not parallel, deliberately — see
+  [`docs/reference/CLI.md`](docs/reference/CLI.md) for the full option
+  reference and discovery rules.
+- Also fixed in `docs/deployment/DEPLOY.md`: the "what it deploys" list still
+  named `AWS::Events::Rule`, superseded earlier this cycle by the
+  `AWS::Scheduler::Schedule` migration.
+
 ### Changed — the History feed pages instead of lying (ADR #113)
 
 - `GET /api/runs` and `GET /api/tasks` take a `before` cursor (a `started_at`) and answer

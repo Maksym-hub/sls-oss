@@ -222,6 +222,16 @@ result = run(dag, mock=True, task_mocks={
 # cleanup still runs because trigger_rule="all_done"
 ```
 
+> **This mock behavior does not carry over to the real deployed pipeline yet.**
+> `run(dag, mock=True)` is a plain Python loop — it has no equivalent of the deployed
+> pipeline's `Parallel`-based execution or its intervention-first pause on failure
+> (ADR #114), so it always continues past a failed task. In the real deployed
+> pipeline, a failure pauses for a human decision first; `all_done` reacting to a
+> *resolved* failure (rather than running only on the success path) is a planned,
+> scoped exception (ADR #116) that hasn't shipped yet. Don't take a green mock test
+> for `all_done`-on-failure as proof the same cleanup will fire in production today —
+> see `docs/features/DSL.md#trigger-rules` for what's currently reliable.
+
 ## Testing Pattern
 
 Recommended test structure:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from polyris import DAG, task
+from polyris.task import Task
 from polyris.task_group import TaskGroup
 from polyris.steps import Wait, Pass, Choice, Map, Sensor, ShortCircuit, Succeed
 
@@ -117,6 +118,90 @@ class TestTaskInstanceOperatorEdges:
         with pytest.raises(TypeError):
             42 >> inst
 
+    # ---------------------------------------------------------------- #
+    # __lshift__ (<<) — regression tests for two real bugs found in a
+    # code-review pass: (1) every branch returned `self` instead of
+    # `other`, silently breaking 3+-item chains like `c << b << a`
+    # (a common Airflow idiom, e.g. `load << transform << extract`);
+    # (2) TaskGroup/Step/Label all raised AttributeError on `<<`, even
+    # though `>>` supported all of them — the two operators were not
+    # actually equivalent ways to write the same edge.
+    # ---------------------------------------------------------------- #
+
+    def test_ti_lshift_chain_of_three(self):
+        """The core bug: `c << b << a` must produce a -> b -> c, not
+        silently skip `b` out of the chain (which is what returning `self`
+        instead of `other` from every branch previously did)."""
+        with DAG("lchain", schedule=None):
+            @task.sfn(arn=ARN)
+            def a():
+                pass
+            @task.sfn(arn=ARN)
+            def b():
+                pass
+            @task.sfn(arn=ARN)
+            def c():
+                pass
+            ia, ib, ic = a(), b(), c()
+            ic << ib << ia
+        assert [d.task_id for d in ic.task.dependencies] == ["b"]
+        assert [d.task_id for d in ib.task.dependencies] == ["a"]
+        assert ia.task.dependencies == []
+
+    def test_ti_lshift_taskgroup(self):
+        """Mirror of test_ti_rshift_taskgroup: `down() << group` connects
+        down as downstream of all the group's leaves (not roots — << is the
+        reverse direction)."""
+        with DAG("tig2", schedule=None):
+            with TaskGroup("g") as grp:
+                @task.sfn(arn=ARN)
+                def inner():
+                    pass
+                inner()
+            @task.sfn(arn=ARN)
+            def down():
+                pass
+            di = down()
+            di << grp
+        assert any(d.task_id == "g.inner" for d in di.task.dependencies)
+
+    def test_ti_lshift_step(self):
+        with DAG("tis2", schedule=None):
+            @task.sfn(arn=ARN)
+            def down():
+                pass
+            s = Pass()
+            di = down()
+            di << s
+        assert s in di.task.dependencies
+
+    def test_ti_lshift_step_in_list(self):
+        with DAG("tisl", schedule=None):
+            @task.sfn(arn=ARN)
+            def down():
+                pass
+            s = Pass()
+            di = down()
+            di << [s]
+        assert s in di.task.dependencies
+
+    def test_ti_lshift_label_completes_reverse_chain(self):
+        """`down << Label(...) << up` must produce the same edge as
+        `up >> Label(...) >> down` — previously crashed with AttributeError
+        since Label had no `_set_downstream` (or any << support at all)."""
+        from polyris.helpers import Label
+
+        with DAG("lbl2", schedule=None):
+            @task.sfn(arn=ARN)
+            def up():
+                pass
+            @task.sfn(arn=ARN)
+            def down():
+                pass
+            ui, di = up(), down()
+            di << Label("on success") << ui
+        assert [d.task_id for d in di.task.dependencies] == ["up"]
+
 
 # ============================================================ #
 # Task (decorated, pre-call) operators
@@ -131,6 +216,19 @@ class TestTaskOperatorEdges:
         a, b = _two_tasks()
         a << [b]
         assert b in a.dependencies
+
+    def test_task_lshift_chain_of_three(self):
+        """Same bug as TaskInstance.__lshift__, one level down: raw Task's
+        __lshift__ also returned `self` instead of `other`, breaking
+        `c << b << a` chains (silently dropping `b` — verified with a
+        directly-constructed Task chain, not just the TaskInstance path)."""
+        with DAG("task-chain", schedule=None):
+            a = Task(task_id="a")
+            b = Task(task_id="b")
+            c = Task(task_id="c")
+        c << b << a
+        assert [d.task_id for d in c.dependencies] == ["b"]
+        assert [d.task_id for d in b.dependencies] == ["a"]
 
     def test_task_lshift_unsupported_raises(self):
         a, _ = _two_tasks()

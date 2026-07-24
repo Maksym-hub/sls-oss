@@ -84,6 +84,7 @@ _81 ADRs indexed (67 inline, 14 standalone). Regenerate with the snippet in this
 | 100 | Tier entitlement (team↔enterprise gated at runtime, not by strip) | [`adr-100-tier-entitlement.md`](adr-100-tier-entitlement.md) |
 | 101 | Multi-tenant readiness (entitlement is tenant-source-agnostic; tenancy deferred) | [`adr-101-multi-tenant-readiness.md`](adr-101-multi-tenant-readiness.md) |
 | 102 | Repo split (Dagster model): public core repo + private paid repo | [`adr-102-repo-split-dagster-model.md`](adr-102-repo-split-dagster-model.md) |
+| 103 | Alerting consolidation: `alerts=` DSL param removed, config moved to `alert_config`; interactive Slack/PagerDuty state machines replaced by `lambda:invoke` calls to the notify Lambda; PagerDuty fires immediately during the decision-wait pause | inline |
 | 104 | Open-core CLI split, backfill nav-tab slot, and contract-drift cleanup | inline |
 | 105 | Asset console gated to Team with an open-core "coming soon" page; engine stays free | inline |
 | 106 | Parameter parity for `@task` decorators (the `task_config` ↔ `Run_Task_<X>` contract) | [`adr-106-task-param-parity.md`](adr-106-task-param-parity.md) |
@@ -91,4 +92,14 @@ _81 ADRs indexed (67 inline, 14 standalone). Regenerate with the snippet in this
 | 108 | `TaskConfigKey`: shared constants for the SDK↔wrapper `task_config` contract | [`adr-108-task-config-key-constants.md`](adr-108-task-config-key-constants.md) |
 | 109 | Unified common parameters for `@task.<type>` decorators (`CommonTaskKwargs`) | [`adr-109-unified-task-decorator-kwargs.md`](adr-109-unified-task-decorator-kwargs.md) |
 | 110 | Task & execution intervention moved from Team to free; config mutation stays paid | [`adr-110-intervention-tier-flip.md`](adr-110-intervention-tier-flip.md) |
+| 111 | Client-side view routing | [`adr-111-client-side-view-routing.md`](adr-111-client-side-view-routing.md) |
+| 112 | Canonical execution-status derivation and reconciliation | [`adr-112-canonical-execution-status.md`](adr-112-canonical-execution-status.md) |
 | 113 | History feed pages on a `started_at` cursor; `next` is the only end-of-feed signal | inline |
+| 114 | Intervention-first failure model | [`adr-114-intervention-first-failure-model.md`](adr-114-intervention-first-failure-model.md) |
+| 115 | Canonical trigger rules and skip semantics | [`adr-115-canonical-trigger-rules-and-skip-semantics.md`](adr-115-canonical-trigger-rules-and-skip-semantics.md) |
+| 116 | Cleanup via scoped de-abort (deferred to Phase 2) | [`adr-116-cleanup-scoped-deabort.md`](adr-116-cleanup-scoped-deabort.md) |
+| 117 | Trigger rules trimmed from 11 to 5 (removes 4 duplicates + 2 never-satisfiable) | [`adr-117-trigger-rule-trim-11-to-5.md`](adr-117-trigger-rule-trim-11-to-5.md) |
+| 118 | `polyris-deploy --all` / `--only` — bulk deploy and destroy across directories | inline |
+| 119 | Unified DAG visualization node/edge builder (`generate_dag_json` + `_build_pipeline_metadata`) | inline |
+| 120 | Manual task actions: recorded input, synthetic output markers, asset events on Mark Successful, and safe direct Restart from `waiting_decision` | inline |
+| 121 | Restart correctness: stop both wrapper levels in the right order, reconstruct `task_config`/`outlets` from the registry, `restart-` name prefix | inline |

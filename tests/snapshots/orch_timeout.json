@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"orch_timeout\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"slow_task\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"slow_task\", \"name\": \"slow_task\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"orch_timeout\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"slow_task\", \"task_type\": \"sfn\", \"dependencies\": []}], \"dag\": {\"nodes\": [{\"id\": \"slow_task\", \"name\": \"slow_task\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -26,7 +26,7 @@
             "S": "[{\"task_id\": \"slow_task\", \"task_type\": \"sfn\", \"dependencies\": []}]"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"slow_task\", \"name\": \"slow_task\"}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"slow_task\", \"name\": \"slow_task\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}"
           },
           "schedule": {
             "S": ""
@@ -62,7 +62,7 @@
             "S": "{% $states.context.Execution.Name %}"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"slow_task\", \"name\": \"slow_task\"}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"slow_task\", \"name\": \"slow_task\", \"type\": \"task\", \"task_type\": \"sfn\"}], \"edges\": []}"
           },
           "snapshot_at": {
             "S": "{% $now() %}"

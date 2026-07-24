@@ -112,7 +112,15 @@ class TaskGroup:
         return NotImplemented
     
     def __lshift__(self, other):
-        """group << task - other connects to all roots"""
+        """group << task - other connects to all roots.
+
+        Returns `other` (not `self`), matching __rshift__'s convention —
+        same reasoning as TaskInstance.__lshift__/Task.__lshift__ (see their
+        docstrings): returning `self` breaks 3+-item chains like
+        `group << b << a`, silently connecting both b and a directly to the
+        group's roots instead of chaining a -> b -> group (verified: this
+        exact bug, reproduced with a real TaskGroup).
+        """
         from .task import Task, TaskInstance
         
         roots = self.roots
@@ -122,17 +130,17 @@ class TaskGroup:
                 for root in roots:
                     if other_leaf not in root.dependencies:
                         root.dependencies.append(other_leaf)
-            return self
+            return other
         elif isinstance(other, TaskInstance):
             for root in roots:
                 if other.task not in root.dependencies:
                     root.dependencies.append(other.task)
-            return self
+            return other
         elif isinstance(other, Task):
             for root in roots:
                 if other not in root.dependencies:
                     root.dependencies.append(other)
-            return self
+            return other
         return NotImplemented
 
 

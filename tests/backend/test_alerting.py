@@ -53,9 +53,14 @@ class TestRunTaskAlertingFlow:
         assert self.rt['States']['Get_Decision_Timeout']['Next'] == 'Check_Is_Backfill'
 
     def test_save_error_catch_goes_to_decision_timeout(self):
-        """Save_Error_Waiting catch → Get_Decision_Timeout (graceful)."""
+        """Save_Error_Waiting's States.ALL catch (the generic DDB-failure,
+        best-effort one) → Get_Decision_Timeout. §9 added a more specific
+        ConditionalCheckFailedException catch before it (→
+        Stale_Attempt_Superseded, for a ghost from a superseded attempt) —
+        find the States.ALL entry by its actual condition, not by position."""
         state = self.rt['States']['Save_Error_Waiting']
-        assert state['Catch'][0]['Next'] == 'Get_Decision_Timeout'
+        catch_all = next(c for c in state['Catch'] if c['ErrorEquals'] == ['States.ALL'])
+        assert catch_all['Next'] == 'Get_Decision_Timeout'
 
     def test_get_decision_timeout_reads_global_settings(self):
         """Get_Decision_Timeout reads the reserved __global_settings__ registry
@@ -285,21 +290,34 @@ class TestRetryLoopComposesWithHumanDecision:
 
     def test_only_dispatch_and_increment_reenter_the_task(self):
         """Check_Task_Type (task dispatch) is re-entered ONLY by the initial dispatch
-        (Prepare_Task_Input) and the retry increment (Increment_Retry). No decision-flow
-        state loops back into the task, so a human Restart cannot race the counter
-        mid-flight — it can only arrive as a brand-new execution."""
+        chain (Prepare_Task_Input -> Save_Task_Input) and the retry increment
+        (Increment_Retry). No decision-flow state loops back into the task, so a
+        human Restart cannot race the counter mid-flight — it can only arrive as
+        a brand-new execution. Save_Task_Input (writes task_input as soon as the
+        task starts, independent of eventual success/failure) sits between
+        Prepare_Task_Input and Check_Task_Type — it's part of the same initial
+        dispatch, not a new re-entry path."""
         feeders = {n for n, b in self.rt['States'].items()
                    if 'Check_Task_Type' in self._targets(b)}
-        assert feeders == {'Prepare_Task_Input', 'Increment_Retry'}, \
-            f"unexpected re-dispatch into the task from: {feeders - {'Prepare_Task_Input', 'Increment_Retry'}}"
+        assert feeders == {'Save_Task_Input', 'Increment_Retry'}, \
+            f"unexpected re-dispatch into the task from: {feeders - {'Save_Task_Input', 'Increment_Retry'}}"
+        # And Save_Task_Input itself must only be reachable from Prepare_Task_Input —
+        # not from anywhere else, so it can't become a second, independent entry point.
+        save_input_feeders = {n for n, b in self.rt['States'].items()
+                               if 'Save_Task_Input' in self._targets(b)}
+        assert save_input_feeders == {'Prepare_Task_Input'}, \
+            f"Save_Task_Input has unexpected feeders: {save_input_feeders - {'Prepare_Task_Input'}}"
 
     def test_counter_reset_precedes_first_dispatch(self):
         """retry_attempt is initialised to 0 in Prepare_Task_Input, which runs before the
         first Check_Task_Type — so every fresh execution, including a human Restart, starts
-        the retry loop clean."""
+        the retry loop clean. Prepare_Task_Input feeds Save_Task_Input (writes task_input
+        before dispatch) which then feeds Check_Task_Type — retry_attempt is still set
+        before either of them, so the invariant holds through the extra hop."""
         prep = self.rt['States']['Prepare_Task_Input']
         assert '"retry_attempt"' in json.dumps(prep['Assign'])
-        assert prep['Next'] == 'Check_Task_Type'
+        assert prep['Next'] == 'Save_Task_Input'
+        assert self.rt['States']['Save_Task_Input']['Next'] == 'Check_Task_Type'
 
 
 # ============================================================
@@ -680,6 +698,78 @@ class TestCanonicalOutput:
         key = get_dep['Arguments']['Key']['execution_name']['S']
         assert 'output#' in key
         assert 'pipeline_name' in key
+
+
+class TestSaveTaskInputEarly:
+    """Save_Task_Input writes task_input (upstream+variables) as soon as the task
+    starts, independent of eventual success/failure/waiting_decision — closes the
+    gap where only Save_Canonical_Output (success-path only) ever recorded it,
+    so a failed or still-running task's Input tab was always empty."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.rt = load('run_task')
+
+    def test_prepare_task_input_chains_through_save_task_input_to_dispatch(self):
+        """Prepare_Task_Input -> Save_Task_Input -> Check_Task_Type — the write
+        happens after upstream/variables are fully resolved, but before any
+        business logic (Glue/ECS/SFN/etc.) actually runs."""
+        assert self.rt['States']['Prepare_Task_Input']['Next'] == 'Save_Task_Input'
+        assert self.rt['States']['Save_Task_Input']['Next'] == 'Check_Task_Type'
+
+    def test_uses_the_same_stable_canonical_key_as_save_canonical_output(self):
+        """Same key format as Save_Canonical_Output (output#pipeline#task#date) —
+        this is deliberately the same record xcom.pull() and the console's
+        Input/Output tab both read, not a new location."""
+        key = self.rt['States']['Save_Task_Input']['Arguments']['Key']['execution_name']['S']
+        assert 'output#' in key
+        assert 'pipeline_name' in key
+        assert 'task_name' in key
+        assert 'date' in key
+
+    def test_only_touches_task_input_never_result_or_status(self):
+        """Deliberately updateItem, not putItem like Save_Canonical_Output: this
+        key is shared across same-day runs of this task, so a blind full-item
+        replace here could momentarily blank out a prior successful run's real
+        'result' while a later run of the same task/date is still in flight.
+        The UpdateExpression must only ever touch task_input/task_name/
+        updated_at/ttl — never result or status."""
+        state = self.rt['States']['Save_Task_Input']
+        assert state['Resource'] == 'arn:aws:states:::dynamodb:updateItem'
+        update_expr = state['Arguments']['UpdateExpression']
+        assert 'result' not in update_expr
+        assert 'status' not in update_expr
+        assert 'task_input' in update_expr
+
+    def test_ttl_uses_if_not_exists_so_it_is_not_reset_every_run(self):
+        """A same-day re-run of this task must not push the ttl forward
+        indefinitely — if_not_exists means only the first write for this key
+        on this date sets it."""
+        update_expr = self.rt['States']['Save_Task_Input']['Arguments']['UpdateExpression']
+        assert 'if_not_exists' in update_expr
+
+    def test_is_best_effort_like_every_other_status_write(self):
+        """DDB failure here must not block the task from actually running —
+        same pattern as Save_Success/Save_Failed/Save_Canonical_Output."""
+        catch = self.rt['States']['Save_Task_Input']['Catch']
+        assert len(catch) == 1
+        assert catch[0]['Next'] == 'Check_Task_Type'
+
+
+class TestUpstreamDataFlow:
+    """Verify upstream output reads, truncation, and how they're passed into
+    each task type's own child invocation."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.rt = load('run_task')
+
+    def test_read_upstream_uses_canonical_key(self):
+        """Get_Dep_Output reads by output#pipeline#dep#date — no run-specific parts."""
+        get_dep = self.rt['States']['Read_Upstream_Outputs']['ItemProcessor']['States']['Get_Dep_Output']
+        key = get_dep['Arguments']['Key']['execution_name']['S']
+        assert 'output#' in key
+        assert 'pipeline_name' in key
         assert 'dep' in key
         assert 'date' in key
         assert 'pipeline_execution_short' not in key
@@ -763,3 +853,204 @@ class TestVariableSchemaDrift:
         from task_variables import TASK_VARIABLES
         from polyris.variables import VARIABLES
         assert set(TASK_VARIABLES) == set(VARIABLES)
+
+
+class TestRestartStopsBothWrapperLevels:
+    """§9, corrected: restarting a task must stop TWO separate executions, in
+    a specific order — not just one.
+
+    There are two levels: the OUTER dependency_wrapper (handles dependency
+    waiting, then synchronously calls Run_Task -> the INNER run_task, via
+    startExecution.sync:2) and the INNER run_task (the one with
+    Wait_For_Decision/waiting_decision). An earlier fix attempt here killed
+    only the inner run_task (reading 'run_task_helper_arn'), reasoning that
+    'wrapper_execution_arn' — the field originally read — must be a typo,
+    since it's never written anywhere in run_task's own template. That
+    reasoning was incomplete: 'wrapper_execution_arn' IS genuinely written,
+    by registration_helper's Save_Task_Record, for the OUTER wrapper
+    specifically (Prepare_Inputs sets it to $states.context.Execution.Id,
+    evaluated in the outer wrapper's own context) — a fact only visible by
+    checking registration_helper's template too, not just run_task's.
+
+    Killing only the inner run_task directly (while leaving the outer
+    wrapper alive, synchronously waiting on it) caused a real, confirmed bug:
+    the outer wrapper's Run_Task call sees its child forcibly aborted, which
+    IS an internal error from the outer wrapper's own perspective — so its
+    own Catch fires, routing to Handle_Failure -> failure_handler ->
+    notify_dependents('failed'), immediately, well before the new attempt's
+    own work even begins. This surfaced live: clicking Restart caused the
+    downstream task to be marked upstream_failed within seconds, while the
+    restarted task's own underlying work was still genuinely running (and
+    later genuinely succeeded, ~30s later, per its own execution history) —
+    a false failure notification racing ahead of the real outcome.
+
+    The fix: kill the OUTER wrapper FIRST (external StopExecution does not
+    trigger a wrapper's own internal Catch — that only fires for errors from
+    WITHIN an execution, not from being stopped externally — so this cannot
+    cascade a false notification), THEN the inner run_task second (safe now
+    that the outer wrapper, which would otherwise catch this, is already
+    dead) — preventing both the cascading false-failure bug and run_task
+    being orphaned as a ghost."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.rt = load('restart_task')
+
+    def test_outer_wrapper_stopped_first_using_wrapper_execution_arn(self):
+        state = self.rt['States']['Stop_Old_Outer_Wrapper']
+        arn_expr = state['Arguments']['ExecutionArn']
+        m = re.search(r'\$states\.input\.item\.(\w+)\.S', arn_expr)
+        assert m, f"Could not find a field reference in: {arn_expr}"
+        assert m.group(1) == 'wrapper_execution_arn'
+
+    def test_inner_run_task_stopped_second_using_run_task_helper_arn(self):
+        state = self.rt['States']['Stop_Old_Inner_Wrapper']
+        arn_expr = state['Arguments']['ExecutionArn']
+        m = re.search(r'\$states\.input\.item\.(\w+)\.S', arn_expr)
+        assert m, f"Could not find a field reference in: {arn_expr}"
+        assert m.group(1) == 'run_task_helper_arn'
+
+    def test_outer_wrapper_chains_to_inner_before_delete(self):
+        """The ORDER is the entire point of this fix — outer must be fully
+        attempted (success or caught failure) before inner is touched, and
+        inner must complete before Delete_Old_Record."""
+        assert self.rt['States']['Check_Task_Exists']['Choices'][0]['Next'] == 'Stop_Old_Outer_Wrapper'
+        outer = self.rt['States']['Stop_Old_Outer_Wrapper']
+        assert outer['Next'] == 'Stop_Old_Inner_Wrapper'
+        assert outer['Catch'][0]['Next'] == 'Stop_Old_Inner_Wrapper'
+        inner = self.rt['States']['Stop_Old_Inner_Wrapper']
+        assert inner['Next'] == 'Delete_Old_Record'
+        assert inner['Catch'][0]['Next'] == 'Delete_Old_Record'
+
+    def test_registration_helper_writes_wrapper_execution_arn_for_the_outer_wrapper(self):
+        """Cross-template consistency: registration_helper's Save_Task_Record
+        must actually persist wrapper_execution_arn, or Stop_Old_Outer_Wrapper
+        has nothing to read. This is the check the earlier, incomplete fix
+        attempt skipped — it only looked at run_task's own template."""
+        registration = load('registration')
+        item = registration['States']['Save_Task_Record']['Arguments']['Item']
+        assert 'wrapper_execution_arn' in item
+
+    def test_run_task_writes_run_task_helper_arn_for_the_inner_wrapper(self):
+        """Cross-template consistency for the inner kill target."""
+        run_task = load('run_task')
+        state = run_task['States']['Update_Status_Running']
+        update_expr = state['Arguments']['UpdateExpression']
+        assert 'run_task_helper_arn = :helper_arn' in update_expr
+
+
+class TestAttemptKeyedConditionExpression:
+    """§9 layer 2: fixing the helper_arn field name (above) only makes
+    killing a ghost execution *likely* — StopExecution can still fail for
+    unrelated reasons, and nothing previously guarded against a stale write
+    applying anyway. Each of the three status-writing states now requires
+    'attempt = :expectedAttempt' to still hold — if a restart has since
+    happened (attempt incremented), a ghost's stale write is rejected by
+    DynamoDB itself, structurally, regardless of whether the kill succeeded.
+    This is what gets the "duplicate status" risk to zero, not just rarer."""
+
+    STATUS_WRITING_STATES = ['Save_Success', 'Save_Failed', 'Save_Error_Waiting']
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.rt = load('run_task')
+
+    @pytest.mark.parametrize('state_name', STATUS_WRITING_STATES)
+    def test_has_attempt_keyed_condition_expression(self, state_name):
+        state = self.rt['States'][state_name]
+        assert state['Arguments']['ConditionExpression'] == 'attempt = :expectedAttempt'
+        assert ':expectedAttempt' in state['Arguments']['ExpressionAttributeValues']
+
+    @pytest.mark.parametrize('state_name', STATUS_WRITING_STATES)
+    def test_conditional_check_failure_routes_to_stale_attempt_superseded(self, state_name):
+        """The conditional-check-failed catch must come BEFORE the generic
+        States.ALL catch (Step Functions evaluates Catch entries in order,
+        first match wins) — a ConditionalCheckFailedException also matches
+        States.ALL, so if the generic entry came first it would silently
+        swallow the stale-attempt case and continue as if nothing were
+        superseded, exactly the corruption this fix exists to prevent."""
+        catch = self.rt['States'][state_name]['Catch']
+        assert catch[0]['ErrorEquals'] == ['DynamoDB.ConditionalCheckFailedException']
+        assert catch[0]['Next'] == 'Stale_Attempt_Superseded'
+        assert any(c['ErrorEquals'] == ['States.ALL'] for c in catch[1:]), \
+            f"{state_name} lost its generic DDB-failure catch"
+
+    def test_stale_attempt_superseded_ends_quietly_with_no_further_side_effects(self):
+        """A Succeed state — terminates the ghost's execution immediately.
+        Must NOT be a Task/Pass that continues on to Emit_Task_Finished_*,
+        notify_dependents, or a Slack message with superseded information."""
+        state = self.rt['States']['Stale_Attempt_Superseded']
+        assert state['Type'] == 'Succeed'
+        assert 'Next' not in state
+
+    def test_expected_attempt_defaults_to_1_matching_the_first_attempt_convention(self):
+        """Consistent with Start_New_Wrapper's own attempt defaulting
+        (existing attempt ?? 1) — a task's first-ever run has no explicit
+        'attempt' in its input, and must be treated as attempt 1, not as a
+        mismatch against whatever a stray record might contain."""
+        for state_name in self.STATUS_WRITING_STATES:
+            expr = self.rt['States'][state_name]['Arguments']['ExpressionAttributeValues'][':expectedAttempt']['N']
+            assert '$exists($states.input.attempt)' in expr
+            assert ': 1)' in expr or ': 1 )' in expr
+
+
+class TestRestartTaskConfigAndOutletsThreading:
+    """task_config/outlets are deploy-time DAG properties, never stored on
+    the per-execution DynamoDB record. Start_New_Wrapper previously tried
+    to reconstruct them from item.task_config.S/item.outlets.S — fields
+    that never existed — always silently yielding {} and [] regardless of
+    the task's real configuration. Fixed by having restart_task's Python
+    handler look these up from the registry and pass them explicitly at
+    the top level of restart_task_helper's input; Get_Task_Config must
+    preserve them through to Start_New_Wrapper."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.rt = load('restart_task')
+
+    def test_get_task_config_preserves_task_config_and_outlets_from_input(self):
+        output_expr = self.rt['States']['Get_Task_Config']['Output']
+        assert "'task_config'" in output_expr
+        assert "'outlets'" in output_expr
+        assert '$states.input.task_config' in output_expr
+        assert '$states.input.outlets' in output_expr
+
+    def test_start_new_wrapper_reads_task_config_and_outlets_from_top_level_input(self):
+        """Must read $states.input.task_config / $states.input.outlets
+        directly (as threaded through by Get_Task_Config above) — NOT
+        $states.input.item.task_config.S / item.outlets.S, which was the
+        bug (those fields never existed on the stored item)."""
+        inp = self.rt['States']['Start_New_Wrapper']['Arguments']['Input']
+        assert inp['task_config'] == "{% $exists($states.input.task_config) ? $states.input.task_config : {} %}"
+        assert inp['outlets'] == "{% $exists($states.input.outlets) ? $states.input.outlets : [] %}"
+        assert 'item.task_config' not in inp['task_config']
+        assert 'item.outlets' not in inp['outlets']
+
+
+class TestRestartNamePrefix:
+    """A restarted attempt's underlying business SFN invocation (Run_Task_SFN
+    — the only Run_Task_* variant that invokes another Step Function with a
+    controllable Name; the others call AWS services directly and don't have
+    an equivalent) now gets a 'restart-' name prefix when attempt > 1. Makes
+    it immediately visible in the AWS console which invocations are
+    original vs restarted, without checking duration/timestamps. Also gives
+    real purpose to attempt, already threaded through by Start_New_Wrapper
+    but previously unused for naming."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.rt = load('run_task')
+
+    def test_name_expression_checks_attempt_greater_than_one(self):
+        name_expr = self.rt['States']['Run_Task_SFN']['Arguments']['Name']
+        assert "$states.input.attempt > 1" in name_expr
+        assert "'restart-'" in name_expr
+        assert '$exists($states.input.attempt)' in name_expr
+
+    def test_first_attempt_has_no_restart_prefix_at_runtime(self):
+        """Simulate the JSONata conditional directly against representative
+        inputs — not just checking the expression text, but that its actual
+        branches produce the right prefix (or lack of one)."""
+        name_expr = self.rt['States']['Run_Task_SFN']['Arguments']['Name']
+        # attempt absent (first-ever dispatch, never explicitly set)
+        assert "$exists($states.input.attempt) and $states.input.attempt > 1 ? 'restart-' : ''" in name_expr

@@ -25,24 +25,6 @@ const parseError = async (res: Response): Promise<string> => {
     }
 };
 
-/**
- * Retry helper with exponential backoff
- */
-const withRetry = async <T>(fn: () => Promise<T>, retries = API.RETRY_COUNT): Promise<T> => {
-    let lastError: unknown;
-    for (let i = 0; i < retries; i++) {
-        try {
-            return await fn();
-        } catch (e) {
-            lastError = e;
-            if (i < retries - 1) {
-                await new Promise(r => setTimeout(r, Math.pow(2, i) * 100));
-            }
-        }
-    }
-    throw lastError;
-};
-
 // -----------------------------------------------------------------------------
 // Auth Token Management
 // -----------------------------------------------------------------------------
@@ -91,11 +73,10 @@ const handleAuthError = (status: number) => {
 interface RequestOptions {
     body?: unknown;
     timeout?: number;
-    retry?: boolean;
 }
 
 const _request = async (method: string, path: string, options: RequestOptions = {}) => {
-    const { body = null, timeout = API.TIMEOUT, retry = false } = options;
+    const { body = null, timeout = API.TIMEOUT } = options;
 
     const doFetch = async () => {
         const controller = new AbortController();
@@ -139,9 +120,6 @@ const _request = async (method: string, path: string, options: RequestOptions = 
     };
 
     try {
-        if (retry) {
-            return await withRetry(doFetch);
-        }
         return await doFetch();
     } catch (e: unknown) {
         logger.error('api', `${method} ${path} failed`, e);

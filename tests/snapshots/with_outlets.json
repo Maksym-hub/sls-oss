@@ -1,5 +1,5 @@
 {
-  "Comment": "{\"dag_id\": \"with_outlets\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"ingest\", \"task_type\": \"sfn\", \"dependencies\": [], \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}], \"dag\": {\"nodes\": [{\"id\": \"ingest\", \"name\": \"ingest\", \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
+  "Comment": "{\"dag_id\": \"with_outlets\", \"description\": \"\", \"group\": \"\", \"schedule\": null, \"asset_schedule\": null, \"tasks\": [{\"task_id\": \"ingest\", \"task_type\": \"sfn\", \"dependencies\": [], \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}], \"dag\": {\"nodes\": [{\"id\": \"ingest\", \"name\": \"ingest\", \"type\": \"task\", \"task_type\": \"sfn\", \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}], \"edges\": []}, \"polyris_version\": \"1.0\"}",
   "QueryLanguage": "JSONata",
   "StartAt": "Register_Pipeline",
   "States": {
@@ -26,7 +26,7 @@
             "S": "[{\"task_id\": \"ingest\", \"task_type\": \"sfn\", \"dependencies\": [], \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}]"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"ingest\", \"name\": \"ingest\", \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"ingest\", \"name\": \"ingest\", \"type\": \"task\", \"task_type\": \"sfn\", \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}], \"edges\": []}"
           },
           "schedule": {
             "S": ""
@@ -62,7 +62,7 @@
             "S": "{% $states.context.Execution.Name %}"
           },
           "dag": {
-            "S": "{\"nodes\": [{\"id\": \"ingest\", \"name\": \"ingest\", \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}], \"edges\": []}"
+            "S": "{\"nodes\": [{\"id\": \"ingest\", \"name\": \"ingest\", \"type\": \"task\", \"task_type\": \"sfn\", \"outlets\": [{\"name\": \"raw/inventory\", \"uri\": \"s3://bucket/raw/inventory/\", \"granularity\": \"daily\"}]}], \"edges\": []}"
           },
           "snapshot_at": {
             "S": "{% $now() %}"

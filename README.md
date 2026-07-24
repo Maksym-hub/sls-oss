@@ -27,12 +27,15 @@ polyris is not managed Airflow. There's nothing to operate.
 - 🚀 **One-command deploy** — `polyris-deploy` (CloudFormation)
 - 🧪 **Local testing** — Validate, dry-run, mock execution
 - 🔔 **Failure notifications** — browser notifications on failure (the notify Lambda fans out to every enabled channel — no silent failures)
-- 🎯 **11 trigger rules** — `all_success`, `one_failed`, `all_done`, etc. ([details](docs/features/DSL.md#trigger-rules))
+- ⏸️ **Intervention-first failures** — a failing task pauses for a human decision
+  (retry / mark success / skip / fail) instead of just falling over — fix it inline,
+  in the same run, free (ADR #114)
+- 🎯 **Trigger rules** — `all_success`, `one_success`, `all_done`, plus 8 more accepted
+  for Airflow-migration compatibility ([details](docs/features/DSL.md#trigger-rules))
 - 🔗 **Automatic data passing** — outputs flow to downstream **lambda & SFN** tasks via a DynamoDB output store (up to 350KB); service tasks (glue/ecs/…) exchange data via S3
 - 📊 **Web Console** — pipelines and DAG views for every run
 - 🧬 **Asset dependencies** — declare cross-pipeline asset inlets/outlets; inspect lineage from the CLI with `polyris-output --graph`
 - 🔗 **Pull-based deps** — `wait_for` with freshness and consecutive checks
-- ⏭️ **Skip/Restart tasks** — partial pipeline runs via UI or API (free — live-run intervention)
 - 🔄 **Auto-refresh UI** — polling-based updates (3s active, 30s idle)
 
 ---

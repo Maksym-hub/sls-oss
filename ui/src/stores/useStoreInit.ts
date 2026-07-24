@@ -211,7 +211,7 @@ export function useStoreInit({ pipelines }: UseStoreInitOptions) {
         if (!pipeline) return;
 
         const samePipeline = store.selectedPipeline?.name === targetPipelineName;
-        const sameDate = store.date === targetDate;
+        const sameDate = !targetDate || store.date === targetDate;
 
         if (targetDate) store.setDate(targetDate);
 

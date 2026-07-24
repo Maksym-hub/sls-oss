@@ -1,16 +1,15 @@
 """Realistic pipeline — a plausible daily analytics run, end to end.
 
 This is what a real polyris pipeline tends to look like: a mix of services, a
-sensible dependency graph, retry/timeout defaults, a conditional notify on
-failure, and a cross-account publish at the end. Nothing exotic — it just puts
-the pieces from the earlier examples together the way you actually would.
+sensible dependency graph, retry/timeout defaults, and a cross-account publish
+at the end. Nothing exotic — it just puts the pieces from the earlier examples
+together the way you actually would.
 
 Flow:
     ingest (Lambda)
       → clean (Glue) → aggregate (Athena) → build_report (Batch)
       → validate_freshness (Lambda)
     build_report + validate_freshness → publish (cross-account SFN)
-    notify_on_failure runs only if something upstream failed.
 
 Run it locally (no AWS):  polyris-validate -v
 """
@@ -96,14 +95,6 @@ with DAG(
         """Publish the report via a nested, cross-account workflow."""
         pass
 
-    @task.sfn(
-        arn="arn:aws:states:us-east-1:000000000000:stateMachine:polyris-test-sfn",
-        trigger_rule="one_failed",          # only if something upstream failed
-    )
-    def notify_on_failure():
-        """Page the on-call if any upstream step failed."""
-        pass
-
     # Wire the graph.
     raw = ingest()
     cleaned = clean(raw)
@@ -112,5 +103,3 @@ with DAG(
     fresh = validate_freshness(rolled)
 
     [report, fresh] >> publish()
-    # notify watches the whole spine; it triggers on any upstream failure.
-    [raw, cleaned, rolled, report, fresh] >> notify_on_failure()

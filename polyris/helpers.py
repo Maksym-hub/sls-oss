@@ -79,10 +79,12 @@ class Label:
     
     Example:
         task1 >> Label("When success") >> task2
+        task2 << Label("When success") << task1
     """
     def __init__(self, label: str):
         self.label = label
         self._upstream: Optional['TaskInstance'] = None
+        self._downstream: Optional['TaskInstance'] = None
     
     def __rrshift__(self, other):
         """task >> Label(...)"""
@@ -95,6 +97,21 @@ class Label:
             # Connect upstream to downstream, passing through the label
             if hasattr(self._upstream, '__rshift__'):
                 self._upstream >> other
+        return other
+
+    def __rlshift__(self, other):
+        """task2 << Label(...) — other is downstream of the eventual edge;
+        remember it and return self so the chain continues into the next
+        `<< task1`, mirroring __rrshift__'s upstream-side bookkeeping."""
+        self._downstream = other
+        return self
+
+    def __lshift__(self, other):
+        """Label(...) << task1 — completes the edge as `other >> downstream`,
+        mirroring __rshift__'s completion of the forward chain."""
+        if self._downstream is not None:
+            if hasattr(other, '__rshift__'):
+                other >> self._downstream
         return other
     
     def __repr__(self):

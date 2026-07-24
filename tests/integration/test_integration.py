@@ -52,20 +52,6 @@ def test_notify_dependents_trigger_rules():
                 return 'pass'
             return 'wait'
         
-        elif trigger_rule == 'one_failed':
-            if failed_count > 0:
-                return 'pass'
-            elif done_count == total_deps:
-                return 'skip'
-            return 'wait'
-        
-        elif trigger_rule == 'none_failed':
-            if failed_count > 0:
-                return 'block'
-            elif done_count == total_deps:
-                return 'pass'
-            return 'wait'
-        
         return 'wait'
     
     # Test cases
@@ -89,19 +75,6 @@ def test_notify_dependents_trigger_rules():
     assert should_trigger('all_done', ['failed', 'failed']) == 'pass'
     assert should_trigger('all_done', ['success', 'aborted']) == 'pass'  # aborted is terminal
     assert should_trigger('all_done', ['success', 'waiting']) == 'wait'
-    
-    # one_failed
-    assert should_trigger('one_failed', ['failed']) == 'pass'
-    assert should_trigger('one_failed', ['aborted']) == 'pass'  # aborted counts as failed
-    assert should_trigger('one_failed', ['success', 'failed']) == 'pass'
-    assert should_trigger('one_failed', ['success', 'success']) == 'skip'
-    assert should_trigger('one_failed', ['waiting']) == 'wait'
-    
-    # none_failed
-    assert should_trigger('none_failed', ['success', 'skipped']) == 'pass'
-    assert should_trigger('none_failed', ['success', 'failed']) == 'block'
-    assert should_trigger('none_failed', ['success', 'aborted']) == 'block'  # aborted blocks
-    assert should_trigger('none_failed', ['success', 'waiting']) == 'wait'
     
     # Edge: empty deps
     assert should_trigger('all_success', []) == 'pass'

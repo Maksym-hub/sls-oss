@@ -226,12 +226,15 @@ Task Completion (run_task/failure_handler/console_api)
         │     │
         │     ├─▶ evaluate_deps Lambda:
         │     │     ├─ BatchGetItem: get all dependency statuses
+        │     │     ├─ BatchGetItem: skip_origin, only if a dep is skipped (ADR #115)
         │     │     ├─ Check pipeline pause status
-        │     │     └─ Evaluate trigger_rule (11 rules supported)
+        │     │     └─ Evaluate trigger_rule (3 canonical + 8 Airflow-compat aliases)
         │     │
-        │     ├─▶ Route based on evaluation:
+        │     ├─▶ Route based on evaluation (verdict, ADR #115):
         │     │     ├─ is_ready: Signal_Ready → Update status → Delete subscription
-        │     │     ├─ is_blocked: Signal_Blocked → Update status → Delete subscription
+        │     │     ├─ verdict='skip': Signal_Skip → Mark skipped, notify dependents
+        │     │     │     (rule's condition never occurred — not an error)
+        │     │     ├─ verdict='upstream_failed': Signal_Blocked → Update status → Delete subscription
         │     │     └─ is_paused: Mark_Waiting_Paused (save wait_token for resume)
         │     │
         │     └─▶ Cleanup processed subscription
@@ -300,9 +303,12 @@ Called by `notify_dependents` SFN helper via `lambda:invoke`.
 Evaluates whether a subscriber task should start based on all upstream statuses:
 
 - `BatchGetItem` — fetch all dependency statuses in one call
-- Evaluate `trigger_rule` (11 rules supported)
+- `BatchGetItem` — fetch `skip_origin`, only when a dependency is `skipped` (ADR #115)
+- Evaluate `trigger_rule` (3 canonical + 8 Airflow-compat aliases — see
+  `docs/features/DSL.md#trigger-rules`)
 - Check pipeline `paused` status
-- Returns: `{is_ready, is_blocked, is_paused, reason, dep_statuses}`
+- Returns: `{is_ready, is_blocked, is_paused, deps_satisfied, verdict, reason, dep_statuses, counts}`
+  — `verdict` (`ready | wait | skip | upstream_failed`, ADR #115) drives the routing above
 
 ### 3. query_subscriptions
 
@@ -347,7 +353,6 @@ Task state tracking:
 | status | S | Current status |
 | dependencies | L | List of dependency task names |
 | trigger_rule | S | When to trigger |
-| alerts | M | Alert configuration |
 | started_at | S | ISO timestamp |
 | finished_at | S | ISO timestamp |
 | error | S | Error message (if failed) |

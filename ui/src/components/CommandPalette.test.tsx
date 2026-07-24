@@ -24,13 +24,17 @@ vi.mock('./Notifications', () => ({ default: () => <div data-testid="notificatio
 vi.mock('./UserMenu', () => ({ UserMenu: () => <div data-testid="user-menu" /> }));
 vi.mock('./Skeletons', () => ({ PipelineListSkeleton: () => <div data-testid="skeleton" /> }));
 vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ isSignedIn: true, user: { email: 'test@test.com' }, signOut: vi.fn() }), AUTH_STATE: { SIGNED_IN: 'signedIn', SIGNED_OUT: 'signedOut' } }));
-vi.mock('@/utils/api', () => ({ setAuthTokenGetter: vi.fn(), setAuthErrorCallback: vi.fn() }));
+const mockInvalidateQueries = vi.fn();
+vi.mock('@tanstack/react-query', () => ({
+    useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+}));
 
 
 describe('CommandPalette', () => {
     let defaultProps;
 
     beforeEach(() => {
+        mockInvalidateQueries.mockClear();
         defaultProps = {
             ...createCommandPaletteProps(),
             onNavigate: vi.fn(),
@@ -164,6 +168,19 @@ describe('CommandPalette', () => {
             expect(defaultProps.onSelectPipeline).toHaveBeenCalledWith(
                 expect.objectContaining({ name: 'acme-daily' })
             );
+        });
+
+        it('"Refresh Data" actually invalidates queries, not just closes the palette', () => {
+            // Regression test for a real bug: this command's action previously
+            // only called onClose(), doing nothing else — clicking a button
+            // labeled "Refresh Data" (or pressing its shortcut) silently
+            // refreshed nothing.
+            render(<CommandPalette {...defaultProps} />);
+            const input = screen.getByRole('combobox') || screen.getByPlaceholderText(/search|type|command/i);
+            fireEvent.change(input, { target: { value: 'refresh' } });
+            fireEvent.click(screen.getByText('Refresh Data'));
+            expect(mockInvalidateQueries).toHaveBeenCalledTimes(1);
+            expect(defaultProps.onClose).toHaveBeenCalled();
         });
 
         it('resets query when reopened', () => {

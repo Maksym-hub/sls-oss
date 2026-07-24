@@ -5,18 +5,23 @@ upstream tasks' outcomes. The default is `all_success`. Two upstream tasks
 (`extract_a`, `extract_b`) feed one marker task per rule, so you can see each
 condition side by side.
 
-The ten rules (see docs/features/DSL.md#trigger-rules):
+polyris supports 5 trigger rules (ADR #117 — trimmed from Airflow's 11).
+Airflow's other 6 rule names are rejected at validation time with a specific
+suggestion: under polyris's intervention-first model, a *confirmed* failure
+(resolving a paused task with Fail) cancels the whole pipeline's Parallel
+before any downstream trigger_rule ever evaluates. Given that, `one_done`
+and `none_failed` always behave identically to `all_done`;
+`none_failed_min_one_success` and `all_done_min_one_success` always behave
+identically to `one_success`; and `all_failed`/`one_failed` can never be
+satisfied at all — their only intended use case (reacting to a confirmed
+failure) is exactly the state Parallel-abort prevents them from reaching.
+See docs/features/DSL.md#trigger-rules for the full analysis.
 
-  all_success                  all upstreams succeeded (DEFAULT)
-  all_failed                   all upstreams failed / upstream_failed
-  all_done                     all upstreams finished (success or not)
-  all_done_min_one_success     all finished AND at least one succeeded
-  all_skipped                  all upstreams were skipped
-  one_failed                   at least one failed (does not wait for the rest)
-  one_success                  at least one succeeded (does not wait for the rest)
-  one_done                     at least one finished (does not wait for the rest)
-  none_failed                  nothing failed (success or skipped are OK)
-  none_failed_min_one_success  nothing failed AND at least one succeeded
+  all_success   all upstreams succeeded (DEFAULT)
+  one_success   at least one upstream succeeded (doesn't wait for the rest)
+  all_done      all upstreams finished, any status (cleanup)
+  all_skipped   all upstreams were skipped
+  none_skipped  no upstream was skipped
 
 Run it locally (no AWS):  polyris-output --graph
 """
@@ -46,19 +51,17 @@ with DAG(
         """Runs only if BOTH extracts succeeded (this is the default rule)."""
         pass
 
-    @task.sfn(arn=ARN, trigger_rule="all_failed")
-    def on_all_failed():
-        """Runs only if BOTH extracts failed — e.g. an escalation/alert path."""
+    @task.sfn(arn=ARN, trigger_rule="one_success")
+    def on_one_success():
+        """Fires as soon as any upstream succeeds — first-wins pattern."""
         pass
 
     @task.sfn(arn=ARN, trigger_rule="all_done")
     def on_all_done():
-        """Runs once both finished, success or not — e.g. cleanup / marker."""
-        pass
-
-    @task.sfn(arn=ARN, trigger_rule="all_done_min_one_success")
-    def on_all_done_min_one_success():
-        """Runs once both finished AND at least one succeeded."""
+        """Runs once both finished, success or skip — the standard cleanup
+        rule. Reacting specifically to a confirmed failure isn't possible
+        today: that failure cancels this marker's branch before it can
+        evaluate (see the module docstring above)."""
         pass
 
     @task.sfn(arn=ARN, trigger_rule="all_skipped")
@@ -66,40 +69,16 @@ with DAG(
         """Runs only if both upstreams were skipped."""
         pass
 
-    @task.sfn(arn=ARN, trigger_rule="one_failed")
-    def on_one_failed():
-        """Fires as soon as any upstream fails — fast-fail alerting."""
-        pass
-
-    @task.sfn(arn=ARN, trigger_rule="one_success")
-    def on_one_success():
-        """Fires as soon as any upstream succeeds — first-wins pattern."""
-        pass
-
-    @task.sfn(arn=ARN, trigger_rule="one_done")
-    def on_one_done():
-        """Fires as soon as any upstream finishes, whatever the outcome."""
-        pass
-
-    @task.sfn(arn=ARN, trigger_rule="none_failed")
-    def on_none_failed():
-        """Runs if nothing failed (successes and skips are both fine)."""
-        pass
-
-    @task.sfn(arn=ARN, trigger_rule="none_failed_min_one_success")
-    def on_none_failed_min_one_success():
-        """Runs if nothing failed AND at least one upstream actually succeeded."""
+    @task.sfn(arn=ARN, trigger_rule="none_skipped")
+    def on_none_skipped():
+        """Runs if neither upstream was skipped (failures/successes are both
+        fine, as long as nothing was skipped)."""
         pass
 
     # Every marker depends on the same two extracts; only the trigger_rule differs.
     upstreams = [extract_a(), extract_b()]
     on_all_success(upstreams)
-    on_all_failed(upstreams)
-    on_all_done(upstreams)
-    on_all_done_min_one_success(upstreams)
-    on_all_skipped(upstreams)
-    on_one_failed(upstreams)
     on_one_success(upstreams)
-    on_one_done(upstreams)
-    on_none_failed(upstreams)
-    on_none_failed_min_one_success(upstreams)
+    on_all_done(upstreams)
+    on_all_skipped(upstreams)
+    on_none_skipped(upstreams)

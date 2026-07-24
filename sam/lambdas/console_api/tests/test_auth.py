@@ -203,6 +203,21 @@ class TestVerifyCognito:
         with pytest.raises(auth.AuthError):
             auth.verify_cognito_token("eyJ.x.y")
 
+    def test_client_id_not_configured_rejected(self, monkeypatch):
+        """Regression test: region and pool_id present but client_id missing
+        must fail closed ("auth not configured"), the same as a missing
+        pool_id — not silently skip the client-id restriction and accept a
+        token from any app client in the pool. In the deployed SAM template
+        these three env vars are set/unset together via the same !If
+        condition, so this exact combination shouldn't arise there — but the
+        code must not depend solely on that external coupling to stay safe."""
+        import auth
+        monkeypatch.setenv('REGION', 'us-east-1')
+        monkeypatch.setenv('COGNITO_USER_POOL_ID', 'us-east-1_pool')
+        monkeypatch.delenv('COGNITO_CLIENT_ID', raising=False)
+        with pytest.raises(auth.AuthError, match="not configured"):
+            auth.verify_cognito_token("eyJ.x.y")
+
 
 # ── The gate ──────────────────────────────────────────────────────────────
 

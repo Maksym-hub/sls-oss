@@ -18,7 +18,6 @@ from polyris.generators import (
     generate_step_function_json,
     generate_dag_json,
     generate_mermaid,
-    generate_asset_eventbridge_rules,
     validate_asl,
 )
 
@@ -132,20 +131,3 @@ class TestRichGeneration:
         out = generate_mermaid(_rich_dag())
         assert isinstance(out, str)
         assert "graph" in out.lower()
-
-    def test_asset_eventbridge_rules_and_or_branches(self):
-        # AND logic (list of assets → AssetAll) routes to a tracking Lambda;
-        # OR logic (a | b → AssetAny) targets the Step Function directly.
-        with DAG("cons_and", schedule=[Asset("ns/a"), Asset("ns/b")]) as d_and:
-            @task.sfn(arn=ARN)
-            def x():
-                pass
-            x()
-        with DAG("cons_or", schedule=(Asset("ns/c") | Asset("ns/d"))) as d_or:
-            @task.sfn(arn=ARN)
-            def y():
-                pass
-            y()
-        rules = generate_asset_eventbridge_rules([d_and, d_or])
-        assert rules["asset-trigger-cons_and"]["target_type"] == "lambda"
-        assert rules["asset-trigger-cons_or"]["target_type"] == "step_function"

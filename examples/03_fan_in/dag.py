@@ -2,10 +2,14 @@
 
 Three extracts run in parallel; a final `merge` task depends on all three.
 `trigger_rule="all_done"` means merge runs once every upstream task has
-*finished*, whether it succeeded or not — handy for cleanup or marker tasks.
+reached a terminal state — success or skip. (A genuine failure pauses for a
+human decision first, ADR #114, so `all_done` reacting to that specifically
+isn't part of this yet — see docs/features/DSL.md#trigger-rules.)
 
-Other rules include "all_success" (the default), "one_failed",
-"one_success", "none_failed", ... see docs/features/DSL.md#trigger-rules.
+polyris supports 5 trigger rules in total (ADR #117): `all_success` (the
+default), `one_success`, `all_done`, `all_skipped`, `none_skipped` — see
+example 09 (`09_trigger_rules`) for all five side by side, and
+docs/features/DSL.md#trigger-rules for the full analysis.
 
 Run it locally (no AWS):  polyris-output --graph
 """
@@ -37,11 +41,13 @@ with DAG(
 
     @task.sfn(arn=ARN, trigger_rule="all_done")
     def merge():
-        """Combine all three sources; runs even if some upstream failed.
+        """Combine all three sources once they've all reached a terminal
+        state (success or skip).
 
         A fan-in task reads *every* upstream's output from ``upstream`` (keyed by
-        task name), and — because ``trigger_rule="all_done"`` — must tolerate a
-        missing/failed one::
+        task name), so must tolerate a missing/skipped one — a genuinely failed
+        upstream pauses for a decision before `merge` would even be evaluated
+        (ADR #114)::
 
             orders    = $states.input.upstream.extract_orders.output
             returns   = $states.input.upstream.extract_returns.output

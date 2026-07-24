@@ -14,15 +14,15 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Dict
+from typing import Dict, Optional
 
 from boto3.dynamodb.conditions import Key, Attr
 from botocore.exceptions import ClientError, BotoCoreError
 
-from config import sfn, dynamodb, TABLE_NAME
+from config import sfn, dynamodb, TABLE_NAME, ASSET_EVENTS_TABLE
 from dal import executions_repo, pipelines_repo
 from dal.task_events_repo import task_events_repo
-from constants import Limits, TaskStatus, TASK_WAITING_STATUSES, TASK_SETTLED_STATUSES, TASK_SUCCESS_STATUSES
+from constants import Limits, TaskStatus, TASK_WAITING_STATUSES, TASK_SETTLED_STATUSES, TASK_SUCCESS_STATUSES, TASK_TERMINAL_STATUSES
 from feed import feed_dates, is_older, page_by_started_at, pipeline_rows_before
 from response import cors_response, safe_parse_body
 from logger import log
@@ -34,6 +34,7 @@ from utils import (
 )
 from task_actions import (
     notify_dependents_via_sfn,
+    notify_asset_consumers_for_manual_success,
     is_terminal_status,
     build_condition_expression_values,
     TERMINAL_CONDITION_EXPRESSION,
@@ -91,11 +92,15 @@ def resolve_task_item(
         'ProjectionExpression': 'execution_name, started_at, task_name, pipeline_execution',
     }
     
-    # Paginate through results to find matching task
+    # Paginate through all pages (bounded by max_pages) so a match on an
+    # earlier page never hides a MORE RECENT match on a later one — the date
+    # partition spans every pipeline's tasks that day, so a task_name match
+    # can appear on any page, and this function's job is to find the most
+    # recent one (see the sort below), not just the first one encountered.
     last_key = None
     all_items = []
     max_pages = 10  # Safety limit
-    
+
     for _ in range(max_pages):
         if last_key:
             query_kwargs['ExclusiveStartKey'] = last_key
@@ -104,10 +109,6 @@ def resolve_task_item(
         items = response.get('Items', [])
         all_items.extend(items)
         
-        # Early exit if we found items (FilterExpression already applied)
-        if items:
-            break
-            
         last_key = response.get('LastEvaluatedKey')
         if not last_key:
             break
@@ -234,6 +235,7 @@ def _format_task_row(item: Dict) -> Dict:
         'dependencies': item.get('dependencies', []),
         'wait_for': item.get('wait_for', '[]'),
         'pipeline_execution': item.get('pipeline_execution'),
+        'wrapper_execution_arn': item.get('wrapper_execution_arn'),
         'notification_failed': item.get('notification_failed')
     }
 
@@ -527,6 +529,121 @@ def retry_task(task_name: str, event: Dict) -> Dict:
     return restart_task(task_name, event)
 
 
+def _write_synthetic_output_marker(item: Dict, action_name: str, reason: str, date: str) -> None:
+    """Write a synthetic marker to the canonical output store (the same
+    output#{pipeline}#{task}#{date} key xcom.pull() and the console's
+    Input/Output tab both read) when a task is manually resolved — Skip,
+    Mark Successful, Mark Failed, or Stop — without ever actually running
+    through the wrapper's Save_Canonical_Output state.
+
+    Without this, a downstream task calling xcom.pull() on this task raises
+    PullError ("no output stored ... did it return anything?") purely as a
+    consequence of a manual decision made on an upstream task, through no
+    fault of the downstream task's own logic.
+
+    Conditional on 'result' NOT already existing: a genuine, real output from
+    an earlier successful run of this same task/date (e.g. a same-day
+    re-run, or a manual action taken after the task had already produced
+    real output some other way) must never be overwritten by this synthetic
+    marker — it only fills the gap when nothing real is there. Best-effort,
+    matching every other status write in this codebase: a failure here must
+    not block the manual action itself.
+    """
+    pipeline_name = item.get('pipeline_name', 'unknown')
+    task_name = item.get('task_name', '')
+    if not task_name:
+        return
+    key = f"output#{pipeline_name}#{task_name}#{date}"
+    marker = json.dumps({
+        '_manually_resolved': True,
+        '_resolution': action_name,
+        '_reason': reason,
+    })
+    ttl = int(datetime.now(timezone.utc).timestamp()) + (30 * 24 * 60 * 60)
+    try:
+        dynamodb.Table(TABLE_NAME).update_item(
+            Key={'execution_name': key},
+            UpdateExpression=(
+                'SET task_name = :tn, #r = :result, #s = :status, '
+                'updated_at = :ua, #ttl_field = if_not_exists(#ttl_field, :ttl)'
+            ),
+            ConditionExpression='attribute_not_exists(#r)',
+            ExpressionAttributeNames={'#r': 'result', '#s': 'status', '#ttl_field': 'ttl'},
+            ExpressionAttributeValues={
+                ':tn': task_name,
+                ':result': marker,
+                ':status': action_name,
+                ':ua': datetime.now(timezone.utc).isoformat(),
+                ':ttl': ttl,
+            },
+        )
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            log.info(
+                "_write_synthetic_output_marker",
+                "Real output already exists for this task/date — not overwriting",
+                task_name=task_name,
+            )
+        else:
+            log.warn(
+                "_write_synthetic_output_marker", "Failed to write synthetic marker",
+                error=str(e), task_name=task_name,
+            )
+    except BotoCoreError as e:
+        log.warn(
+            "_write_synthetic_output_marker", "Failed to write synthetic marker",
+            error=str(e), task_name=task_name,
+        )
+
+
+def _lookup_dag_node(pipeline_name: str, task_name: str) -> Optional[Dict]:
+    """Look up a single task's node from the pipeline registry's dag_metadata
+    (per ADR #119's unified node builder — includes outlets, and, as of the
+    restart data-loss fix, task_config too). Deploy-time DAG properties like
+    these are never stored on the per-execution DynamoDB record, only here.
+
+    Returns None on any failure (registry read, missing entry, malformed
+    dag, or task not found) — callers treat this as best-effort and decide
+    their own fallback.
+    """
+    if not pipeline_name:
+        return None
+    try:
+        registry_item = pipelines_repo.get(pipeline_name)
+        if not registry_item:
+            return None
+        dag_str = registry_item.get('dag', '{}')
+        dag = json.loads(dag_str) if isinstance(dag_str, str) else dag_str
+        return next((n for n in dag.get('nodes', []) if n.get('id') == task_name), None)
+    except (json.JSONDecodeError, TypeError, ValueError, AttributeError, ClientError, BotoCoreError) as e:
+        log.warn("_lookup_dag_node", "Could not read node from registry",
+                 task_name=task_name, pipeline_name=pipeline_name, error=str(e))
+        return None
+
+
+def _emit_asset_events_for_manual_success(item: Dict, task_name: str, date: str) -> None:
+    """§7c: for Mark Successful specifically, look up this task's outlets
+    from the pipeline registry (outlets are a deploy-time DAG property —
+    never stored on the per-execution DynamoDB record, only in the
+    registry's dag_metadata.nodes, per ADR #119's unified node builder) and
+    notify push-triggered consumers the same way a normal completion would.
+
+    Best-effort: any failure here (registry read, missing/malformed dag)
+    is logged and does not affect the manual action's own success response —
+    matching every other side-effect in this function's caller.
+    """
+    pipeline_name = item.get('pipeline_name', '')
+    node = _lookup_dag_node(pipeline_name, task_name)
+    outlets = node.get('outlets') if node else None
+    if not outlets:
+        return
+
+    notify_asset_consumers_for_manual_success(
+        outlets, task_name, pipeline_name, date,
+        dynamodb, ASSET_EVENTS_TABLE,
+    )
+
+
 def _execute_task_action(
     task_name: str,
     event: Dict,
@@ -540,6 +657,8 @@ def _execute_task_action(
     default_stop_cause: str = None,
     callback_fn,
     success_message: str,
+    skip_origin: str = None,
+    emit_asset_events: bool = False,
 ) -> Dict:
     """Shared implementation for skip_task, fail_task, mark_success.
 
@@ -548,6 +667,13 @@ def _execute_task_action(
     Args:
         action_name: For logging and record_manual_decision ('skip', 'fail', 'mark_success')
         target_status: New DynamoDB status ('skipped', 'failed', 'success')
+        skip_origin: ADR #115 — written only by skip_task, as 'manual'. Distinguishes a
+            human's explicit skip decision from the wrapper's rule-triggered skip
+            (skip_origin='rule', written by notify_dependents' Update_Status_Skip when a
+            trigger_rule's condition legitimately never occurs). all_success's
+            skip-cascade treats only skip_origin='rule' as blocking; a manual skip does
+            not cascade — a human tolerating one gap should not silently no-op an entire
+            downstream success chain.
         use_resolved_check: True = block only resolved (success/skipped), allow recovery from failed.
                             False = block all terminal states.
         include_error_field: If True, include error field in UpdateExpression (for fail_task)
@@ -556,6 +682,12 @@ def _execute_task_action(
         default_stop_cause: Fallback stop_cause when reason is None (e.g. 'Task skipped via UI').
         callback_fn: callable(token, task_name, reason) that sends orchestration callback
         success_message: Template for 200 response message (use {execution_name})
+        emit_asset_events: §7c — only mark_success passes True. Mark Successful is the
+            one manual action that explicitly claims real work happened ("verified via
+            logs/S3"), so a downstream pipeline scheduled on this task's outlets (push
+            model) is notified the same way a normal completion would notify it.
+            Skip/Fail/Stop correctly leave this False — they make no claim that
+            anything was actually produced.
     """
     body, err = safe_parse_body(event)
     if err:
@@ -609,13 +741,23 @@ def _execute_task_action(
         log.warn(action_name, "No pipeline_execution_short, event notification may fail", execution_name=execution_name)
 
     # Claim: update status FIRST (with ConditionExpression as race condition guard)
+    # ADR #115: skip_origin is appended to the SET clause only when provided (skip_task
+    # passes 'manual'); fail_task/mark_success never pass it, so their UpdateExpression
+    # is byte-identical to before this change.
+    skip_origin_set = ', skip_origin = :skip_origin' if skip_origin else ''
+    skip_origin_values = {':skip_origin': skip_origin} if skip_origin else {}
     try:
         if include_error_field:
             executions_repo.update(
                 execution_name,
-                'SET #s = :status, finished_at = :finished, #e = :error',
+                f'SET #s = :status, finished_at = :finished, #e = :error{skip_origin_set}',
                 expr_values=expr_values_fn(
-                    {':status': target_status, ':finished': datetime.now(timezone.utc).isoformat(), ':error': reason}
+                    {
+                        ':status': target_status,
+                        ':finished': datetime.now(timezone.utc).isoformat(),
+                        ':error': reason,
+                        **skip_origin_values,
+                    }
                 ),
                 expr_names={'#s': 'status', '#e': 'error'},
                 condition_expr=condition_expr,
@@ -623,9 +765,13 @@ def _execute_task_action(
         else:
             executions_repo.update(
                 execution_name,
-                'SET #s = :status, finished_at = :finished',
+                f'SET #s = :status, finished_at = :finished{skip_origin_set}',
                 expr_values=expr_values_fn(
-                    {':status': target_status, ':finished': datetime.now(timezone.utc).isoformat()}
+                    {
+                        ':status': target_status,
+                        ':finished': datetime.now(timezone.utc).isoformat(),
+                        **skip_origin_values,
+                    }
                 ),
                 expr_names={'#s': 'status'},
                 condition_expr=condition_expr,
@@ -646,6 +792,9 @@ def _execute_task_action(
     stop_cause = reason or default_stop_cause or f'Task {action_name} via UI'
     stop_task_executions(item, stop_error, stop_cause)
     record_manual_decision(execution_name, action_name, stop_cause, item)
+    _write_synthetic_output_marker(item, action_name, stop_cause, date)
+    if emit_asset_events:
+        _emit_asset_events_for_manual_success(item, actual_task_name, date)
 
     log.info(action_name, "Successfully completed", execution_name=execution_name, actual_task_name=actual_task_name)
 
@@ -735,6 +884,7 @@ def skip_task(task_name: str, event: Dict) -> Dict:
         use_resolved_check=True,
         stop_error='Skipped',
         default_reason='Task skipped via UI',
+        skip_origin='manual',
         callback_fn=lambda token, name, _reason: sfn.send_task_success(
             taskToken=token, output=json.dumps({'status': 'skipped', 'task_name': name})
         ),
@@ -786,6 +936,7 @@ def mark_success(task_name: str, event: Dict) -> Dict:
             output=json.dumps({'status': 'success', 'task_name': name, 'manual': True, 'reason': reason}),
         ),
         success_message='Task {execution_name} marked as successful',
+        emit_asset_events=True,
     )
 
 
@@ -867,6 +1018,7 @@ def stop_task(task_name: str, event: Dict) -> Dict:
     # Side-effects AFTER successful claim
     stop_task_executions(item, 'Stopped', 'Task stopped via UI - can be restarted')
     record_manual_decision(execution_name, 'stop', 'Task stopped via UI', item)
+    _write_synthetic_output_marker(item, 'stop', 'Task stopped via UI', date)
 
     # For aborted tasks: send orchestration callback if token exists
     # This prevents pipeline from hanging waiting for callback
@@ -925,12 +1077,37 @@ def restart_task(task_name: str, event: Dict) -> Dict:
 
     current_status = item.get('status', '')
 
-    # Only terminal tasks can be restarted
-    if not is_terminal_status(current_status):
+    # Restartable from any terminal status, 'stopped', OR 'waiting_decision' —
+    # restart_task_helper's Stop_Old_Wrapper hard-kills whatever's still
+    # running via states:StopExecution (not send_task_success/failure), so it
+    # never triggers notify_dependents_via_sfn the way Stop does — going
+    # straight to Restart from waiting_decision avoids Stop's unconditional,
+    # immediate downstream notification entirely (see docs/reference/
+    # SPIKE_TASK_ACTIONS_DATA_LIFECYCLE.md §8/§9 for the full reasoning).
+    # Safe to include here specifically because both §9 prerequisites are in
+    # place: (1) Stop_Old_Wrapper reads the correct field name (helper_arn
+    # was a bug — the wrapper actually writes run_task_helper_arn — so it can
+    # now actually find and kill the still-live wrapper, not silently no-op),
+    # and (2) even if that kill fails for any reason, every status-writing
+    # state in the wrapper now requires its own attempt to still match the
+    # DB's current attempt — so a surviving ghost's write is rejected by
+    # DynamoDB itself, and can never corrupt what the new attempt has
+    # written, regardless of whether the kill succeeded.
+    #
+    # Restartable from any terminal status, OR from 'stopped' — stop_task's own
+    # success message tells the user to "Use Restart to resume", so a stopped
+    # task must be accepted here even though 'stopped' is deliberately NOT in
+    # TASK_TERMINAL_STATUSES (stop_task treats it as non-terminal/resumable,
+    # not as "done"). This is a restart_task-local extension, not a change to
+    # the shared is_terminal_status/TASK_TERMINAL_STATUSES — stop_task's own
+    # "already terminal" check and other actions still use the unmodified set.
+    RESTARTABLE_STATUSES = TASK_TERMINAL_STATUSES | {'stopped', 'waiting_decision'}
+    if current_status not in RESTARTABLE_STATUSES:
         return cors_response(
             409,
             {
-                'error': f'Task not in terminal state: {current_status}. Only completed/failed/skipped tasks can be restarted.',
+                'error': f'Task not in restartable state: {current_status}. '
+                         f'Only completed/failed/skipped/aborted/stopped/waiting_decision tasks can be restarted.',
                 'execution_name': execution_name,
                 'current_status': current_status,
             },
@@ -943,6 +1120,14 @@ def restart_task(task_name: str, event: Dict) -> Dict:
         # Record manual decision for timeline
         record_manual_decision(execution_name, 'restart', 'Task restarted via UI', item)
 
+        # task_config/outlets are deploy-time DAG properties, never stored on
+        # the per-execution record — look them up from the registry so the
+        # restarted attempt doesn't silently lose retries/worker-type/etc or
+        # outlets (previously always reconstructed as empty).
+        node = _lookup_dag_node(item.get('pipeline_name', ''), item.get('task_name', ''))
+        task_config = (node or {}).get('task_config', {})
+        outlets = (node or {}).get('outlets', [])
+
         # Call restart_task_helper Step Function
         try:
             exec_id = uuid.uuid4().hex[:8]
@@ -950,7 +1135,11 @@ def restart_task(task_name: str, event: Dict) -> Dict:
             result = sfn.start_execution(
                 stateMachineArn=restart_helper_arn,
                 name=restart_name,
-                input=json.dumps({'execution_name': execution_name}),
+                input=json.dumps({
+                    'execution_name': execution_name,
+                    'task_config': task_config,
+                    'outlets': outlets,
+                }),
             )
             return cors_response(
                 200, {'message': f'Restart initiated for {execution_name}', 'execution_arn': result['executionArn']}
@@ -965,8 +1154,12 @@ def restart_task(task_name: str, event: Dict) -> Dict:
         # Record manual decision for timeline
         record_manual_decision(execution_name, 'restart', 'Task restart (fallback) via UI', item)
 
-        # Reset status (only if still in terminal state - race condition guard)
-        RESTART_CONDITION = '#s IN (:success, :failed, :skipped, :aborted, :upstream_failed)'
+        # Reset status (only if still in the same restartable state this
+        # request observed — race condition guard). Derived from
+        # RESTARTABLE_STATUSES itself, not a separately hand-maintained
+        # string — sorted for a deterministic, readable expression, matching
+        # TERMINAL_CONDITION_EXPRESSION's own established pattern.
+        RESTART_CONDITION = '#s IN ({})'.format(', '.join(f':{s}' for s in sorted(RESTARTABLE_STATUSES)))
         try:
             executions_repo.update(
                 execution_name,
@@ -977,6 +1170,10 @@ def restart_task(task_name: str, event: Dict) -> Dict:
                         ':started': datetime.now(timezone.utc).isoformat(),
                         ':finished': None,
                         ':error': None,
+                        # build_condition_expression_values already adds every
+                        # TASK_TERMINAL_STATUSES value automatically — only
+                        # the non-terminal extras need adding explicitly.
+                        **{f':{s}': s for s in RESTARTABLE_STATUSES - TASK_TERMINAL_STATUSES},
                     }
                 ),
                 expr_names={'#s': 'status', '#e': 'error'},

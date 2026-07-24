@@ -81,6 +81,9 @@
 .dag-container .react-flow__controls-button:hover {
     background: var(--bg-hover);
 }
+.dag-container .react-flow__controls-button svg {
+    fill: currentColor;
+}
 .dag-container .react-flow__minimap {
     z-index: 4;
 }

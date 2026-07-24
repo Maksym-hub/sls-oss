@@ -15,7 +15,7 @@
           }
         }
       },
-      "Output": "{% { 'item': $exists($states.result.Item) ? $states.result.Item : {}, 'execution_name': $states.input.execution_name } %}",
+      "Output": "{% { 'item': $exists($states.result.Item) ? $states.result.Item : {}, 'execution_name': $states.input.execution_name, 'task_config': $exists($states.input.task_config) ? $states.input.task_config : {}, 'outlets': $exists($states.input.outlets) ? $states.input.outlets : [] } %}",
       "Next": "Check_Task_Exists",
       "Retry": [
         {
@@ -38,26 +38,48 @@
       "Choices": [
         {
           "Condition": "{% $exists($states.input.item.task_name) %}",
-          "Next": "Stop_Old_Wrapper"
+          "Next": "Stop_Old_Outer_Wrapper"
         }
       ],
       "Default": "Task_Not_Found"
     },
-    "Stop_Old_Wrapper": {
+    "Stop_Old_Outer_Wrapper": {
       "Type": "Task",
-      "Comment": "Stop the old wrapper execution if it's still running",
+      "Comment": "Stop the OLD outer dependency_wrapper execution first — an external StopExecution here does NOT trigger the wrapper's own internal Catch/Handle_Failure (that only fires for errors from WITHIN the execution, not from being stopped externally), so this cannot cascade a false 'task failed' notification to downstream tasks. Must happen before killing the inner run_task below, or the outer wrapper's synchronous Run_Task call would see its child aborted and incorrectly report a failure.",
       "Resource": "arn:aws:states:::aws-sdk:sfn:stopExecution",
       "Arguments": {
         "ExecutionArn": "{% $states.input.item.wrapper_execution_arn.S %}",
         "Error": "RestartRequested",
-        "Cause": "Task restart requested via Slack"
+        "Cause": "Task restart requested via UI"
       },
       "Catch": [
         {
           "ErrorEquals": [
             "States.ALL"
           ],
-          "Comment": "Ignore errors - wrapper may already be stopped or ARN missing",
+          "Comment": "Ignore errors - outer wrapper may already be stopped or ARN missing",
+          "Output": "{% $states.input %}",
+          "Next": "Stop_Old_Inner_Wrapper"
+        }
+      ],
+      "Output": "{% $states.input %}",
+      "Next": "Stop_Old_Inner_Wrapper"
+    },
+    "Stop_Old_Inner_Wrapper": {
+      "Type": "Task",
+      "Comment": "Stop the old inner run_task execution second, now that the outer wrapper (which would otherwise catch this as a failure) is already stopped and can't react to it. Prevents run_task from being orphaned as a ghost, still counting down its own Wait_For_Decision timer indefinitely.",
+      "Resource": "arn:aws:states:::aws-sdk:sfn:stopExecution",
+      "Arguments": {
+        "ExecutionArn": "{% $states.input.item.run_task_helper_arn.S %}",
+        "Error": "RestartRequested",
+        "Cause": "Task restart requested via UI"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Comment": "Ignore errors - inner wrapper may already be stopped or ARN missing",
           "Output": "{% $states.input %}",
           "Next": "Delete_Old_Record"
         }
@@ -112,14 +134,14 @@
           "token": "{% $exists($states.input.item.orchestration_token.S) ? $states.input.item.orchestration_token.S : '' %}",
           "execution_name_override": "{% $states.input.execution_name %}",
           "current_date": "{% $exists($states.input.item.date.S) ? $states.input.item.date.S : $substringBefore($now(), 'T') %}",
+          "date": "{% $exists($states.input.item.date.S) ? $states.input.item.date.S : $substringBefore($now(), 'T') %}",
           "trigger_rule": "{% $exists($states.input.item.trigger_rule.S) ? $states.input.item.trigger_rule.S : 'all_success' %}",
           "wait_before": "{% $exists($states.input.item.wait_before.N) ? $number($states.input.item.wait_before.N) : 0 %}",
           "task_type": "{% $exists($states.input.item.task_type.S) ? $states.input.item.task_type.S : 'sfn' %}",
-          "task_config": "{% $exists($states.input.item.task_config.S) ? $parse($states.input.item.task_config.S) : {} %}",
-          "outlets": "{% $exists($states.input.item.outlets.S) ? $parse($states.input.item.outlets.S) : [] %}",
+          "task_config": "{% $exists($states.input.task_config) ? $states.input.task_config : {} %}",
+          "outlets": "{% $exists($states.input.outlets) ? $states.input.outlets : [] %}",
           "task_run_id": "{% $exists($states.input.item.task_run_id.S) ? $states.input.item.task_run_id.S : $states.input.execution_name %}",
-          "attempt": "{% ($exists($states.input.item.attempt.N) ? $number($states.input.item.attempt.N) : 1) + 1 %}",
-          "is_restart": true
+          "attempt": "{% ($exists($states.input.item.attempt.N) ? $number($states.input.item.attempt.N) : 1) + 1 %}"
         }
       },
       "Output": {

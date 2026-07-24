@@ -417,6 +417,63 @@ class TestResolvePagerduty:
         resolve_pagerduty(item)
 
 
+class TestComputePipelineExecutionShort:
+    """compute_pipeline_execution_short's own docstring documents it as a
+    hand-maintained mirror of the JSONata in dependency_wrapper
+    (JSONATA_EXEC_SHORT in polyris/generators.py: last 20 chars, strip '.'
+    and ':'). Neither this function nor ensure_pipeline_execution_short had
+    any direct test anywhere in either repo before this — only indirect
+    coverage via task_actions.py's extract_pipeline_execution_short test,
+    for a single input shape, not the boundary cases (exactly 20 chars,
+    empty input, dots/colons) that a JSONata-mirroring function is most
+    likely to silently drift on."""
+
+    def test_empty_returns_empty(self):
+        from console_api.utils import compute_pipeline_execution_short
+        assert compute_pipeline_execution_short('') == ''
+
+    def test_shorter_than_20_is_unchanged_apart_from_stripping(self):
+        from console_api.utils import compute_pipeline_execution_short
+        assert compute_pipeline_execution_short('a.b:c') == 'abc'
+
+    def test_exactly_20_chars_boundary(self):
+        from console_api.utils import compute_pipeline_execution_short
+        s = 'x' * 20
+        assert compute_pipeline_execution_short(s) == s
+
+    def test_over_20_chars_takes_last_20(self):
+        from console_api.utils import compute_pipeline_execution_short
+        s = '2026-07-21T12:34:56.789Z-abc123def456ghi789jkl'
+        # Mirrors JSONATA_EXEC_SHORT: last 20 chars of the RAW string, THEN
+        # strip '.'/':' — not "take 20 chars after stripping".
+        expected = s[-20:].replace('.', '').replace(':', '')
+        assert compute_pipeline_execution_short(s) == expected
+
+    def test_dots_and_colons_stripped_after_truncation_not_before(self):
+        """Order matters: truncate to the last 20 raw characters FIRST, then
+        strip '.'/':' — stripping first would shift which characters end up
+        in the final 20, silently diverging from JSONATA_EXEC_SHORT (which
+        truncates $exec itself, before any $replace)."""
+        from console_api.utils import compute_pipeline_execution_short
+        s = 'arn:aws:states:us-east-1:123456789012:execution:x:y'
+        assert compute_pipeline_execution_short(s) == '789012executionxy'
+
+
+class TestEnsurePipelineExecutionShort:
+    def test_existing_short_wins_over_computing(self):
+        from console_api.utils import ensure_pipeline_execution_short
+        assert ensure_pipeline_execution_short('irrelevant:full.value', 'kept-as-is') == 'kept-as-is'
+
+    def test_falls_back_to_compute_when_no_existing(self):
+        from console_api.utils import ensure_pipeline_execution_short, compute_pipeline_execution_short
+        full = 'sales-hourly-2026-07-16-abc123def456'
+        assert ensure_pipeline_execution_short(full, '') == compute_pipeline_execution_short(full)
+
+    def test_empty_both_yields_empty(self):
+        from console_api.utils import ensure_pipeline_execution_short
+        assert ensure_pipeline_execution_short('', '') == ''
+
+
 class TestDictSchemaRichness:
     def test_empty_returns_zero(self):
         from utils import dict_schema_richness

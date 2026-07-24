@@ -270,19 +270,60 @@ polyris-deploy --file my_dag.py
 
 # Multi-DAG file — deploy specific DAG
 polyris-deploy --select my-dag-id
+
+# Bulk: deploy every subdirectory of the current directory
+# (each directory's every .py file is scanned; every DAG found is deployed;
+# a file with zero DAGs — a shared config.py, etc. — is silently skipped)
+polyris-deploy --all
+
+# Bulk: deploy only the listed subdirectories
+polyris-deploy --only dir1 dir2
+
+# Bulk + destroy
+polyris-deploy --destroy --all
+polyris-deploy --destroy --only dir1 dir2
+
+# Bulk + pick one DAG per directory (directories without that DAG are skipped,
+# not an error)
+polyris-deploy --only dir1 dir2 --select my-dag-id
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--stage` | Deployment stage (default: from `config.py DEFAULT_STAGE`) |
 | `--profile` | AWS profile (default: from `config.py` or AWS default) |
-| `--file` | Pipeline file (default: `dag.py`) |
+| `--file` | Pipeline file (default: `dag.py`). Not used with `--all`/`--only` |
 | `--dry-run` | Preview CloudFormation changes without deploying |
 | `--destroy` | Remove pipeline stack and clean up DynamoDB |
-| `--select` | Select DAG by ID (for multi-DAG files) |
+| `--select` | Select DAG by ID (for multi-DAG files); combinable with `--all`/`--only` to filter within each directory |
+| `--all` | Bulk: every immediate subdirectory of the current directory. Mutually exclusive with `--only` |
+| `--only DIR [DIR ...]` | Bulk: only the listed subdirectories. Mutually exclusive with `--all` |
 | `--region` | AWS region (default: from `config.py`) |
 | `--log-level` | CloudWatch log level: `ALL`, `ERROR`, `FATAL`, `OFF` (default: `ERROR`) |
 | `--log-retention` | Log retention in days (default: `30`) |
+
+### Bulk mode (`--all` / `--only`)
+
+Run from the parent directory containing your pipeline subdirectories (e.g.
+`examples/`, with `cd examples`). Each target directory is scanned
+independently:
+
+1. Every `.py` file directly in the directory is loaded (non-recursive) —
+   not just `dag.py`. A directory with several independent pipeline files
+   (`orders.py`, `inventory.py`, ...) has all of them deployed.
+2. Every DAG object found in every file is deployed — a file with several
+   DAGs (see the multi-DAG-file note above) gets all of them, same as
+   single-file mode.
+3. A file with zero DAGs (a shared `config.py`, a `utils.py`) contributes
+   nothing and is silently skipped — not an error.
+
+One DAG failing (a validation error, an AWS error) does not stop the batch —
+every DAG in every directory is still attempted, and a summary prints at the
+end listing what succeeded and what failed. The process exits non-zero if
+anything failed, so it's safe to use as a CI/script gate.
+
+`--file` is not used in bulk mode (each directory's files are discovered
+automatically) — passing both is a usage error.
 
 ---
 

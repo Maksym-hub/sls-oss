@@ -27,8 +27,9 @@ import sys
 import subprocess
 import importlib.util
 import argparse
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple
 from datetime import datetime, timezone
 
 import boto3
@@ -114,6 +115,7 @@ def _generate_cfn_template(
     wrapper_arn: str,
     registry_table: str,
     tokens_table: str,
+    asset_subscriptions_table: str,
     log_retention_days: int = 30,
     log_level: str = "ERROR",
 ) -> dict:
@@ -125,7 +127,24 @@ def _generate_cfn_template(
         wrapper_arn=wrapper_arn,
         registry_table=registry_table,
         tokens_table=tokens_table,
+        asset_subscriptions_table=asset_subscriptions_table,
     )
+
+    # Fail fast, before anything reaches AWS, if a template variable was never
+    # substituted — deploying it anyway just defers the same failure to the
+    # first real API call that uses the literal '${...}' string (this is
+    # exactly how the asset_subscriptions_table bug surfaced: DynamoDB
+    # rejected TableName='${asset_subscriptions_table}' with a
+    # ValidationException, well after the stack had already deployed).
+    if "${" in asl_json:
+        import re
+        leftover = sorted(set(re.findall(r"\$\{([a-zA-Z0-9_]+)\}", asl_json)))
+        raise ValueError(
+            f"Generated Step Functions definition for '{dag.dag_id}' still contains "
+            f"unsubstituted template variable(s): {leftover}. This means a required "
+            f"parameter was not passed to generate_step_function_json — check "
+            f"deploy.py's SSM reads and _generate_cfn_template's call site."
+        )
 
     resources = {}
     outputs = {}
@@ -176,29 +195,79 @@ def _generate_cfn_template(
         "DependsOn": "PipelineLogGroup",
     }
 
-    # EventBridge schedule (time-based)
+    # EventBridge schedule (time-based) — via EventBridge Scheduler
+    # (AWS::Scheduler::Schedule), not the classic AWS::Events::Rule, which
+    # AWS's own console now labels "legacy" in favor of Scheduler.
     if dag.schedule and not dag.is_asset_triggered:
         schedule_expr = dag._eventbridge_schedule
-        resources["PipelineScheduleRule"] = {
-            "Type": "AWS::Events::Rule",
+        scheduler_role_name = f"{full_name}-scheduler-role"
+
+        # Scheduler needs its own execution role — distinct from role_arn
+        # (the pipeline's Step Functions execution role) — trusted only by
+        # scheduler.amazonaws.com, and only for start_execution on THIS
+        # pipeline's own state machine.
+        resources["PipelineSchedulerRole"] = {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "RoleName": scheduler_role_name,
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"Service": "scheduler.amazonaws.com"},
+                            "Action": "sts:AssumeRole",
+                        }
+                    ],
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "InvokePipelineStateMachine",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": "states:StartExecution",
+                                    "Resource": {"Ref": "PipelineStateMachine"},
+                                }
+                            ],
+                        },
+                    }
+                ],
+                "Tags": [
+                    {"Key": "Pipeline", "Value": dag.dag_id},
+                    {"Key": "ManagedBy", "Value": "polyris-deploy"},
+                ],
+            },
+        }
+
+        # Logical ID deliberately NOT "PipelineScheduleRule" (the pre-
+        # migration name, when this was an AWS::Events::Rule): confirmed via
+        # a real deploy attempt that CloudFormation refuses an in-place
+        # resource TYPE change on the same logical ID ("Update of resource
+        # type is not permitted"). Keeping a distinct name makes this an
+        # add (this resource) + remove (the old Events::Rule, now absent
+        # from the template) pair instead — which CloudFormation supports.
+        # Do not rename this back to "PipelineScheduleRule".
+        resources["PipelineSchedule"] = {
+            "Type": "AWS::Scheduler::Schedule",
             "Properties": {
                 "Name": f"{full_name}-schedule",
                 "Description": f"Schedule for {dag.dag_id}",
                 "ScheduleExpression": schedule_expr,
-                "State": "ENABLED",
-                "Targets": [
-                    {
-                        "Id": "PipelineTarget",
-                        "Arn": {"Ref": "PipelineStateMachine"},
-                        "RoleArn": role_arn,
-                        "Input": json.dumps({
-                            "triggered_by": "schedule",
-                            "schedule": schedule_expr,
-                        }),
-                    }
-                ],
+                "State": "DISABLED" if dag.is_paused_upon_creation else "ENABLED",
+                "FlexibleTimeWindow": {"Mode": "OFF"},
+                "Target": {
+                    "Arn": {"Ref": "PipelineStateMachine"},
+                    "RoleArn": {"Fn::GetAtt": ["PipelineSchedulerRole", "Arn"]},
+                    "Input": json.dumps({
+                        "triggered_by": "schedule",
+                        "schedule": schedule_expr,
+                    }),
+                },
             },
-            "DependsOn": "PipelineStateMachine",
+            "DependsOn": ["PipelineStateMachine", "PipelineSchedulerRole"],
         }
 
     outputs["StateMachineArn"] = {
@@ -246,6 +315,75 @@ def _register_pipeline(
         input=json.dumps({"register_only": True}),
     )
     print("  ✅ Registration triggered")
+
+
+# ANSI color codes for stack-event status. Only applied when stdout is a
+# real terminal — piping `polyris-deploy` output to a file or CI log must
+# not embed raw escape codes.
+_COLOR_RESET = "\033[0m"
+_COLOR_GREEN = "\033[32m"
+_COLOR_RED = "\033[31m"
+_COLOR_YELLOW = "\033[33m"
+_COLOR_CYAN = "\033[36m"
+
+
+def _colorize_status(status: str) -> str:
+    """Color a CloudFormation ResourceStatus by outcome: red for
+    failed/rollback, green for complete, cyan for in-progress, yellow for
+    anything else (e.g. REVIEW_IN_PROGRESS). Plain text if stdout isn't a
+    real terminal (checked at call time, not cached, so tests can patch
+    sys.stdout.isatty directly)."""
+    if not sys.stdout.isatty():
+        return status
+    if "FAILED" in status or "ROLLBACK" in status:
+        color = _COLOR_RED
+    elif "COMPLETE" in status:
+        color = _COLOR_GREEN
+    elif "IN_PROGRESS" in status:
+        color = _COLOR_CYAN
+    else:
+        color = _COLOR_YELLOW
+    return f"{color}{status}{_COLOR_RESET}"
+
+
+def _watch_stack_events(
+    cfn_client,
+    stack_name: str,
+    seen_event_ids: set,
+    stop_event: threading.Event,
+    poll_interval: float = 2.0,
+) -> None:
+    """Print new CloudFormation stack events as they happen, until
+    stop_event is set.
+
+    Purely observational — only reads describe_stack_events; never raises,
+    so a polling hiccup (or the stack not existing yet, on a fresh CREATE)
+    can never affect the actual deploy outcome, which is driven entirely by
+    the separate `aws cloudformation deploy` subprocess this runs alongside.
+
+    `seen_event_ids` must already be seeded (by the caller) with any events
+    that existed BEFORE this deploy started — CloudFormation keeps full
+    event history per stack across past deploys, so without seeding, the
+    first poll here would print old, unrelated events from a previous
+    deploy as if they were happening right now.
+    """
+    while not stop_event.is_set():
+        try:
+            events = cfn_client.describe_stack_events(StackName=stack_name)["StackEvents"]
+            new_events = [e for e in events if e["EventId"] not in seen_event_ids]
+            new_events.sort(key=lambda e: e["Timestamp"])
+            for e in new_events:
+                seen_event_ids.add(e["EventId"])
+                reason = f" — {e['ResourceStatusReason']}" if e.get("ResourceStatusReason") else ""
+                status_colored = _colorize_status(e["ResourceStatus"])
+                # Pad the RAW status (not the color-escaped string) so
+                # ANSI codes don't throw off the column alignment.
+                padding = " " * max(0, 28 - len(e["ResourceStatus"]))
+                print(f"    {status_colored}{padding} {e['ResourceType']:<32} {e['LogicalResourceId']}{reason}")
+
+        except Exception:
+            pass
+        stop_event.wait(poll_interval)
 
 
 # =============================================================================
@@ -301,7 +439,14 @@ def deploy_pipeline(
     # Guard: verify we're deploying to the expected account
     stage_config = polyris_config.for_stage(stage)
     expected_account = stage_config.get("account_id")
-    if expected_account and caller_identity:
+    if expected_account:
+        if caller_identity is None:
+            print(f"❌ Could not verify the AWS account for stage '{stage}' "
+                  f"(sts:GetCallerIdentity failed for an unexpected reason, "
+                  f"not a credentials error). Stage '{stage}' expects account "
+                  f"{expected_account}; refusing to deploy without confirming "
+                  f"it, to avoid an accidental wrong-account deploy.")
+            sys.exit(1)
         actual_account = caller_identity["Account"]
         if actual_account != expected_account:
             print(f"❌ Account mismatch for stage '{stage}':")
@@ -323,6 +468,7 @@ def deploy_pipeline(
     role_arn = get_ssm("pipeline_execution_role_arn")
     registry_table = get_ssm("pipeline_registry_table")
     tokens_table = get_ssm("pipeline_tokens_table")
+    asset_subscriptions_table = get_ssm("asset_subscriptions_table")
     results_bucket = get_ssm("results_bucket")
 
     if not wrapper_arn or not role_arn:
@@ -362,6 +508,7 @@ def deploy_pipeline(
         wrapper_arn=wrapper_arn,
         registry_table=registry_table or "",
         tokens_table=tokens_table or "",
+        asset_subscriptions_table=asset_subscriptions_table or "",
         log_level=log_level,
         log_retention_days=log_retention_days,
     )
@@ -391,11 +538,73 @@ def deploy_pipeline(
         cmd += ["--profile", profile]
     if results_bucket:
         cmd += ["--s3-bucket", results_bucket, "--s3-prefix", "cfn-pipeline-templates"]
-    result = subprocess.run(cmd, capture_output=False)
+
+    # Background, purely-observational progress display: poll the same
+    # stack events the AWS Console shows, printing new ones as `aws
+    # cloudformation deploy` (below, unchanged) runs. Seed with whatever
+    # events already exist so an UPDATE doesn't print old history from a
+    # past deploy as if it's happening now.
+    watcher_cfn = session.client("cloudformation")
+    seen_event_ids: set = set()
+    try:
+        existing_events = watcher_cfn.describe_stack_events(StackName=stack_name)["StackEvents"]
+        seen_event_ids.update(e["EventId"] for e in existing_events)
+    except Exception:
+        pass  # fresh stack that doesn't exist yet — nothing to seed
+    stop_watching = threading.Event()
+    watcher_thread = threading.Thread(
+        target=_watch_stack_events,
+        args=(watcher_cfn, stack_name, seen_event_ids, stop_watching),
+        daemon=True,
+    )
+    watcher_thread.start()
+    try:
+        result = subprocess.run(cmd, capture_output=False)
+    finally:
+        stop_watching.set()
+        watcher_thread.join(timeout=5)
 
     if result.returncode != 0:
         print("\n❌ CloudFormation deploy failed")
         sys.exit(1)
+
+    # Explicitly (re-)enforce the schedule's enabled/disabled state.
+    #
+    # `aws cloudformation deploy` only diffs the new template against what
+    # CloudFormation tracked as the LAST-applied template — it does not
+    # re-verify the live resource's actual configuration. So if someone
+    # manually disables this schedule via the AWS Console (bypassing CFN), a
+    # later `polyris-deploy` with no other template changes reports "No
+    # changes to deploy" and leaves the manual change in place — a
+    # `polyris-deploy` should bring the environment back to the DAG's
+    # declared intent, not just whatever CloudFormation's changeset diff
+    # happens to notice. This call runs unconditionally, so it also fixes
+    # dag.is_paused_upon_creation having no effect on a fresh deploy (the
+    # template's own State property, fixed above, only matters for a
+    # from-scratch resource create — CloudFormation doesn't re-apply an
+    # unchanged property on an update).
+    if dag.schedule and not dag.is_asset_triggered:
+        schedule_name = f"{stack_name}-schedule"
+        scheduler_client = session.client("scheduler")
+        desired_state = "DISABLED" if dag.is_paused_upon_creation else "ENABLED"
+        try:
+            # EventBridge Scheduler's update_schedule is a full replace, not a
+            # toggle — fetch the schedule CFN just deployed and resubmit it
+            # unchanged apart from State, rather than re-deriving Target/
+            # FlexibleTimeWindow independently here (which would risk a
+            # second copy of that construction drifting from the template).
+            current = scheduler_client.get_schedule(Name=schedule_name)
+            if current.get("State") != desired_state:
+                scheduler_client.update_schedule(
+                    Name=schedule_name,
+                    GroupName=current.get("GroupName", "default"),
+                    ScheduleExpression=current["ScheduleExpression"],
+                    FlexibleTimeWindow=current["FlexibleTimeWindow"],
+                    Target=current["Target"],
+                    State=desired_state,
+                )
+        except Exception as e:
+            print(f"⚠️  Could not set schedule state for '{schedule_name}': {e}")
 
     # Get SFN ARN from stack outputs
     cfn = session.client("cloudformation")
@@ -440,6 +649,111 @@ def _load_dag_from_file(path: Path) -> list:
     return dags
 
 
+def _discover_dags_in_dir(dir_path: Path) -> "List[Tuple[Path, DAG]]":
+    """Find every DAG in every .py file directly inside dir_path (non-recursive).
+
+    A .py file with zero DAG objects (a shared config.py, a utils module, etc.)
+    contributes nothing and is silently skipped — that's expected, not an error.
+    A file that fails to *load* (syntax error, import error, an accidental
+    top-level AWS call raising) is reported and skipped too, rather than
+    aborting the whole batch — _load_dag_from_file calls sys.exit(1) on load
+    failure, which is exactly right for the single-file CLI path but wrong
+    here, so it's caught as SystemExit and turned into "skip this file".
+    """
+    found: "List[Tuple[Path, DAG]]" = []
+    for py_file in sorted(dir_path.glob("*.py")):
+        try:
+            dags = _load_dag_from_file(py_file)
+        except SystemExit:
+            print(f"  ⚠️  Skipping {py_file} (failed to load)")
+            continue
+        for dag in dags:
+            found.append((py_file, dag))
+    return found
+
+
+def _run_bulk(
+    target_dirs: "List[str]",
+    *,
+    select: Optional[str],
+    stage: Optional[str],
+    region: Optional[str],
+    dry_run: bool,
+    destroy: bool,
+    log_level: str,
+    log_retention_days: int,
+    profile: Optional[str],
+) -> None:
+    """Deploy or destroy every DAG found across target_dirs (--all / --only).
+
+    Each directory is scanned independently (see _discover_dags_in_dir); each
+    DAG's deploy_pipeline() call is isolated with its own try/except so one
+    failure — a validation error, an AWS error, anything that would normally
+    sys.exit(1) in the single-pipeline path — is recorded and the batch moves
+    on to the next DAG, rather than aborting everything after it. A summary
+    prints at the end regardless of outcome; the process exits non-zero if
+    anything failed, so this is safe to use as a CI/script gate.
+    """
+    action = "destroy" if destroy else "deploy"
+    results: "List[Tuple[str, str, bool, Optional[str]]]" = []
+
+    for dir_name in sorted(target_dirs):
+        dir_path = Path(dir_name)
+        if not dir_path.is_dir():
+            print(f"❌ Not a directory: {dir_name}")
+            results.append((dir_name, "-", False, "not a directory"))
+            continue
+
+        print(f"\n=== {dir_name} ===")
+        dags = _discover_dags_in_dir(dir_path)
+
+        if select:
+            dags = [(f, d) for f, d in dags if d.dag_id == select]
+            if not dags:
+                print(f"  (no DAG '{select}' here — skipping)")
+                continue
+
+        if not dags:
+            print("  (no DAGs found — skipping)")
+            continue
+
+        for py_file, dag in dags:
+            print(f"  → {action}ing '{dag.dag_id}' (from {py_file.name})")
+            try:
+                deploy_pipeline(
+                    dag=dag,
+                    stage=stage,
+                    region=region,
+                    dry_run=dry_run,
+                    destroy=destroy,
+                    log_level=log_level,
+                    log_retention_days=log_retention_days,
+                    profile=profile,
+                )
+                results.append((dir_name, dag.dag_id, True, None))
+            except SystemExit as e:
+                code = e.code if isinstance(e.code, int) else 1
+                if code == 0:
+                    results.append((dir_name, dag.dag_id, True, None))
+                else:
+                    results.append((dir_name, dag.dag_id, False, f"exited with code {code}"))
+            except Exception as e:  # pragma: no cover -- defensive: deploy_pipeline's own
+                                     # error paths all go through sys.exit, this guards
+                                     # against a future change that raises instead
+                results.append((dir_name, dag.dag_id, False, str(e)))
+
+    succeeded = [r for r in results if r[2]]
+    failed = [r for r in results if not r[2]]
+
+    print(f"\n=== Summary: {len(succeeded)} succeeded, {len(failed)} failed ===")
+    for dir_name, dag_id, _, error in failed:
+        print(f"  ❌ {dir_name}/{dag_id}: {error}")
+    for dir_name, dag_id, _, _ in succeeded:
+        print(f"  ✅ {dir_name}/{dag_id}")
+
+    sys.exit(1 if failed else 0)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Deploy Polyris pipeline via CloudFormation",
@@ -451,22 +765,54 @@ Examples:
   polyris-deploy --dry-run          # Preview without deploying
   polyris-deploy --destroy          # Remove pipeline stack
   polyris-deploy --file my_dag.py   # Deploy specific file
+
+  # Bulk (run from the parent directory containing pipeline subdirectories):
+  polyris-deploy --all                        # Deploy every subdirectory
+  polyris-deploy --only dir1 dir2             # Deploy just these subdirectories
+  polyris-deploy --destroy --all              # Destroy every subdirectory
+  polyris-deploy --only dir1 --select my-dag  # Bulk + pick one DAG per directory
         """,
     )
     parser.add_argument("--stage", help="Deployment stage (default: from config.py DEFAULT_STAGE)")
     parser.add_argument("--region", help="AWS region (default: from config.py ENVIRONMENTS)")
-    parser.add_argument("--file", default="dag.py", help="Pipeline file (default: dag.py)")
+    parser.add_argument("--file", default=None, help="Pipeline file (default: dag.py). Not used with --all/--only.")
     parser.add_argument("--dry-run", action="store_true", help="Preview without deploying")
     parser.add_argument("--destroy", action="store_true", help="Remove pipeline stack")
     parser.add_argument("--log-level", default="ERROR", choices=["ALL", "ERROR", "FATAL", "OFF"])
     parser.add_argument("--log-retention", type=int, default=30, help="Log retention in days")
-    parser.add_argument("--select", help="Select specific DAG by ID (for multi-DAG files)")
+    parser.add_argument("--select", help="Select specific DAG by ID (for multi-DAG files); combinable with --all/--only")
     parser.add_argument("--profile", help="AWS profile name (from ~/.aws/credentials)")
+
+    bulk_group = parser.add_mutually_exclusive_group()
+    bulk_group.add_argument("--all", action="store_true",
+                             help="Bulk mode: deploy/destroy every immediate subdirectory of the current directory")
+    bulk_group.add_argument("--only", nargs="+", metavar="DIR",
+                             help="Bulk mode: deploy/destroy only the listed subdirectories")
 
     args = parser.parse_args()
 
+    if args.all or args.only:
+        if args.file is not None:
+            print("❌ --file is not used with --all/--only — each directory's .py files are discovered automatically")
+            sys.exit(1)
+        target_dirs = args.only if args.only else [
+            str(p) for p in sorted(Path(".").iterdir()) if p.is_dir()
+        ]
+        _run_bulk(
+            target_dirs,
+            select=args.select,
+            stage=args.stage,
+            region=args.region,
+            dry_run=args.dry_run,
+            destroy=args.destroy,
+            log_level=args.log_level,
+            log_retention_days=args.log_retention,
+            profile=args.profile,
+        )
+        return
+
     # Find pipeline file
-    pipeline_file = Path(args.file)
+    pipeline_file = Path(args.file or "dag.py")
     if not pipeline_file.exists():
         print(f"❌ Pipeline file not found: {pipeline_file}")
         sys.exit(1)

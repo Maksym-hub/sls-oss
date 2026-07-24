@@ -118,7 +118,6 @@ from .generators import (
     generate_mermaid,
     generate_eventbridge_schedule,
     generate_assets_json,
-    generate_asset_eventbridge_rules,
     generate_all_assets,
 )
 
@@ -199,7 +198,6 @@ __all__ = [
     'generate_mermaid',
     'generate_eventbridge_schedule',
     'generate_assets_json',
-    'generate_asset_eventbridge_rules',
     'generate_all_assets',
     
     # CLI

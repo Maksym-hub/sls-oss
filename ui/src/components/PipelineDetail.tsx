@@ -70,6 +70,8 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
         selectTask,
         showTaskModal, setShowTaskModal,
         openBackfillModal,
+        dagViewSource,
+        setDagViewSource,
     } = useAppStore(useShallow(s => ({
         selectedPipeline: s.selectedPipeline,
         selectedExecution: s.selectedExecution,
@@ -84,12 +86,18 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
         selectTask: s.selectTask,
         showTaskModal: s.showTaskModal, setShowTaskModal: s.setShowTaskModal,
         openBackfillModal: s.openBackfillModal,
+        dagViewSource: s.dagViewSource,
+        setDagViewSource: s.setDagViewSource,
     })));
 
     // ========== Data ==========
     const [hasActiveCountdown, setHasActiveCountdown] = useState(false);
     const pipelineName = pipeline?.name ?? '';
-    const executionId = selectedExecution?.execution_id ?? null;
+    // 'current' mode forces no pipeline_execution — the backend's own
+    // priority-2 registry fallback (already used by usePipelineTasksList for
+    // the backfill picker) returns the currently-deployed structure with no
+    // execution tie at all. See SPIKE_CURRENT_STRUCTURE_VS_LATEST_RUN.md.
+    const executionId = dagViewSource === 'current' ? null : (selectedExecution?.execution_id ?? null);
 
     const { 
         data: detailData,
@@ -99,7 +107,14 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
         refetchInterval: liveMode && pipelineName ? (hasActiveCountdown ? POLLING.ACTIVE : POLLING.IDLE) : false,
     });
 
-    const tasks = useMemo(() => detailData?.tasks ?? [], [detailData?.tasks]);
+    // In 'current' mode, ignore whatever /pipeline-status returned — it falls
+    // back to a same-day scan when pipeline_execution is omitted, which can
+    // surface an earlier run's real statuses layered onto the just-deployed
+    // structure. 'current' means structure only, never execution data.
+    const tasks = useMemo(
+        () => (dagViewSource === 'current' ? [] : (detailData?.tasks ?? [])),
+        [detailData?.tasks, dagViewSource]
+    );
     const dag = detailData?.dag ?? null;
     const serverOffsetMs = detailData?.serverOffsetMs ?? 0;
 
@@ -212,6 +227,23 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
         return full?.recent_runs?.find(r => r.date)?.date ?? null;
     }, [pipelines, pipeline]);
 
+    // A pipeline that has never run at all defaults to 'current structure'
+    // instead of 'run' — there's no execution to show, so 'run' mode would
+    // just fall through to the pre-existing "no executions" blueprint
+    // fallback with a mismatched toggle state (History side shown as active
+    // while the content displayed is actually the blueprint skeleton).
+    // Fires once per pipeline (not on every render) — deliberately excludes
+    // dagViewSource from its own dependencies so it doesn't override an
+    // explicit manual switch back to 'run' afterward. Requires pipelines to
+    // have actually loaded (length > 0) — usePipelinesQuery defaults to []
+    // while loading, which would otherwise make a not-yet-loaded pipeline
+    // look identical to a genuinely never-run one.
+    useEffect(() => {
+        if (pipelineName && pipelines.length > 0 && latestRunDate === null) {
+            setDagViewSource('current');
+        }
+    }, [pipelineName, pipelines.length, latestRunDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Close dropdown on outside click
     React.useEffect(() => {
         const handleClick = (e: Event) => {
@@ -236,7 +268,9 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                     <div className="pd-canvas-title">{pipeline?.name || 'Select a pipeline'}</div>
                     <div className="pd-canvas-subtitle flex items-center gap-md">
                         {pipeline ? (
-                            <span>{selectedExecution?.date || date}</span>
+                            dagViewSource === 'current'
+                                ? <span>Current deployed structure</span>
+                                : <span>{selectedExecution?.date || date}</span>
                         ) : (
                             'Choose from the sidebar'
                         )}
@@ -287,20 +321,39 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                         </div>
                         )}
 
-                        {/* Action buttons — state-driven. Refresh is icon-only utility;
-                            the run/pause/resume/stop set switches on pipeline state. */}
-                        <div className="pd-canvas-actions">
-                            {/* History dropdown — leftmost action. Lists every run it
-                                can still see (no date window); the picker inside is a
-                                filter, not the page scope. Panel is right-aligned so it
-                                never overflows the right screen edge. */}
+                        {/* Structure/History merged toggle — one seamless control, two
+                            halves. Left: switch to the current deployed structure
+                            (blueprint mode, no execution data — see
+                            docs/reference/SPIKE_CURRENT_STRUCTURE_VS_LATEST_RUN.md).
+                            Right: ExecutionDropdown's own History button, unchanged
+                            functionality (opens the picker, lists every run) — it
+                            also now doubles as the "active" indicator for run mode,
+                            highlighted whenever dagViewSource is 'run', whether that
+                            run was auto-selected or picked from its own list.
+                            Defaults to 'run' always. */}
+                        <div className="structure-source-toggle" role="group" aria-label="Structure source">
+                            <button
+                                type="button"
+                                onClick={() => { setDagViewSource('current'); setShowHistory(false); }}
+                                aria-pressed={dagViewSource === 'current'}
+                                className={`structure-source-toggle-btn ${dagViewSource === 'current' ? 'active' : ''}`}
+                                title="Show what's deployed right now, independent of any run"
+                            >
+                                Structure
+                            </button>
+                            <div className="structure-source-toggle-divider" />
                             <ExecutionDropdown
                                 pipelineName={pipeline?.name || ''}
                                 showHistory={showHistory}
                                 onToggleHistory={() => setShowHistory(!showHistory)}
                                 onCloseHistory={() => setShowHistory(false)}
+                                isActive={dagViewSource === 'run'}
                             />
+                        </div>
 
+                        {/* Action buttons — state-driven. Refresh is icon-only utility;
+                            the run/pause/resume/stop set switches on pipeline state. */}
+                        <div className="pd-canvas-actions">
                             <div className="pd-action-group pd-action-group--utility">
                                 <RefreshButton onRefresh={handleRefresh} isFetching={isFetching} iconSize={16} />
                             </div>
@@ -429,16 +482,32 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                                 isBlueprint={true}
                             />
                             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-[var(--bg-primary)] px-5 py-2.5 rounded-lg shadow-lg border border-[var(--border)] z-10 text-[var(--text-muted)] text-[13px] flex items-center gap-3">
-                                <span>No executions for {date}</span>
-                                {latestRunDate && latestRunDate !== date ? (
-                                    <Button
-                                        size="sm"
-                                        onClick={() => { setSelectedExecution(null); setDate(latestRunDate); }}
-                                    >
-                                        View latest run · {latestRunDate}
-                                    </Button>
+                                {dagViewSource === 'current' ? (
+                                    <>
+                                        <span>Showing the current deployed structure — no execution data</span>
+                                        {latestRunDate && (
+                                            <Button
+                                                size="sm"
+                                                onClick={() => { setSelectedExecution(null); setDate(latestRunDate); }}
+                                            >
+                                                View latest run · {latestRunDate}
+                                            </Button>
+                                        )}
+                                    </>
                                 ) : (
-                                    <span>— open <strong>Execution history</strong> to pick another date</span>
+                                    <>
+                                        <span>No executions for {date}</span>
+                                        {latestRunDate && latestRunDate !== date ? (
+                                            <Button
+                                                size="sm"
+                                                onClick={() => { setSelectedExecution(null); setDate(latestRunDate); }}
+                                            >
+                                                View latest run · {latestRunDate}
+                                            </Button>
+                                        ) : (
+                                            <span>— open <strong>Execution history</strong> to pick another date</span>
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </div>
@@ -529,12 +598,14 @@ function ExecutionDropdown({
     pipelineName,
     showHistory,
     onToggleHistory,
-    onCloseHistory
+    onCloseHistory,
+    isActive
 }: {
     pipelineName: string;
     showHistory: boolean;
     onToggleHistory: () => void;
     onCloseHistory: () => void;
+    isActive: boolean;
 }) {
     const { selectedExecution, setSelectedExecution, date, setDate } = useAppStore(useShallow(s => ({
         selectedExecution: s.selectedExecution, setSelectedExecution: s.setSelectedExecution,
@@ -565,15 +636,18 @@ function ExecutionDropdown({
 
     return (
         <div className="pd-dropdown-container">
-            <Button
-                variant="secondary"
+            <button
+                type="button"
                 onClick={onToggleHistory}
                 title="History"
                 aria-label={`History (${runs.length})`}
+                aria-pressed={isActive}
+                className={`structure-source-toggle-btn ${isActive ? 'active' : ''}`}
+                style={{ borderRadius: '0 5px 5px 0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
             >
                 <BookOpen size={16} />
                 <span className="pd-history-count">{runs.length}</span>
-            </Button>
+            </button>
 
             {showHistory && (
                 <div className="pd-exec-dropdown" role="dialog" aria-label="Execution history">

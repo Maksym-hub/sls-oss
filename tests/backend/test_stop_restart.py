@@ -145,7 +145,7 @@ def test_restart_terminal_task_with_helper(mocker):
 
 
 def test_restart_non_terminal_returns_409(mocker):
-    """Non-terminal task → 409 conflict."""
+    """Active (non-restartable) task → 409 conflict."""
     from routes.tasks import restart_task
 
     item = _make_item(status='running')
@@ -154,7 +154,7 @@ def test_restart_non_terminal_returns_409(mocker):
     response = restart_task('extract', _make_event())
 
     assert response['statusCode'] == 409
-    assert 'not in terminal state' in json.loads(response['body'])['error'].lower()
+    assert 'not in restartable state' in json.loads(response['body'])['error'].lower()
 
 
 def test_restart_not_found_returns_404(mocker):
@@ -185,3 +185,172 @@ def test_restart_fallback_resets_status(mocker):
     assert response['statusCode'] == 200
     mock_repo.update.assert_called_once()
     mock_stop_exec.assert_called_once()
+
+
+def test_restart_stopped_task_via_helper(mocker):
+    """Regression test — real bug: stop_task's own success message says
+    "Use Restart to resume", but restart_task previously only accepted
+    TASK_TERMINAL_STATUSES, which deliberately excludes 'stopped' (stop_task
+    treats 'stopped' as non-terminal/resumable on purpose). Any user who
+    stopped a task and then restarted it, exactly as instructed, got a 409.
+    """
+    from routes.tasks import restart_task
+
+    item = _make_item(status='stopped')
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mocker.patch('routes.tasks.record_manual_decision')
+    mock_sfn = mocker.patch('routes.tasks.sfn')
+    mock_sfn.start_execution.return_value = {'executionArn': 'arn:aws:states:us-east-1:123:execution:restart:r-123'}
+    mocker.patch.dict(os.environ, {'RESTART_HELPER_ARN': 'arn:restart-helper'})
+
+    response = restart_task('extract', _make_event())
+
+    assert response['statusCode'] == 200
+    mock_sfn.start_execution.assert_called_once()
+
+
+def test_restart_stopped_task_via_fallback(mocker):
+    """Same regression, fallback (no RESTART_HELPER_ARN) path — and the
+    DynamoDB call must actually supply a value for :stopped, since
+    RESTART_CONDITION references it in the ConditionExpression string."""
+    from routes.tasks import restart_task
+
+    item = _make_item(status='stopped')
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mocker.patch('routes.tasks.record_manual_decision')
+    mocker.patch('routes.tasks.stop_task_executions')
+    mock_repo = mocker.patch('routes.tasks.executions_repo')
+    mock_repo.update.return_value = {}
+
+    os.environ.pop('RESTART_HELPER_ARN', None)
+    response = restart_task('extract', _make_event())
+
+    assert response['statusCode'] == 200
+    call_kwargs = mock_repo.update.call_args.kwargs
+    assert ':stopped' in call_kwargs['expr_values']
+    assert call_kwargs['expr_values'][':stopped'] == 'stopped'
+    assert ':stopped' in call_kwargs['condition_expr']
+
+
+def test_restart_waiting_decision_task_via_helper(mocker):
+    """§9 final step: Restart now works directly from waiting_decision —
+    no need to Stop first. Goes through restart_task_helper's Stop_Old_
+    Wrapper (a hard states:StopExecution kill, not send_task_success/
+    failure), so unlike Stop it never triggers notify_dependents_via_sfn's
+    unconditional, immediate downstream notification (SPIKE_TASK_ACTIONS_
+    DATA_LIFECYCLE.md §8/§9). Safe now that both §9 prerequisites are in
+    place: the correct field name (run_task_helper_arn) so Stop_Old_Wrapper
+    can actually find and kill the still-live wrapper, and the attempt-keyed
+    ConditionExpression guard so a surviving ghost can never corrupt the new
+    attempt's state even if the kill somehow fails."""
+    from routes.tasks import restart_task
+
+    item = _make_item(status='waiting_decision')
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mock_record = mocker.patch('routes.tasks.record_manual_decision')
+    mock_sfn = mocker.patch('routes.tasks.sfn')
+    mock_sfn.start_execution.return_value = {'executionArn': 'arn:aws:states:us-east-1:123:execution:restart:r-123'}
+    mocker.patch.dict(os.environ, {'RESTART_HELPER_ARN': 'arn:restart-helper'})
+
+    response = restart_task('extract', _make_event())
+
+    assert response['statusCode'] == 200
+    mock_sfn.start_execution.assert_called_once()
+    mock_record.assert_called_once()
+
+
+def test_restart_waiting_decision_task_via_fallback(mocker):
+    """Same as above, fallback path (no RESTART_HELPER_ARN) — and the
+    DynamoDB call must supply a value for :waiting_decision, matching the
+    :stopped pattern already verified above."""
+    from routes.tasks import restart_task
+
+    item = _make_item(status='waiting_decision')
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mocker.patch('routes.tasks.record_manual_decision')
+    mocker.patch('routes.tasks.stop_task_executions')
+    mock_repo = mocker.patch('routes.tasks.executions_repo')
+    mock_repo.update.return_value = {}
+
+    os.environ.pop('RESTART_HELPER_ARN', None)
+    response = restart_task('extract', _make_event())
+
+    assert response['statusCode'] == 200
+    call_kwargs = mock_repo.update.call_args.kwargs
+    assert ':waiting_decision' in call_kwargs['expr_values']
+    assert call_kwargs['expr_values'][':waiting_decision'] == 'waiting_decision'
+    assert ':waiting_decision' in call_kwargs['condition_expr']
+
+
+def test_restart_still_rejects_genuinely_active_running_task(mocker):
+    """Only waiting_decision was added — a genuinely running task (no
+    decision pending, still actively executing) must still be rejected;
+    Restart is not a general-purpose way to interrupt any active task."""
+    from routes.tasks import restart_task
+
+    item = _make_item(status='running')
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+
+    response = restart_task('extract', _make_event())
+
+    assert response['statusCode'] == 409
+    assert 'not in restartable state' in json.loads(response['body'])['error'].lower()
+
+
+def test_restart_looks_up_and_passes_task_config_and_outlets(mocker):
+    """task_config/outlets are deploy-time DAG properties never stored on
+    the per-execution record — restart_task must look them up from the
+    registry and pass them explicitly to restart_task_helper, or a
+    restarted task with retries/worker-type/outlets configured would
+    silently lose that configuration (previously always reconstructed as
+    empty by Start_New_Wrapper, since the fields it tried to read never
+    existed on the item)."""
+    from routes.tasks import restart_task
+
+    item = _make_item(status='failed')
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mocker.patch('routes.tasks.record_manual_decision')
+    mock_sfn = mocker.patch('routes.tasks.sfn')
+    mock_sfn.start_execution.return_value = {'executionArn': 'arn:aws:states:us-east-1:123:execution:restart:r-123'}
+    mocker.patch.dict(os.environ, {'RESTART_HELPER_ARN': 'arn:restart-helper'})
+    mocker.patch('routes.tasks.pipelines_repo.get', return_value={
+        'pipeline_name': 'test_pipeline',
+        'dag': json.dumps({
+            'nodes': [{
+                'id': 'extract',
+                'task_config': {'retries': 3, 'retry_delay': 120},
+                'outlets': [{'name': 'raw/sales'}],
+            }],
+            'edges': [],
+        }),
+    })
+
+    response = restart_task('extract', _make_event())
+
+    assert response['statusCode'] == 200
+    call_kwargs = mock_sfn.start_execution.call_args.kwargs
+    sent_input = json.loads(call_kwargs['input'])
+    assert sent_input['task_config'] == {'retries': 3, 'retry_delay': 120}
+    assert sent_input['outlets'] == [{'name': 'raw/sales'}]
+
+
+def test_restart_without_registry_entry_passes_empty_task_config_and_outlets(mocker):
+    """No registry entry found (e.g. registry read failure) → graceful
+    empty defaults, not a crash — restart still proceeds."""
+    from routes.tasks import restart_task
+
+    item = _make_item(status='failed')
+    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
+    mocker.patch('routes.tasks.record_manual_decision')
+    mock_sfn = mocker.patch('routes.tasks.sfn')
+    mock_sfn.start_execution.return_value = {'executionArn': 'arn:aws:states:us-east-1:123:execution:restart:r-123'}
+    mocker.patch.dict(os.environ, {'RESTART_HELPER_ARN': 'arn:restart-helper'})
+    mocker.patch('routes.tasks.pipelines_repo.get', return_value=None)
+
+    response = restart_task('extract', _make_event())
+
+    assert response['statusCode'] == 200
+    call_kwargs = mock_sfn.start_execution.call_args.kwargs
+    sent_input = json.loads(call_kwargs['input'])
+    assert sent_input['task_config'] == {}
+    assert sent_input['outlets'] == []
