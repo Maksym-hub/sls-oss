@@ -67,6 +67,15 @@ except ImportError:
     )
 
 
+class TriggerRule:
+    """5 trigger rules (ADR #117 — trimmed from Airflow's 11)."""
+    ALL_SUCCESS = 'all_success'
+    ONE_SUCCESS = 'one_success'
+    ALL_DONE = 'all_done'
+    ALL_SKIPPED = 'all_skipped'
+    NONE_SKIPPED = 'none_skipped'
+
+
 class AssetOperator:
     """Asset dependency operators."""
     AND = 'AND'  # All assets required

@@ -14,8 +14,6 @@ execution while a newer one sat unexamined — and every task action route
 (retry/skip/fail/mark_success/stop) depends on this function to pick the
 right execution to mutate.
 """
-from unittest.mock import patch
-
 from routes.tasks import resolve_task_item
 
 

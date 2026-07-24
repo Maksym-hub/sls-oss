@@ -25,7 +25,6 @@ regression in how these functions compose — not just how each behaves
 alone — would surface here.
 """
 import json
-import os
 import re
 
 import pytest

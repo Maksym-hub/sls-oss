@@ -25,8 +25,6 @@ it in isolation.
 from types import SimpleNamespace
 from datetime import datetime, timezone
 
-import pytest
-
 from polyris.local import _evaluate_trigger_rule, TaskResult
 
 

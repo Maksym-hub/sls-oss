@@ -63,6 +63,34 @@ ManagedPolicyArns:
 (You only need this for the `pull()` path — the default injected `upstream` needs
 nothing.)
 
+## `task_name` doesn't have to be a declared dependency
+
+`pull()` looks up a task's output by name and date alone — it doesn't check
+your DAG's `dependencies`. So in a chain `extract >> transform >> load`,
+`load` can still reach past its direct dependency and read `extract` too:
+
+```python
+@task.lambda_(function_name="load")
+def load(event):
+    from_transform = event["upstream"]["transform"]["output"]  # declared dependency
+    from_extract = xcom.pull("extract", event)                 # not declared — reached anyway
+
+transform >> load   # extract is NOT in load's dependencies
+```
+
+**The tradeoff:** declaring `extract >> load` is what tells Polyris to *wait*
+for `extract` before starting `load`. Skip the declaration and you skip that
+guarantee — `load` could start before `extract` has produced anything for
+this run date. If that happens, `pull()` raises `PullError` rather than
+returning stale or empty data, so the failure is loud, not silent — but
+you're the one responsible for making sure the ordering actually holds
+(here, it holds because `extract` runs before `transform`, which `load`
+already waits for).
+
+Reach for this when you need a value from a task that isn't your direct
+predecessor but definitely finished earlier in the same run — not as a way
+to avoid declaring a real dependency.
+
 ## Determinism
 
 Data flows from the logical run date, so both paths are deterministic and

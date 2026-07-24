@@ -7,12 +7,6 @@ documents plain `polyris-init my-pipeline` (no flags) as "Create a pipeline
 (default)", the tool's most basic, documented, default invocation silently
 created an empty directory: zero files written, nothing printed, no error.
 """
-import os
-import tempfile
-import textwrap
-
-import pytest
-
 from polyris.init import init_pipeline
 from polyris.validation import validate_asl_from_dag
 

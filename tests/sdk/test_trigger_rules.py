@@ -51,9 +51,7 @@ def python_check_trigger_rule(
         return True
     
     success_count = sum(1 for s in dep_statuses if s == 'success')
-    failed_count = sum(1 for s in dep_statuses if s in ['failed', 'upstream_failed', 'aborted'])
     skipped_count = sum(1 for s in dep_statuses if s == 'skipped')
-    done_count = sum(1 for s in dep_statuses if s in TERMINAL_STATUSES)
     total = len(dep_statuses)
     pending_count = sum(1 for s in dep_statuses if s not in TERMINAL_STATUSES)
     origins = skip_origins or [None] * len(dep_statuses)
@@ -93,7 +91,6 @@ def jsonata_check_trigger_rule(
         return True
     
     success_count = sum(1 for s in dep_statuses if s == 'success')
-    failed_count = sum(1 for s in dep_statuses if s in ['failed', 'upstream_failed', 'aborted'])
     skipped_count = sum(1 for s in dep_statuses if s == 'skipped')
     done_count = sum(1 for s in dep_statuses if s in TERMINAL_STATUSES)
     total = len(dep_statuses)
