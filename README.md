@@ -69,7 +69,7 @@ polyris-output --mermaid      # Generate diagram
 polyris-output --graph        # Show DAG as ASCII graph
 ```
 
-Or browse [examples/](examples/) for four small, self-contained pipelines.
+Or browse [examples/](examples/) for 15 small, self-contained pipelines — hello-world through assets and lineage.
 
 Edit `dag.py` to experiment with task types, dependencies, trigger rules, and assets. When ready to deploy, see [Quick Start](#quick-start).
 

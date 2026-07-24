@@ -38,10 +38,12 @@ jobs:
         run: |
           ruff check .
 
-      - name: Type check with mypy (non-blocking)
-        continue-on-error: true
+      # Blocking: the wheel ships py.typed, so these annotations are a public
+      # contract consumed by downstream mypy runs. A non-blocking check let three
+      # real inconsistencies ship (see CHANGELOG v0.93.1).
+      - name: Type check with mypy
         run: |
-          mypy polyris/ --ignore-missing-imports --no-error-summary || true
+          mypy polyris/ --ignore-missing-imports
 
       - name: Lint Python + JSON templates
         run: make lint
@@ -57,6 +59,28 @@ jobs:
 
       - name: Core coverage floor (Principle #22)
         run: make test-cov
+
+      # Codegen drift gates. Each generator has a --check twin; without these in
+      # CI a regenerated-but-uncommitted artifact ships silently. (The checkers
+      # themselves are unit-tested in tests/sdk/, which is why they sit in the
+      # coverage omit list — see pyproject.toml.)
+      - name: Check generated enums in sync
+        run: make check-generate-enums
+
+      - name: Check generated run_task $dateVars in sync
+        run: make check-generate-variables
+
+      - name: Check SFN template status literals
+        run: make check-sfn-templates
+
+      - name: Check backfill terminal-status parity
+        run: make check-backfill-parity
+
+      # Open-core guard (ADR #98): no paid ee/ or _ee/ path may be tracked here.
+      # Companion to the UI's check-oss-build.sh, which proves the free build
+      # works with src/ee absent.
+      - name: Open-core guard (no paid code in the public repo)
+        run: bash scripts/check-no-paid.sh
 
       - name: Verify version consistency
         run: make check-versions
@@ -103,6 +127,9 @@ jobs:
 
       - name: Verify constants sync
         run: make sync-constants
+
+      - name: Verify Lambda loggers sync
+        run: make sync-loggers
 
       - name: Run evaluate_deps tests
         run: |

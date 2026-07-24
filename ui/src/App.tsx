@@ -45,7 +45,6 @@ function App() {
 
     // ========== Store ==========
     const {
-        setViewMode,
         setSelectedPipeline,
         theme, toggleTheme,
         liveMode,
@@ -54,7 +53,6 @@ function App() {
         showTaskModal, setShowTaskModal,
         backfillModalSeed, closeBackfillModal,
     } = useAppStore(useShallow(s => ({
-        setViewMode: s.setViewMode,
         setSelectedPipeline: s.setSelectedPipeline,
         theme: s.theme, toggleTheme: s.toggleTheme,
         liveMode: s.liveMode,
@@ -88,9 +86,14 @@ function App() {
             else if (backfillModalSeed) closeBackfillModal();
         },
         [SHORTCUTS.TOGGLE_THEME]: toggleTheme,
-        'g': () => mainView === 'pipelines' && setViewMode('gantt'),
-        'd': () => mainView === 'pipelines' && setViewMode('dag'),
-        'c': () => mainView === 'pipelines' && setViewMode('calendar'),
+        // NOTE: d/g/c (pipeline view-modes) are owned by PipelineDetail, which
+        // gates g/c on the paid surface actually being present. They were bound
+        // here too — ungated — so in the OSS build 'c' set viewMode='calendar'
+        // with no CalendarView to render it. That value persists (localStorage +
+        // URL) and OSS hides the view-mode pills, so there was no way back; the
+        // stuck 'calendar' then suppressed PipelineDetail's "No executions for
+        // {date}" branch and left a bare graph. Principle #19: one surface owns
+        // a key. Do not re-bind these here.
         '1': () => router.push('/pipelines/'),
         '2': () => { if (AssetsView) router.push('/assets/'); },
         '3': () => router.push('/tasks/'),

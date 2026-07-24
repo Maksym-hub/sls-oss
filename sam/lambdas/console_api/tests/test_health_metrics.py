@@ -9,13 +9,12 @@ cap), not the full day's items. On a busy day where today's tasks exceed one
 page, /api/metrics' status_counts and total would silently undercount, with
 no error, warning, or truncation flag anywhere in the response.
 """
-from unittest.mock import MagicMock
 
 
-def _paginated_table(pages):
+def _paginated_table(mocker, pages):
     """A fake DynamoDB Table whose .query() returns successive pages,
     exposing LastEvaluatedKey exactly like the real boto3 resource does."""
-    table = MagicMock()
+    table = mocker.MagicMock()
     call_state = {"i": 0}
 
     def _query(**kwargs):
@@ -39,7 +38,7 @@ class TestGetMetricsPagination:
 
         page1 = [{"execution_name": f"a-{i}", "status": "success"} for i in range(3)]
         page2 = [{"execution_name": f"b-{i}", "status": "failed"} for i in range(2)]
-        fake_table = _paginated_table([page1, page2])
+        fake_table = _paginated_table(mocker, [page1, page2])
 
         mocker.patch.object(
             type(health.executions_repo), "table",

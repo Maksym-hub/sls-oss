@@ -32,7 +32,12 @@ def _patch(mocker, *, item=("pipeline_name", "sales"), store=None, retrieve=None
     task_item = {"pipeline_name": item[1], "task_name": task_name, "date": date} if item else {}
     mocker.patch("routes.tasks.resolve_task_item", return_value=(task_item, "extract-2026-07-07-abc"))
     table = _Table(store)
-    mocker.patch("routes.tasks.dynamodb.Table", return_value=table)
+    # Patch the repo's table property, not a raw dynamodb.Table: the real
+    # ExecutionsRepo.get() then runs against the fake, so the test still
+    # exercises production code rather than a stand-in for it (#14).
+    from dal.executions_repo import ExecutionsRepo
+    mocker.patch.object(ExecutionsRepo, 'table', new_callable=mocker.PropertyMock,
+                        return_value=table)
     if retrieve is not None:
         mocker.patch("routes.tasks.retrieve_result", side_effect=retrieve)
     return table

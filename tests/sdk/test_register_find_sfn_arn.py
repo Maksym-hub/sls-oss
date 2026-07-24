@@ -11,16 +11,15 @@ list first — regardless of which namespace was explicitly requested — with n
 error or warning. A user running `polyris-register --name orders --namespace
 team-b` could silently register team-a's pipeline instead.
 """
-from unittest.mock import MagicMock
 
 import polyris.register as register
 
 
-def _paginated(state_machines):
+def _paginated(mocker, state_machines):
     """Build a mock SFN client whose list_state_machines paginator yields the
     given state machines in a single page."""
-    sfn = MagicMock()
-    paginator = MagicMock()
+    sfn = mocker.MagicMock()
+    paginator = mocker.MagicMock()
     sfn.get_paginator.return_value = paginator
     paginator.paginate.return_value = [{"stateMachines": state_machines}]
     return sfn
@@ -29,7 +28,7 @@ def _paginated(state_machines):
 def test_namespace_disambiguates_colliding_dag_ids(mocker):
     mocker.patch(
         "polyris.register.get_sfn_client",
-        return_value=_paginated([
+        return_value=_paginated(mocker, [
             {"name": "team-a-prod-polyris-orders", "stateMachineArn": "arn:a-orders"},
             {"name": "team-b-prod-polyris-orders", "stateMachineArn": "arn:b-orders"},
         ]),
@@ -49,7 +48,7 @@ def test_no_namespace_falls_back_to_first_match(mocker):
     namespace to find anything."""
     mocker.patch(
         "polyris.register.get_sfn_client",
-        return_value=_paginated([
+        return_value=_paginated(mocker, [
             {"name": "team-a-prod-polyris-orders", "stateMachineArn": "arn:a-orders"},
             {"name": "team-b-prod-polyris-orders", "stateMachineArn": "arn:b-orders"},
         ]),
@@ -62,7 +61,7 @@ def test_no_namespace_falls_back_to_first_match(mocker):
 def test_namespace_that_matches_nothing_returns_none(mocker):
     mocker.patch(
         "polyris.register.get_sfn_client",
-        return_value=_paginated([
+        return_value=_paginated(mocker, [
             {"name": "team-a-prod-polyris-orders", "stateMachineArn": "arn:a-orders"},
         ]),
     )
@@ -77,7 +76,7 @@ def test_exact_name_match_still_works_with_namespace(mocker):
     as long as it also satisfies the namespace-prefix filter."""
     mocker.patch(
         "polyris.register.get_sfn_client",
-        return_value=_paginated([
+        return_value=_paginated(mocker, [
             {"name": "team-a-orders", "stateMachineArn": "arn:exact"},
         ]),
     )

@@ -789,10 +789,16 @@ def _build_wrapper_input(
     return wrapper_input
 
 
-def _build_task_config_and_arn(task: Task) -> Tuple[Dict[TaskConfigKey, Any], Optional[str]]:
+def _build_task_config_and_arn(task: Task) -> Tuple[Dict[TaskConfigKey, Any], str]:
     """Build task_config (task-type-specific settings + retry policy) and
     resolve task_arn for task types (lambda) that derive it from a
     different field than task.arn.
+
+    Returns `str`, never None: Task.arn is `str = ""` and the single Task
+    constructor normalizes with `arn or ""`. Task types addressed by config
+    rather than ARN (glue/ecs/athena/emr/batch take job_name / cluster /
+    query_string) legitimately carry the empty string, which is the shape the
+    generated ASL expects — not a missing value.
 
     Shared between _build_task_branch (the original dispatch's own
     wrapper_input) and _build_dag_visualization_nodes_edges (so task_config

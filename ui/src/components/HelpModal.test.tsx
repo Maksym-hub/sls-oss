@@ -123,17 +123,20 @@ describe('HelpModal', () => {
             expect(container.textContent).toMatch(/List views/);
             expect(container.textContent).toMatch(/Detail pages/);
             expect(container.textContent).toMatch(/Pipeline view modes/);
-            expect(container.textContent).toMatch(/Asset detail tabs/);
             expect(container.textContent).toMatch(/Task Detail modal tabs/);
             expect(container.textContent).toMatch(/Help modal tabs/);
             expect(container.textContent).toMatch(/Modals with primary action/);
+            // Asset detail tabs are a paid surface — the whole group is dropped
+            // in OSS rather than listing six keys that do nothing (#19).
+            expect(container.textContent).not.toMatch(/Asset detail tabs/);
         });
 
-        it('mentions the j/k row navigation keys', () => {
+        it('omits the Backfills-list row navigation keys in OSS', () => {
             const { container } = render(<HelpModal isOpen onClose={vi.fn()} />);
-            // Both J and K should be listed (with descriptions about row navigation)
-            expect(container.textContent).toMatch(/J/);
-            expect(container.textContent).toMatch(/K/);
+            // j/k/Enter are wired on the paid Backfills list only.
+            expect(container.textContent).not.toMatch(/Highlight next row/);
+            expect(container.textContent).not.toMatch(/Highlight previous row/);
+            expect(container.textContent).not.toMatch(/Open highlighted row/);
         });
 
         it('mentions ctrl+enter for modal submit', () => {
@@ -142,12 +145,16 @@ describe('HelpModal', () => {
             expect(container.textContent).toMatch(/⌘↵|ctrl\+enter/i);
         });
 
-        it('lists numeric keys for top-level navigation', () => {
+        it('lists only the numeric keys wired in this build', () => {
             const { container } = render(<HelpModal isOpen onClose={vi.fn()} />);
-            // 1-5 mapped to top-level views per App.tsx
+            // 1/3/4 are free; 2 (Assets) and 5 (Backfills) route to paid views
+            // that App.tsx no-ops when the slot is empty, so OSS must not
+            // advertise them (#19 — the list and the wiring stay in sync).
             expect(container.textContent).toMatch(/Pipelines view/);
-            expect(container.textContent).toMatch(/Assets view/);
-            expect(container.textContent).toMatch(/Backfills view/);
+            expect(container.textContent).toMatch(/History \(Tasks\)/);
+            expect(container.textContent).toMatch(/History \(Runs\)/);
+            expect(container.textContent).not.toMatch(/Assets view/);
+            expect(container.textContent).not.toMatch(/Backfills view/);
         });
     });
 });

@@ -1,4 +1,4 @@
-.PHONY: test test-sdk test-backend test-integration test-lambdas test-ui test-sfn-jsonata e2e-health e2e-smoke check lint sync-constants check-versions smoke-pipelines help
+.PHONY: test test-sdk test-backend test-integration test-lambdas test-ui test-sfn-jsonata e2e-health e2e-smoke check lint sync-constants sync-loggers check-generate-enums check-generate-variables check-sfn-templates check-backfill-parity check-no-paid typecheck check-versions smoke-pipelines help
 
 # Default target
 help:
@@ -13,7 +13,8 @@ help:
 	@echo "  make test-ui           - Run UI tests only"
 	@echo "  make e2e-health        - E2E: hit live API /health (needs POLYRIS_API_URL)"
 	@echo "  make e2e-smoke         - E2E: read-only + backfill smoke vs live AWS (needs POLYRIS_API_URL + POLYRIS_ID_TOKEN)"
-	@echo "  make check             - Run all checks (lint, sync, versions, smoke, test)"
+	@echo "  make check             - Run every gate CI runs (lint, drift, guards, versions, smoke, test)"
+	@echo "  make check-no-paid     - Open-core guard: no paid ee/ code tracked here"
 	@echo "  make lint              - Check Python + JSON syntax"
 	@echo "  make sync-constants    - Verify Lambda constants in sync"
 	@echo "  make check-versions    - Verify version consistency across files"
@@ -103,11 +104,13 @@ e2e-smoke:
 	@: "$${POLYRIS_ID_TOKEN:?set POLYRIS_ID_TOKEN (use scripts/get-e2e-token.sh)}"
 	@echo "🌐 E2E read-only routes ..."
 	python3 -m pytest tests/e2e/ -v -m "not write"
-	@echo "🌐 E2E backfill smoke (live SFN+DDB) ..."
-	python3 -m pytest tests/e2e/test_backfill.py -v -m smoke
+	@echo "🌐 E2E write-path smoke (live SFN+DDB) ..."
+	python3 -m pytest tests/e2e/ -v -m smoke
 
 # All checks before commit
-check: lint sync-constants check-versions smoke-pipelines test
+check: lint sync-constants sync-loggers check-generate-enums check-generate-variables \
+       check-sfn-templates check-backfill-parity check-no-paid typecheck check-versions \
+       smoke-pipelines test
 	@echo "✅ All checks passed!"
 
 # Python syntax + JSON template validation
@@ -197,6 +200,17 @@ sync-constants:
 		 echo "   Run: cp sam/lambdas/_shared/logger.py sam/lambdas/$$d/logger.py" && exit 1); \
 	done
 	@echo "✅ Constants + logger in sync"
+
+# Type check the shipped library. The wheel ships py.typed, so annotations are
+# a public contract — this is blocking, matching CI.
+typecheck:
+	@echo "🔍 mypy (py.typed contract)..."
+	@python3 -m mypy polyris/ --ignore-missing-imports
+
+# Open-core guard (ADR #98) — no paid ee/ or _ee/ path tracked in this repo.
+# Fail-closed: errors out if not run against a git checkout.
+check-no-paid:
+	@bash scripts/check-no-paid.sh
 
 # Validate versions are consistent across files
 check-versions:

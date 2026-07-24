@@ -381,8 +381,16 @@ def _watch_stack_events(
                 padding = " " * max(0, 28 - len(e["ResourceStatus"]))
                 print(f"    {status_colored}{padding} {e['ResourceType']:<32} {e['LogicalResourceId']}{reason}")
 
-        except Exception:
-            pass
+        except Exception as e:
+            # Deliberately broad, and deliberately not narrowed to
+            # (ClientError, BotoCoreError): this is a daemon *narration* thread
+            # wrapping both the AWS call and the event formatting below it. The
+            # deploy's correctness does not depend on it, but a traceback from
+            # it mid-deploy — or a dead poller — is worse than a skipped tick.
+            # ADR #28's narrow rule is for paths whose failure means something;
+            # this one's does not. What Principle #11 forbids is the *silent*
+            # swallow this used to be (`pass`, no comment), so it now says so.
+            print(f"    (progress poll skipped: {e})")
         stop_event.wait(poll_interval)
 
 

@@ -135,8 +135,7 @@ def notify_asset_consumers_for_manual_success(
     task_name: str,
     pipeline_name: str,
     date: str,
-    dynamodb_resource,
-    asset_events_table: str,
+    events_repo,
     asset_event_ttl_days: int = 30,
 ) -> None:
     """Record asset events and notify push-triggered consumer pipelines —
@@ -161,10 +160,10 @@ def notify_asset_consumers_for_manual_success(
         task_name: the task whose outlets these are.
         pipeline_name: the owning pipeline (source_dag).
         date: execution date (YYYY-MM-DD).
-        dynamodb_resource: a boto3 DynamoDB resource (passed in, not
-            imported here, to avoid a hard boto3 dependency in this shared
-            utils module beyond what callers already have).
-        asset_events_table: table name for the asset event record.
+        events_repo: the asset-events DAL repo (dal.asset_events_repo). Passed
+            in rather than imported so this shared utils module keeps no hard
+            boto3 dependency beyond what callers already have — the DAL owns
+            the table handle, so no caller needs a raw resource.
         asset_event_ttl_days: TTL for the asset event record, matching the
             wrapper template's own ${asset_event_ttl_days} default.
     """
@@ -183,7 +182,7 @@ def notify_asset_consumers_for_manual_success(
         uri = outlet.get('uri', '')
 
         try:
-            dynamodb_resource.Table(asset_events_table).put_item(Item={
+            events_repo.put({
                 'asset_name': asset_name,
                 'event_time': now.isoformat(),
                 'uri': uri,

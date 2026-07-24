@@ -122,5 +122,5 @@ def main():
         print(render_dag_ascii(dag))
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover -- entry-point guard; main() is exercised directly
     main()

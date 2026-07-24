@@ -13,7 +13,6 @@ execution as 'aborted' — including tasks whose restart wrapper was
 genuinely still running. Users would see "aborted" in the History tasks
 feed for a task that was actually alive and progressing.
 """
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -61,10 +60,10 @@ class TestReconcileOrphanedTasksWrapperLiveness:
         )
         return tasks_module
 
-    def test_running_wrapper_is_not_marked_aborted(self, fake_arns):
+    def test_running_wrapper_is_not_marked_aborted(self, fake_arns, mocker):
         """The exact bug: a restarted task (new wrapper genuinely RUNNING)
         must keep its real status, not be overwritten to 'aborted'."""
-        fake_sfn = MagicMock()
+        fake_sfn = mocker.MagicMock()
         fake_sfn.describe_execution.side_effect = (
             lambda executionArn: {"status": "RUNNING"} if "wrapper" in executionArn
             else {"status": "FAILED"}
@@ -77,9 +76,9 @@ class TestReconcileOrphanedTasksWrapperLiveness:
 
         assert result[0]["status"] == "waiting_delay"
 
-    def test_dead_wrapper_is_marked_aborted(self, fake_arns):
+    def test_dead_wrapper_is_marked_aborted(self, fake_arns, mocker):
         """Control: no live wrapper -> genuinely orphaned -> aborted."""
-        fake_sfn = MagicMock()
+        fake_sfn = mocker.MagicMock()
         fake_sfn.describe_execution.return_value = {"status": "FAILED"}
         fake_arns.sfn = fake_sfn
 
@@ -88,10 +87,10 @@ class TestReconcileOrphanedTasksWrapperLiveness:
 
         assert result[0]["status"] == "aborted"
 
-    def test_healthy_pipeline_execution_leaves_status_untouched(self, fake_arns):
+    def test_healthy_pipeline_execution_leaves_status_untouched(self, fake_arns, mocker):
         """If the pipeline execution itself is still RUNNING (not
         failed/timed_out/aborted), nothing should be reconciled at all."""
-        fake_sfn = MagicMock()
+        fake_sfn = mocker.MagicMock()
         fake_sfn.describe_execution.return_value = {"status": "RUNNING"}
         fake_arns.sfn = fake_sfn
 
@@ -100,10 +99,10 @@ class TestReconcileOrphanedTasksWrapperLiveness:
 
         assert result[0]["status"] == "waiting_delay"
 
-    def test_already_terminal_tasks_are_left_alone(self, fake_arns):
+    def test_already_terminal_tasks_are_left_alone(self, fake_arns, mocker):
         """Settled tasks never enter the pending group at all — no SFN call
         should even be attempted for them."""
-        fake_sfn = MagicMock()
+        fake_sfn = mocker.MagicMock()
         fake_arns.sfn = fake_sfn
 
         formatted = _format_task_row(_raw_item(status="success"))

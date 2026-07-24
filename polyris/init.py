@@ -157,7 +157,8 @@ Try it now:
   polyris-output --mermaid      # Generate diagram
   polyris-output --graph        # Show DAG as ASCII graph
 
-Ready to deploy:
+Ready to deploy? Re-run without --local to scaffold a deployable pipeline:
+  polyris-init {name}
 """)
     else:
         # deploy_method == "cfn" (the default per the CLI's own --help/epilog:
@@ -333,16 +334,18 @@ def interactive_init(name: str, base_dir: str = "."):
     schedule = _ask_choice("Schedule:", SCHEDULES)
     
     # 3. Tasks
-    print("\n  Define your tasks (press Enter with empty name to finish):")
+    print("\n  Define your tasks (press Enter on an empty name to finish):")
     tasks: List[Any] = []
     task_num = 1
     while True:
-        default_name = {1: "extract", 2: "transform", 3: "load"}.get(task_num, "")
-        task_name = _ask(f"Task {task_num} name", default=default_name if task_num <= 3 else None)
+        # Only the first task carries a suggestion. It used to be
+        # {1: extract, 2: transform, 3: load}, which silently contradicted the
+        # line above: _ask() returns `result or default`, so Enter accepted the
+        # suggestion instead of finishing and no pipeline under three tasks
+        # could be built at all. The scaffold is a nudge for an empty wizard,
+        # not a floor on task count.
+        task_name = _ask(f"Task {task_num} name", default="extract" if not tasks else None)
         if not task_name:
-            if not tasks:
-                print("  Need at least one task!")
-                continue
             break
         
         task_info = {"name": task_name}
@@ -407,7 +410,10 @@ Next steps:
   cd {pipeline_dir}
   polyris-deploy
 """)
-    else:
+    else:  # pragma: no cover -- unreachable via the public API: deploy_method
+        # comes only from _ask_choice(DEPLOY_METHODS), which yields local|cfn.
+        # Kept as a graceful default so adding a third method degrades to a
+        # generic next-steps block instead of printing nothing.
         print(f"""
 Next steps:
   cd {pipeline_dir}
@@ -523,5 +529,5 @@ def main():
         )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover -- entry-point guard; main() is exercised directly
     main()

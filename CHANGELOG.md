@@ -1,5 +1,211 @@
 ## Unreleased
 
+### Fixed — OSS build could strand the pipeline page in a paid view mode
+
+`App.tsx` bound `g`/`d`/`c` (pipeline view modes) on top of the bindings
+`PipelineDetail` already owned. `PipelineDetail` gates `g`/`c` on the paid
+surface actually being present; the `App.tsx` copies did not. Each
+`useKeyboardShortcuts` call attaches its own listener, so both fired.
+
+In the OSS build (no `src/ee`), pressing `c` therefore set `viewMode` to
+`'calendar'` with no `CalendarView` to render it. That value is persisted to
+`localStorage` and mirrored into the URL, and OSS hides the view-mode pills
+(they render only when `GanttChart || CalendarView` exists) — so there was no
+control to undo it. A stuck `'calendar'` then fell through `PipelineDetail`'s
+`viewMode !== 'calendar'` empty-state guard, suppressing the "No executions for
+{date}" banner and leaving a bare graph with no way out — the exact failure the
+comment in that branch warns about.
+
+Removed the duplicate bindings (`PipelineDetail` owns them, per Principle #19:
+one surface owns a key) and the now-dead `setViewMode` wiring in `App.tsx`.
+
+### Fixed — OSS Help modal advertised ~14 shortcuts that do nothing
+
+`HelpModal`'s Shortcuts tab is the one tab always visible in the OSS build. Its
+Gantt/Calendar entries were filtered on `paidSurface`, but the rest of the same
+pattern was not: `2` (Assets), `5` (Backfills), the whole "List views" row-nav
+group (`J`/`K`/`Enter`, described against the Backfills list), the "Asset detail
+tabs" group (6 keys), the `B`/`A` help-tab keys, and the `⌘↵` "start backfill"
+label. All are absent or no-ops in OSS. Every paid entry is now filtered the
+same way, and the detail-pages group title narrows to the surfaces that exist.
+
+Three assertions in `HelpModal.test.tsx` had been pinning the bug — the same
+file that asserts "Backfill and API are paid, hidden in OSS" also asserted that
+OSS lists "Assets view" and "Backfills view". Corrected to the OSS reality.
+
+### Fixed — both open-core leak guards were unwired and fail-open
+
+`scripts/check-no-paid.sh` (CE) and `scripts/check-no-leak.sh` (EE) each carry a
+header saying "Run in CI on every PR". Neither was referenced by any workflow or
+Makefile target. Both also swallowed `git` failure via `|| true`, so outside a
+git work tree they printed `fatal: not a git repository` and still reported
+success — a leak guard that passes when it cannot run.
+
+Both now fail closed (explicit `git rev-parse --is-inside-work-tree`
+precondition, no `|| true` on the listing) and are wired into CI and `make
+check` / the EE Makefile. `check-no-leak.sh` also whitelists `tests/e2e/`,
+which is EE-owned (it covers the paid backfill/asset routes) and was being
+reported as a CE leak — verified against a scratch git repo.
+
+### Fixed — codegen drift gates existed but nothing ran them
+
+`check-generate-enums`, `check-generate-variables`, `check-sfn-templates`,
+`check-backfill-parity`, and `sync-loggers` were absent from CI and from `make
+check`. All pass today, but nothing kept them passing. Wired into both.
+
+`make e2e-smoke` invoked `tests/e2e/test_backfill.py`, which moved to the
+private repo with the paid backfill routes; the target now selects by the
+`smoke` marker instead.
+
+### Changed — test runner on vitest 4, zero warnings
+
+Migrated `vitest` and `@vitest/coverage-v8` to v4 and dropped
+`@vitejs/plugin-react` from `vitest.config.ts` — Vitest transforms JSX natively,
+and the Babel plugin (a dev-server concern) emitted `esbuild` /
+`optimizeDeps.esbuildOptions` deprecation warnings under Vite 7. `npm audit`
+goes from 2 critical + 5 high + 3 moderate to 3 high, 0 critical; the suite runs
+warning-free (Principle #21). Remaining advisories are documented in
+`SECURITY.md` with the reason each cannot reach a deployed instance.
+
+### Fixed — three route handlers bypassed the DAL
+
+`CLAUDE.md` states "DAL repositories for all DynamoDB access (100%)" and
+"Never: `boto3.resource('dynamodb').Table(...)`". Three sites did exactly that:
+`routes/tasks.py` read the output store and wrote the synthetic-output marker
+via `dynamodb.Table(TABLE_NAME)`, and `task_actions.py` wrote asset events via a
+raw injected resource. `ExecutionsRepo.get/update` and `AssetEventsRepo.put`
+already existed with the needed signatures, so none of the three was forced.
+
+Routed all three through the DAL. `task_actions.py` keeps its dependency
+injection — the reason recorded there (no hard boto3 import in a shared utils
+module) is real — but now takes the *repo*, not a raw resource, so the table
+handle stays behind the DAL. Removed three imports that died with the change.
+
+The test fixture had documented the bypass in a comment and worked around it by
+pointing a patched `dynamodb.Table` at the same fake table; that workaround is
+gone. Two suites were rewired to mock at the repo boundary instead.
+
+### Fixed — the shipped py.typed contract had three inconsistencies
+
+The wheel ships `py.typed`, so these annotations are consumed by downstream
+mypy. CI ran mypy with `continue-on-error: true`, so three real ones shipped:
+
+- `Asset.within(minutes=30)` produces `freshness_hours=0.5`, a float in a field
+  declared `Optional[int]`. Not a runtime fault (the consumer compares
+  `age_hours <= freshness_hours`), but `within(minutes=…)` is a documented
+  public entry point, so the type was simply wrong. Widened to `float` in the
+  producer and in `notify_asset_subscribers._check_freshness`.
+- `AssetAll.assets` was `List[AssetOperand]`, but the schedule parser
+  deliberately nests an `AssetAny` for `schedule=[a, b | c]` (`a AND (b OR c)`)
+  — flattening it would change the semantics, as the comment there says.
+  `AssetAny.assets` already permitted nesting; added `AssetAllOperand` so the
+  AND-group is symmetric, and updated the six casts.
+- `_build_task_config_and_arn` declared `-> Tuple[..., Optional[str]]`, which
+  made `task_arn` look nullable at the `_build_wrapper_input` call. It is not:
+  `Task.arn` is `str = ""` and the single `Task(...)` constructor normalizes
+  with `arn or ""`. Task types addressed by config rather than ARN (glue, ecs,
+  athena, emr, batch) carry the empty string by design. Narrowed the return
+  type and wrote down why, rather than widening the parameter to match a state
+  that cannot occur.
+
+mypy is now **blocking** in CI, with `make typecheck` as the local twin.
+
+### Fixed — polyris-output was untested, and the omit rule explained why wrongly
+
+`polyris/output.py` sat in the coverage `omit` list at 0% under the
+"AWS/CLI — exercised by e2e/smoke" justification. It has zero boto3 references,
+and `tests/e2e/` needs a live API, so nothing reached it — while the README's
+"Try It Now" tells every new user to run it three times. Added
+`tests/sdk/test_output_cli.py` (17 tests: dispatch, `--file`/`--select`, both
+argparse rejections, and every `sys.exit(1)` path), removed the module from
+`omit`, and rewrote the justification to say the claim covers AWS paths only.
+The core floor holds at 100% over a larger measured surface.
+
+### Fixed — polyris-init --local printed a dangling header
+
+`Ready to deploy:` was followed by nothing — the first output a new user sees.
+Now points at the non-`--local` invocation.
+
+### Changed — tests use pytest-mock only (ADR #26)
+
+`tests/sdk/test_adapters_glue.py` managed 14 `with patch(...)` blocks by hand;
+four more files imported `MagicMock` directly. Converted to `mocker` /
+`mocker.MagicMock`. No `unittest.mock` import remains in either repo.
+
+### Changed — deploy.py's silent except is now explicit, not narrower
+
+`_watch_stack_events` swallowed every exception with a bare `pass` and no
+comment. Narrowing it to `(ClientError, BotoCoreError)` per ADR #28 was the
+wrong correction and broke a test that deliberately injects a generic
+`Exception`: this is a daemon *narration* thread wrapping both the AWS call and
+the event formatting, and the deploy's correctness does not depend on it. The
+breadth was right; the silence was the defect. It now logs what it skipped and
+records why the narrow rule does not apply here.
+
+### Fixed — the init wizard could not build a pipeline under three tasks
+
+The task loop suggested `{1: extract, 2: transform, 3: load}` as defaults while
+the prompt said "press Enter with empty name to finish". `_ask()` returns
+`result or default`, so Enter accepted the suggestion instead of finishing:
+there was no way to end the loop before task 4, and a one- or two-task pipeline
+was unreachable through `polyris-init -i`. The suggestion now applies to the
+first task only, so Enter finishes from the second onward as documented.
+
+This also removed dead code: the `if not tasks: "Need at least one task!"`
+guard could never fire, because an empty name only became possible once tasks
+already existed.
+
+Found by writing the tests below — the module was at 17%, so neither the
+contradiction nor the unreachable branch was visible.
+
+### Fixed — polyris-init and polyris/roles.py were unmeasured
+
+Same defect as `polyris-output` in this release: both were in the coverage
+`omit` list under the "AWS/CLI — covered by e2e/smoke" justification, and both
+have **zero** boto3 references, so nothing reached them. `polyris-init` is the
+first command in the README. Added `tests/sdk/test_init_cli.py` (43 tests: the
+prompts, the wizard's code generation, dependency handling, `init_project`, and
+every `main()` dispatch and exit path) and removed both from `omit`. The core
+floor holds at 100% over a measured surface grown from 3794 to 4011 statements.
+
+The `omit` justification now also records, with measurements, that it is still
+too wide for the two modules left under it: `local.py` is ~20% AWS (only
+`_run_localstack` touches boto3 — `validate`, `dry_run`, `run`, `_run_mock`,
+`_parse_execution_history` and `run_cli` are pure), and in `register.py` only
+`get_sfn_client` does. Closing those means splitting the AWS call out and
+measuring the rest, as was done here.
+
+### Known — the wizard ignores an explicit "none" for dependencies
+
+`_build_custom_pipeline` cannot distinguish "dependencies were never asked
+about" from "the user declined them": both arrive as an empty `depends_on`, and
+the sequential-chain fallback then chains the tasks anyway. Answering `none` to
+every task still yields a chain, so a fan-out of independent tasks is not
+reachable through the wizard. Pinned by a test that documents current behaviour;
+fixing it is a contract change to that function, not a coverage fix.
+
+### Documentation
+
+- `docs/operations/API.md`: documented `GET /api/task-output` and
+  `GET /api/settings/decision-timeout` (both real, both free, neither listed);
+  marked `PUT /api/task-config` and `PUT /api/settings/decision-timeout` as
+  🔒 Team. All 28 public routes are now documented.
+- `CLAUDE.md` (ADR #99 §4): the `useBackfillsListQuery` example was stale — it
+  justified the hook living in the free tree because "the Header badge depends
+  on it", but that badge is now the Team `BackfillNavTab`. Restated the rule as
+  *who calls it*, not who owns the feature.
+- `pyproject.toml`: the coverage-omit comment claimed the drift-checkers "run as
+  a blocking CI step (see ci.yml)". They did not; their logic is unit-tested in
+  `tests/sdk/`. Corrected — and they now genuinely run in CI.
+- `README.md`: "four small, self-contained pipelines" — there are 15.
+
+### Added
+
+- `ui/src/components/openCoreShortcuts.guard.test.tsx` — pins the advertised
+  shortcut list against what is actually wired, plus a source-level guard that
+  `App.tsx` binds no pipeline view-mode key and never calls `setViewMode`.
+  Mutation-tested: re-introducing either regression fails it.
+
 ### Fixed — restart silently lost task_config and outlets
 
 - `task_config` (retries, worker-type, etc.) and `outlets` are deploy-time

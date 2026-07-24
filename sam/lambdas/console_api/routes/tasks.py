@@ -19,8 +19,8 @@ from typing import Dict, Optional
 from boto3.dynamodb.conditions import Key, Attr
 from botocore.exceptions import ClientError, BotoCoreError
 
-from config import sfn, dynamodb, TABLE_NAME, ASSET_EVENTS_TABLE
-from dal import executions_repo, pipelines_repo
+from config import sfn
+from dal import asset_events_repo, executions_repo, pipelines_repo
 from dal.task_events_repo import task_events_repo
 from constants import Limits, TaskStatus, TASK_WAITING_STATUSES, TASK_SETTLED_STATUSES, TASK_SUCCESS_STATUSES, TASK_TERMINAL_STATUSES
 from feed import feed_dates, is_older, page_by_started_at, pipeline_rows_before
@@ -404,8 +404,7 @@ def get_task_output(task_name: str, event: Dict) -> Dict:
     if pipeline_name:
         key = f"output#{pipeline_name}#{plain_task}#{run_date}"
         try:
-            resp = dynamodb.Table(TABLE_NAME).get_item(Key={'execution_name': key})
-            store_item = resp.get('Item') or {}
+            store_item = executions_repo.get(key) or {}
             raw = store_item.get('result')
             if raw:
                 parsed = json.loads(raw)
@@ -561,15 +560,13 @@ def _write_synthetic_output_marker(item: Dict, action_name: str, reason: str, da
     })
     ttl = int(datetime.now(timezone.utc).timestamp()) + (30 * 24 * 60 * 60)
     try:
-        dynamodb.Table(TABLE_NAME).update_item(
-            Key={'execution_name': key},
-            UpdateExpression=(
-                'SET task_name = :tn, #r = :result, #s = :status, '
-                'updated_at = :ua, #ttl_field = if_not_exists(#ttl_field, :ttl)'
-            ),
-            ConditionExpression='attribute_not_exists(#r)',
-            ExpressionAttributeNames={'#r': 'result', '#s': 'status', '#ttl_field': 'ttl'},
-            ExpressionAttributeValues={
+        executions_repo.update(
+            key,
+            'SET task_name = :tn, #r = :result, #s = :status, '
+            'updated_at = :ua, #ttl_field = if_not_exists(#ttl_field, :ttl)',
+            condition_expr='attribute_not_exists(#r)',
+            expr_names={'#r': 'result', '#s': 'status', '#ttl_field': 'ttl'},
+            expr_values={
                 ':tn': task_name,
                 ':result': marker,
                 ':status': action_name,
@@ -639,8 +636,7 @@ def _emit_asset_events_for_manual_success(item: Dict, task_name: str, date: str)
         return
 
     notify_asset_consumers_for_manual_success(
-        outlets, task_name, pipeline_name, date,
-        dynamodb, ASSET_EVENTS_TABLE,
+        outlets, task_name, pipeline_name, date, asset_events_repo,
     )
 
 

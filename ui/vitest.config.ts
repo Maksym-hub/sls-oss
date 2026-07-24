@@ -1,9 +1,13 @@
 import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react';
 import path from 'path';
 
+// No @vitejs/plugin-react here: its Babel transform is a dev-server concern
+// (Fast Refresh), and under Vite 7 / rolldown it emits deprecation warnings for
+// `esbuild` / `optimizeDeps.esbuildOptions` that we cannot resolve from our side.
+// Vitest transforms JSX natively with the automatic runtime, which is all the
+// test run needs. The production build still goes through Next.js, untouched.
+// (CLAUDE.md #21 — the suite must be warning-free.)
 export default defineConfig({
-  plugins: [react()],
   test: {
     environment: 'jsdom',
     globals: true,

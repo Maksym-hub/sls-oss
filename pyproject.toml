@@ -120,21 +120,39 @@ markers = [
 [tool.coverage.run]
 source = ["polyris"]
 omit = [
-    # AWS / CLI / build-tooling — exercised by e2e/smoke (#15, #16), not unit
-    # coverage. Mocking AWS just to colour these lines would only test the mock
-    # (#11, #13, #14). Excluded from the pure-logic core floor (Principle #22).
+    # AWS-touching CLI / build tooling. These call boto3 or shell out; mocking
+    # AWS just to colour their lines would only test the mock (#11, #13, #14),
+    # so they are covered by e2e/smoke (#15, #16) instead and sit outside the
+    # pure-logic core floor (Principle #22).
+    #
+    # NOTE: "covered by e2e/smoke" is a claim about AWS paths only. A module
+    # that touches no AWS does not belong here — output.py, init.py and roles.py
+    # were on this list with zero boto3 references and nothing reaching them,
+    # which is how the two CLIs the README tells every new user to run stayed
+    # untested. All three are now measured. Before adding a module here, check
+    # it actually needs AWS; if it does not, write the test.
+    #
+    # KNOWN DEBT (measured 2026-07, not yet closed): the two below are majority
+    # pure logic, so this exemption is wider than it should be.
+    #   local.py     ~20% AWS — only _run_localstack (106 lines) touches boto3;
+    #                validate / dry_run / run / _run_mock / _parse_execution_history
+    #                / run_cli are pure and unmeasured (module at ~21%).
+    #   register.py  only get_sfn_client touches boto3; register_pipeline,
+    #                find_sfn_arn and main (111 lines) are pure (module at ~22%).
+    # The right shape is to split the AWS call out and measure the rest, the way
+    # output.py/init.py were closed — not to keep the whole module exempt.
     "polyris/deploy.py",
     "polyris/register.py",
-    "polyris/init.py",
     "polyris/local.py",
-    "polyris/output.py",
-    "polyris/roles.py",
     "polyris/codegen/sync_enums.py",
     "polyris/codegen/sync_variables.py",
-    # codegen drift-checkers run as a blocking CI step (see ci.yml); they read
-    # the repo tree and diff generated vs committed output. Unit-testing them
-    # would mean mocking the filesystem (#11/#13), so they stay e2e/CI-covered
-    # like sync_enums above.
+    # codegen drift-checkers. Their *logic* is unit-tested against tmp_path
+    # fixtures (tests/sdk/test_sfn_template_drift.py,
+    # tests/sdk/test_backfill_status_parity.py); what is omitted here is the
+    # module-level repo-tree wiring, which would need filesystem mocking to
+    # colour (#11/#13). They also run as blocking CI steps (make
+    # check-sfn-templates / check-backfill-parity in ci.yml) against the real
+    # tree, which is the check that actually matters.
     "polyris/codegen/check_sfn_templates.py",
     "polyris/codegen/check_shared_constants.py",
     "polyris/codegen/check_backfill_status_parity.py",

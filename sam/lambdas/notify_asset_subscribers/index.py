@@ -137,7 +137,7 @@ def _get_asset_subscribers(asset_name: str) -> List[Dict]:
         return []
 
 
-def _check_freshness(asset_name: str, event_time: str, freshness_hours: int) -> bool:
+def _check_freshness(asset_name: str, event_time: str, freshness_hours: float) -> bool:
     """Check if asset event meets freshness requirement."""
     try:
         if 'Z' in event_time:

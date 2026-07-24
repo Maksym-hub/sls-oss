@@ -204,7 +204,13 @@ def test_skip_task_writes_skip_origin_manual(mocker):
     response = skip_task('test_task', {'body': json.dumps({'date': '2026-02-20'})})
 
     assert response['statusCode'] == 200
-    update_expr, kwargs = mock_repo.update.call_args[0][1], mock_repo.update.call_args[1]
+    # The status update and the synthetic-output marker both go through
+    # executions_repo.update() now, and the marker is written last — so select
+    # the status call by its key rather than taking the most recent one.
+    status_call = next(
+        c for c in mock_repo.update.call_args_list if not c[0][0].startswith('output#')
+    )
+    update_expr, kwargs = status_call[0][1], status_call[1]
     assert 'skip_origin' in update_expr
     assert kwargs['expr_values'][':skip_origin'] == 'manual'
 
@@ -226,7 +232,13 @@ def test_fail_task_does_not_write_skip_origin(mocker):
     response = fail_task('test_task', {'body': json.dumps({'date': '2026-02-20'})})
 
     assert response['statusCode'] == 200
-    update_expr, kwargs = mock_repo.update.call_args[0][1], mock_repo.update.call_args[1]
+    # The status update and the synthetic-output marker both go through
+    # executions_repo.update() now, and the marker is written last — so select
+    # the status call by its key rather than taking the most recent one.
+    status_call = next(
+        c for c in mock_repo.update.call_args_list if not c[0][0].startswith('output#')
+    )
+    update_expr, kwargs = status_call[0][1], status_call[1]
     assert 'skip_origin' not in update_expr
     assert ':skip_origin' not in kwargs['expr_values']
 
@@ -248,6 +260,12 @@ def test_mark_success_does_not_write_skip_origin(mocker):
     response = mark_success('test_task', {'body': json.dumps({'date': '2026-02-20'})})
 
     assert response['statusCode'] == 200
-    update_expr, kwargs = mock_repo.update.call_args[0][1], mock_repo.update.call_args[1]
+    # The status update and the synthetic-output marker both go through
+    # executions_repo.update() now, and the marker is written last — so select
+    # the status call by its key rather than taking the most recent one.
+    status_call = next(
+        c for c in mock_repo.update.call_args_list if not c[0][0].startswith('output#')
+    )
+    update_expr, kwargs = status_call[0][1], status_call[1]
     assert 'skip_origin' not in update_expr
     assert ':skip_origin' not in kwargs['expr_values']

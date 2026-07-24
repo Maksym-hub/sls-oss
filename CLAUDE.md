@@ -705,8 +705,16 @@ When adding a paid UI feature:
    unconditionally; the pattern remains for any *paid* cross-cutting handler.
 4. **Queries**: a tier's queries live in `src/ee/<tier>/hooks/queries/`. A query a
    *free* component needs stays in `src/hooks/queries/` even if a paid tier also
-   uses it (e.g. `useBackfillsListQuery` — the Header badge depends on it).
-   `useCan` / `useTier` / `useCapabilitiesQuery` are free (`@/hooks/queries`).
+   uses it. `useCan` / `useTier` / `useCapabilitiesQuery` are free
+   (`@/hooks/queries`) — every build calls them.
+   The test is *who calls it*, not who owns the feature. `useBackfillsListQuery`
+   used to be cited here as the free-side example because a free Header badge
+   consumed it; that badge is now the Team `BackfillNavTab`, so the hook has no
+   free caller and belongs under `src/ee/team/hooks/queries/`. Left in
+   `src/hooks/queries/` it is dead code in the OSS bundle pointing at a route
+   that 404s there — and its test asserts against an endpoint the free build
+   does not serve. When a paid surface absorbs a query's last free caller,
+   move the query in the same change.
 5. **Tests follow tier**: a paid component / hook's test lives next to it under
    `src/ee/<tier>/` (stripped in OSS); free tests stay under `src/`. When a free
    host's test needs the surface, mock `@/ee-active.generated`'s `paidSurface`.
@@ -738,7 +746,12 @@ current code. Snapshot at v0.78.10:
 **Already followed in practice** — no work needed, just keep doing:
 - No wildcard imports (0 across all `.py` files)
 - Type hints on public Python functions (91%)
-- DAL repositories for all DynamoDB access (100%)
+- DAL repositories for all DynamoDB access in `console_api` (100% as of v0.93.1 —
+  three route/helper sites bypassed it via `dynamodb.Table(...)` until then). Adding
+  DDB access there means a repo in `console_api/dal/`, never a raw table handle in a
+  handler. The one deliberate exception is `notify/registry.py`: that Lambda has no
+  `dal/` and one table accessor, so `registry_table()` *is* the accessor — a DAL for
+  a single function would be the over-engineering Principle #12 warns about.
 - Config via env + CFN params, no hardcoded resource names (100%)
 - Stateless Lambdas, no warm-state caching (100%)
 - TypeScript strict, no `any` in production code (100%)
@@ -1251,7 +1264,9 @@ make test-cov
 ```
 
 **Test rules:**
-- pytest-mock (`mocker` fixture) everywhere — no `unittest.mock` (ADR #26)
+- pytest-mock (`mocker` fixture) everywhere — no `unittest.mock` import at all,
+  including `MagicMock` as a bare object factory (use `mocker.MagicMock`). The rule
+  exists for `patch`: hand-managed context managers leak when a test fails (ADR #26)
 - Backend tests in `tests/backend/`, SDK tests in `tests/sdk/`
 - Pure-logic core stays above the coverage floor (`fail_under` in `pyproject.toml`);
   raise the floor when you raise coverage (Principle #22). AWS/CLI modules are

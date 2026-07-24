@@ -59,19 +59,25 @@ Out of scope:
 
 ## `npm audit` findings — dev/build toolchain only
 
-The Console UI ships as a **static export** (Next.js): the deployed site is plain HTML,
-CSS, and JavaScript served from S3/CloudFront, with no server and no build or test
-toolchain running in production.
+The Console UI ships as a **static export** (`output: 'export'` in
+`ui/next.config.js`): the deployed site is plain HTML, CSS, and JavaScript served from
+S3/CloudFront. There is **no Next.js server at runtime** — no middleware, no proxy, no
+image-optimisation pipeline, and no build or test toolchain in production.
 
-The advisories currently reported by `npm audit` are therefore confined to
-**development and build dependencies** — `vitest`, `vite`, `esbuild`, and the `postcss`
-copy bundled inside `next`. These run only during local development, testing, and the
-build step; **none are part of the shipped bundle**, so they do not affect deployed
-instances or their users. Several advisories are additionally scoped to a local dev
-server or to Windows-only paths, neither of which applies to the deployed artifact.
+As of v0.93.1 `npm audit` reports **3 high, 0 critical**, all in the build toolchain:
 
-We treat these as **low-priority, non-runtime** issues. Clearing them fully requires a
-major version bump of the test runner (`vitest`), which is a deliberate migration rather
-than a patch; it is tracked as routine maintenance. A vulnerability in a **runtime**
-dependency — anything that reaches the deployed bundle or the backend Lambdas — is
-treated with priority and should be reported as above.
+| Package | Advisory | Why it does not reach a deployed instance |
+|---|---|---|
+| `next` | Middleware / proxy bypass in App Router | Requires the Next.js server. A static export has none; there is no middleware to bypass. No patched 16.2.x exists — 16.2.11 is current, and npm's suggested "fix" is a downgrade to 9.3.3, which we reject. |
+| `postcss` | XSS via unescaped `</style>` in stringify output | Build-time only. The CSS input is our own source, not user input; the output is a static asset. |
+| `sharp` | Inherited libvips CVEs | Pulled in by `next` for image optimisation, which `output: 'export'` disables. Never invoked. |
+
+The previously-reported `vitest` / `vite` / `esbuild` criticals were cleared in v0.93.1 by
+migrating the test runner to `vitest` 4 and dropping `@vitejs/plugin-react` from the test
+config (Vitest transforms JSX natively; the Babel plugin was a dev-server concern and
+emitted deprecation warnings under Vite 7).
+
+We treat the remaining findings as **low-priority, non-runtime** and re-evaluate them on
+each dependency bump. A vulnerability in a **runtime** dependency — anything that reaches
+the shipped bundle or the backend Lambdas — is treated with priority and should be
+reported as above.

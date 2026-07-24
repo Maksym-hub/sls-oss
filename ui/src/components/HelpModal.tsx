@@ -112,6 +112,14 @@ function KeyboardShortcutsTab() {
     //
     // v0.78.5: numeric keys reserved for top-level nav; inner surfaces
     // use letter keys matching first letter of tab name.
+    //
+    // A shortcut listed here but not wired in this build is a documentation bug
+    // (#19). Gantt/Calendar were already filtered on the paid surface; the
+    // Backfills/Assets groups were not, so the OSS build advertised ~14 keys
+    // that do nothing. Everything paid is filtered the same way now — the
+    // KeyboardShortcutsTab guard test pins it.
+    const IS_TEAM = Object.keys(paidSurface).length > 0;
+    const HAS_PAID_DETAIL_PAGES = Boolean(paidSurface.BackfillsView || paidSurface.AssetsView);
     const groups: Array<{ title: string; items: Array<{ key: string; action: string }> }> = [
         {
             title: 'Global',
@@ -126,24 +134,31 @@ function KeyboardShortcutsTab() {
             title: 'Top-level navigation (numeric keys reserved)',
             items: [
                 { key: '1', action: 'Pipelines view' },
-                { key: '2', action: 'Assets view' },
+                // 2 / 5 route to paid views — App.tsx no-ops them when the slot
+                // is empty, so they are only listed when actually wired.
+                ...(paidSurface.AssetsView ? [{ key: '2', action: 'Assets view' }] : []),
                 { key: '3', action: 'History (Tasks)' },
                 { key: '4', action: 'History (Runs)' },
-                { key: '5', action: 'Backfills view' },
+                ...(paidSurface.BackfillsView ? [{ key: '5', action: 'Backfills view' }] : []),
             ],
         },
         {
             title: 'List views',
             items: [
                 { key: '⌘R', action: 'Refresh data (all list views)' },
-                { key: '/', action: 'Focus the search input (Backfills, History)' },
-                { key: 'J', action: 'Highlight next row (Backfills list)' },
-                { key: 'K', action: 'Highlight previous row (Backfills list)' },
-                { key: 'Enter', action: 'Open highlighted row (Backfills list)' },
+                // Row navigation is wired on the Backfills list (paid surface).
+                ...(paidSurface.BackfillsView ? [
+                    { key: '/', action: 'Focus the search input (Backfills, History)' },
+                    { key: 'J', action: 'Highlight next row (Backfills list)' },
+                    { key: 'K', action: 'Highlight previous row (Backfills list)' },
+                    { key: 'Enter', action: 'Open highlighted row (Backfills list)' },
+                ] : [{ key: '/', action: 'Focus the search input (History)' }]),
             ],
         },
         {
-            title: 'Detail pages (Backfill, Asset, Pipeline)',
+            title: HAS_PAID_DETAIL_PAGES
+                ? 'Detail pages (Backfill, Asset, Pipeline)'
+                : 'Detail pages (Pipeline)',
             items: [
                 { key: '⌘R', action: 'Refresh data' },
                 { key: 'Esc', action: 'Go back to list' },
@@ -158,7 +173,7 @@ function KeyboardShortcutsTab() {
                 ...(paidSurface.CalendarView ? [{ key: 'C', action: 'Switch to Calendar view' }] : []),
             ],
         },
-        {
+        ...(paidSurface.AssetsView ? [{
             title: 'Asset detail tabs',
             items: [
                 { key: 'O', action: 'Overview tab' },
@@ -168,7 +183,7 @@ function KeyboardShortcutsTab() {
                 { key: 'C', action: 'Checks tab' },
                 { key: 'L', action: 'Lineage tab' },
             ],
-        },
+        }] : []),
         {
             title: 'Task Detail modal tabs',
             items: [
@@ -182,15 +197,18 @@ function KeyboardShortcutsTab() {
             items: [
                 { key: 'S', action: 'Shortcuts tab' },
                 { key: 'I', action: 'Icons tab' },
-                { key: 'B', action: 'Backfill tab' },
-                { key: 'A', action: 'API tab' },
+                // Mirrors the tab buttons above, which are gated the same way.
+                ...(paidSurface.BackfillsView ? [{ key: 'B', action: 'Backfill tab' }] : []),
+                ...(IS_TEAM ? [{ key: 'A', action: 'API tab' }] : []),
             ],
         },
         {
             title: 'Modals with primary action',
             items: [
                 { key: 'Esc', action: 'Close without submit' },
-                { key: '⌘↵', action: 'Submit / Start (e.g. start backfill)' },
+                { key: '⌘↵', action: paidSurface.BackfillsView
+                    ? 'Submit / Start (e.g. start backfill)'
+                    : 'Submit the primary action' },
             ],
         },
     ];

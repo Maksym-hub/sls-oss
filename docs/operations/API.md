@@ -228,8 +228,21 @@ How far back a page can reach depends on the filters:
 
 ```http
 GET /api/task-config?name={execution_name}
-PUT /api/task-config?name={execution_name}
+PUT /api/task-config?name={execution_name}    # 🔒 Team — config mutation (ADR #110)
 ```
+
+Reading a task's config is free; mutating it is Team (`task.config` capability)
+and 404s on an OSS deployment.
+
+### Get Task Output
+
+```http
+GET /api/task-output?name={execution_name}
+```
+
+Returns the task's stored return value from the DynamoDB output store. Large
+payloads are offloaded to S3 and transparently resolved (see
+[DATA_PASSING.md](../features/DATA_PASSING.md)).
 
 ### Get Task Events
 
@@ -399,6 +412,19 @@ Returns progress for tasks with `wait_for` consecutive asset dependencies. Shows
 ```http
 GET /api/notifications?limit=20&hours=4
 ```
+
+---
+
+## Settings
+
+```http
+GET /api/settings/decision-timeout
+PUT /api/settings/decision-timeout    # 🔒 Team — config mutation (ADR #110)
+```
+
+How long a failed task waits on a human decision before the configured fallback
+applies (ADR #114). Reading the value is free; changing it is Team
+(`task.config` capability) and 404s on an OSS deployment.
 
 ---
 

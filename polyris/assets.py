@@ -172,7 +172,8 @@ class Asset:
                Use for views, schema info, etc.
         description: Human-readable description (polyris extension)
         tags: Optional list of tags for filtering/categorization (polyris extension)
-        freshness_hours: Optional freshness threshold in hours (polyris extension)
+        freshness_hours: Optional freshness threshold in hours; may be fractional
+                 (polyris extension)
         owner: Optional owner team or person (polyris extension)
         schema: Optional column schema. Accepted forms (mixed in one list is allowed):
                   - Column instances:   Column("order_id", types.bigint(), primary_key=True)
@@ -264,7 +265,7 @@ class Asset:
         # polyris extensions (not in Airflow)
         description: str = "",
         tags: Optional[List[str]] = None,
-        freshness_hours: Optional[int] = None,
+        freshness_hours: Optional[float] = None,
         owner: str = "",
         schema: Optional[List] = None,
         glue_table: str = "",
@@ -978,7 +979,10 @@ class AssetRef:
         AssetRef(asset=asset_x, freshness_hours=24)
     """
     asset: Asset
-    freshness_hours: Optional[int] = None
+    # float, not int: within(minutes=...) is a documented public entry point and
+    # legitimately yields fractional hours (minutes=30 -> 0.5). The consumer
+    # compares `age_hours <= freshness_hours`, so fractions are meaningful.
+    freshness_hours: Optional[float] = None
     
     def __hash__(self):
         return hash((self.asset.name, self.freshness_hours))
@@ -1096,6 +1100,9 @@ class AssetConsecutiveRef:
 # Operand type the combinator algebra actually accepts at runtime
 # (Asset plus its freshness/consecutive refs) — annotations match behavior.
 AssetOperand = Union[Asset, "AssetRef", "AssetConsecutiveRef"]
+# What an AssetAll may hold. A nested AssetAny is legal — `schedule=[a, b | c]`
+# is a AND (b OR c) — so the AND-group's operand type is wider than a leaf's.
+AssetAllOperand = Union[AssetOperand, "AssetAny"]
 
 
 @dataclass
@@ -1109,14 +1116,17 @@ class AssetAll:
         # or equivalently:
         schedule=[AssetAll([inventory, catalog])]
     """
-    assets: List[AssetOperand] = field(default_factory=list)
+    # AssetAny is allowed as an operand: `schedule=[a, b | c]` means
+    # a AND (b OR c), which is stored as an AssetAll holding a nested AssetAny.
+    # Symmetric with AssetAny.assets, which already permits nesting.
+    assets: List[AssetAllOperand] = field(default_factory=list)
     
     def __and__(self, other: Union[Asset, 'AssetAll']) -> 'AssetAll':
         """Chain AND: (a & b) & c"""
         if isinstance(other, AssetAll):
-            return AssetAll(assets=cast("List[AssetOperand]", self.assets + other.assets))
+            return AssetAll(assets=cast("List[AssetAllOperand]", self.assets + other.assets))
         elif isinstance(other, Asset):
-            return AssetAll(assets=cast("List[AssetOperand]", self.assets + [other]))
+            return AssetAll(assets=cast("List[AssetAllOperand]", self.assets + [other]))
         raise TypeError(f"Cannot combine AssetAll with {type(other)}")
     
     def __or__(self, other) -> 'AssetAny':
@@ -1268,11 +1278,11 @@ class AssetAlias:
     def __and__(self, other: Union[Asset, 'AssetAlias', AssetAll]) -> AssetAll:
         """Alias & something → AND condition with all assets in alias"""
         if isinstance(other, AssetAlias):
-            return AssetAll(assets=cast("List[AssetOperand]", self.assets + other.assets))
+            return AssetAll(assets=cast("List[AssetAllOperand]", self.assets + other.assets))
         elif isinstance(other, AssetAll):
-            return AssetAll(assets=cast("List[AssetOperand]", self.assets + other.assets))
+            return AssetAll(assets=cast("List[AssetAllOperand]", self.assets + other.assets))
         elif isinstance(other, Asset):
-            return AssetAll(assets=cast("List[AssetOperand]", self.assets + [other]))
+            return AssetAll(assets=cast("List[AssetAllOperand]", self.assets + [other]))
         raise TypeError(f"Cannot combine AssetAlias with {type(other)}")
     
     def __or__(self, other: Union[Asset, 'AssetAlias', AssetAny]) -> AssetAny:
@@ -1359,7 +1369,7 @@ def normalize_asset_schedule(schedule: Optional[AssetSchedule]) -> Union[AssetAl
             elif isinstance(item, AssetAlias):
                 return AssetAny(assets=cast("List[Union[AssetOperand, AssetAll]]", item.assets))
             elif isinstance(item, Asset):
-                return AssetAll(assets=cast("List[AssetOperand]", [item]))
+                return AssetAll(assets=cast("List[AssetAllOperand]", [item]))
         
         # Multiple items in list → AND by default. AND is associative, so a
         # nested AssetAll item is flattened (schedule=[a, b & c] means
@@ -1371,7 +1381,7 @@ def normalize_asset_schedule(schedule: Optional[AssetSchedule]) -> Union[AssetAl
         # AssetConsecutiveRef (e.g. a bare `asset.within(hours=24)` in the
         # list) previously matched none of the isinstance branches below and
         # silently vanished from the result — now they're appended too.
-        assets: List[AssetOperand] = []
+        assets: List[AssetAllOperand] = []
         for item in schedule:
             if isinstance(item, AssetAll):
                 assets.extend(item.assets)

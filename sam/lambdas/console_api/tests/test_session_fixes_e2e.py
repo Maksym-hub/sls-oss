@@ -219,14 +219,17 @@ def wired(fake_env, mocker):
         tasks_module.executions_repo, 'query_by_date_raw',
         side_effect=lambda **kw: fake_table.query(**kw),
     )
-    # _write_synthetic_output_marker uses dynamodb.Table(TABLE_NAME) directly
-    # (not executions_repo) — point it at the same fake table so its writes
-    # land in the same in-memory state the rest of this fixture exercises.
-    mocker.patch.object(tasks_module.dynamodb, 'Table', return_value=fake_table)
     # pipelines_repo is a separate table (the registry, not tokens_table) —
     # default to "no registry entry found", the graceful no-outlets path.
     # Individual tests override this to exercise the outlets-found path.
     mocker.patch.object(tasks_module.pipelines_repo, 'get', return_value=None)
+    # asset-events is a separate table; land its writes in the same in-memory
+    # store so tests can assert on both from one place (as they did when a
+    # single patched dynamodb.Table served every table name).
+    mocker.patch.object(
+        tasks_module.asset_events_repo, 'put',
+        side_effect=lambda item: fake_table.put_item(Item=item),
+    )
     # Side effects unrelated to the chain under test — real SFN/S3 calls
     # would need a live AWS account, out of scope for this in-process test.
     mocker.patch.object(tasks_module, 'stop_task_executions')
@@ -591,13 +594,20 @@ class TestSyntheticOutputMarker:
         fake_table.items['transform-2026-07-24-run1'] = _waiting_task()
 
         from botocore.exceptions import ClientError
-        broken_table = mocker.Mock()
-        broken_table.update_item.side_effect = ClientError(
-            {'Error': {'Code': 'ProvisionedThroughputExceededException', 'Message': 'x'}}, 'UpdateItem')
-        # Route ONLY the direct dynamodb.Table() calls (used by
-        # _write_synthetic_output_marker) to the broken table; executions_repo
-        # (used for the main status update) still points at the real fake_table.
-        mocker.patch.object(tasks_module.dynamodb, 'Table', return_value=broken_table)
+        # Fail ONLY the marker write. The main status update goes through the
+        # same repo but a different method (the fixture's fake_table), so
+        # patching update() alone isolates the marker path.
+        real_update = tasks_module.executions_repo.update
+
+        def _fail_only_marker_writes(key, *a, **kw):
+            if key.startswith('output#'):
+                raise ClientError(
+                    {'Error': {'Code': 'ProvisionedThroughputExceededException', 'Message': 'x'}},
+                    'UpdateItem')
+            return real_update(key, *a, **kw)
+
+        mocker.patch.object(
+            tasks_module.executions_repo, 'update', side_effect=_fail_only_marker_writes)
 
         resp = tasks_module.skip_task(
             'transform', {'body': json.dumps({'date': '2026-07-24', 'pipeline_execution': 'run-1'})},
