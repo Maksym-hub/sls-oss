@@ -198,8 +198,8 @@
             },
             "Eval_Task_Deps": {
               "Type": "Pass",
-              "Comment": "Evaluate trigger rule for task dependencies",
-              "Output": "{% ( $results := $states.input.dep_results; $tr := $exists($states.input.trigger_rule) ? $states.input.trigger_rule : 'all_success'; $c := { 'success': $count($results[status = 'success']), 'skipped': $count($results[status = 'skipped']), 'failed': $count($results[status in ['failed', 'upstream_failed', 'aborted']]), 'done': $count($results[status in ['success', 'failed', 'skipped', 'upstream_failed', 'aborted']]), 'not_found': $count($results[status = 'not_found']), 'total': $count($results) }; $pending := $c.total - $c.done; $cascading_skips := $count($results[status = 'skipped' and skip_origin = 'rule']); $ok := $c.success + ($c.skipped - $cascading_skips); $ready := $tr = 'all_success' ? ($pending = 0 and $ok = $c.total) : $tr = 'one_success' ? $c.success > 0 : $tr = 'all_done' ? $pending = 0 : $tr = 'all_skipped' ? ($pending = 0 and $c.skipped = $c.total) : $tr = 'none_skipped' ? ($pending = 0 and $c.skipped = 0) : ($pending = 0 and $ok = $c.total); { 'type': 'task_deps', 'ready': $ready, 'trigger_rule': $tr, 'counts': $c } ) %}",
+              "Comment": "Evaluate trigger rule for task dependencies. Also computes $verdict — needed for the immediate registration path (all deps already terminal at registration time, rule blocked): notify_dependents already fired for those upstreams and won't fire again, so we must resolve the outcome here instead of hanging in Wait_For_Signal forever.",
+              "Output": "{% ( $results := $states.input.dep_results; $tr := $exists($states.input.trigger_rule) ? $states.input.trigger_rule : 'all_success'; $c := { 'success': $count($results[status = 'success']), 'skipped': $count($results[status = 'skipped']), 'failed': $count($results[status in ['failed', 'upstream_failed', 'aborted']]), 'done': $count($results[status in ['success', 'failed', 'skipped', 'upstream_failed', 'aborted']]), 'not_found': $count($results[status = 'not_found']), 'total': $count($results) }; $pending := $c.total - $c.done; $cascading_skips := $count($results[status = 'skipped' and skip_origin = 'rule']); $ok := $c.success + ($c.skipped - $cascading_skips); $ready := $tr in ['all_success'] ? ($pending = 0 and $ok = $c.total) : $tr in ['one_success', 'none_failed_min_one_success'] ? $c.success > 0 : $tr in ['all_done', 'none_failed', 'one_done'] ? $pending = 0 : $tr = 'all_skipped' ? ($pending = 0 and $c.skipped = $c.total) : $tr = 'none_skipped' ? ($pending = 0 and $c.skipped = 0) : ($pending = 0 and $ok = $c.total); $is_failure_averse := $tr in ['all_success', 'one_success', 'none_failed_min_one_success']; $verdict := $ready ? 'ready' : ($pending > 0 ? 'wait' : ($is_failure_averse and $c.failed > 0 ? 'blocked' : 'skip')); $reason := $verdict = 'skip' ? 'Trigger rule condition did not occur' : ($verdict = 'blocked' ? ($string($c.failed) & ' dep(s) failed') : ''); { 'type': 'task_deps', 'ready': $ready, 'verdict': $verdict, 'reason': $reason, 'trigger_rule': $tr, 'counts': $c } ) %}",
               "End": true
             }
           }
@@ -255,16 +255,20 @@
           }
         }
       ],
-      "Output": "{% ( $taskResult := $states.result[0]; $assetResult := $states.result[1]; $states.input ~> |$| { 'task_deps_ready': $taskResult.ready, 'asset_deps_ready': $assetResult.ready, 'task_counts': $taskResult.counts, 'asset_results': $exists($assetResult.assets) ? $assetResult.assets : [] } | ) %}",
+      "Output": "{% ( $taskResult := $states.result[0]; $assetResult := $states.result[1]; $states.input ~> |$| { 'task_deps_ready': $taskResult.ready, 'task_verdict': $exists($taskResult.verdict) ? $taskResult.verdict : ($taskResult.ready ? 'ready' : 'wait'), 'task_reason': $exists($taskResult.reason) ? $taskResult.reason : '', 'asset_deps_ready': $assetResult.ready, 'task_counts': $taskResult.counts, 'asset_results': $exists($assetResult.assets) ? $assetResult.assets : [] } | ) %}",
       "Next": "Route_Combined_Check"
     },
     "Route_Combined_Check": {
       "Type": "Choice",
-      "Comment": "If both task deps and asset deps are ready, signal immediately",
+      "Comment": "Ready (task_deps + asset_deps) → signal ready. Skip/blocked (task deps already terminal, rule cannot fire) → signal skip/blocked regardless of asset_deps_ready: a task whose task_deps cannot be satisfied can never succeed, so waiting for assets is wasted time. Any asset subscriptions written by check_assets Lambda become orphaned but are cleaned by TTL. Everything else falls to Wait_For_Signal.",
       "Choices": [
         {
           "Condition": "{% $states.input.task_deps_ready = true and $states.input.asset_deps_ready = true %}",
           "Next": "Signal_Ready_Immediately"
+        },
+        {
+          "Condition": "{% $states.input.task_verdict in ['skip', 'blocked'] %}",
+          "Next": "Signal_Deps_Not_Ready"
         }
       ],
       "Default": "Wait_For_Signal"
@@ -308,6 +312,65 @@
         "ExpressionAttributeValues": {
           ":status": {
             "S": "deps_ready"
+          }
+        }
+      },
+      "Output": "{% $states.input %}",
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ProvisionedThroughputExceededException",
+            "DynamoDB.ThrottlingException",
+            "DynamoDB.InternalServerError",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ]
+    },
+    "Signal_Deps_Not_Ready": {
+      "Type": "Task",
+      "Comment": "All deps already terminal AND trigger rule cannot fire — signal wrapper with deps_skip or deps_blocked so its existing Emit_Deps_Skip/Blocked chain resolves the task. Without this state, the task hangs in Wait_For_Signal until orchestration_timeout (default 24h) because notify_dependents already fired for all terminal upstreams and won't fire again. Payload shape matches what notify_dependents sends via its own Signal_Skip/Signal_Blocked states.",
+      "Resource": "arn:aws:states:::aws-sdk:sfn:sendTaskSuccess",
+      "Arguments": {
+        "TaskToken": "{% $states.input.wait_token %}",
+        "Output": "{% { 'signal': 'deps_' & $states.input.task_verdict, 'reason': $states.input.task_reason, 'immediate': true } %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Comment": "Token expired or wrapper already finished - still write the DDB status so the UI reflects the correct outcome.",
+          "Output": "{% $states.input %}",
+          "Next": "Update_Status_Not_Ready"
+        }
+      ],
+      "Output": "{% $states.input ~> |$| {'signaled': true} | %}",
+      "Next": "Update_Status_Not_Ready"
+    },
+    "Update_Status_Not_Ready": {
+      "Type": "Task",
+      "Comment": "Write final status ('skipped' or 'upstream_failed') for the registration skip/blocked path. Mirrors Update_Status_Ready but the value comes from task_verdict.",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Arguments": {
+        "TableName": "${tokens_table}",
+        "Key": {
+          "execution_name": {
+            "S": "{% $states.input.execution_name %}"
+          }
+        },
+        "UpdateExpression": "SET #s = :status",
+        "ExpressionAttributeNames": {
+          "#s": "status"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "{% $states.input.task_verdict = 'skip' ? 'skipped' : 'upstream_failed' %}"
           }
         }
       },

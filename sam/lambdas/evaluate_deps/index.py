@@ -97,16 +97,29 @@ def _handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     date = event.get('date', '')
     pipeline_execution_short = event.get('pipeline_execution_short', '')
     pipeline_execution = event.get('pipeline_execution', '')
-    
+    # Asset coordination (Case B fix): task_deps and wait_for assets can each
+    # arrive first. Whichever caller (notify_dependents SFN via a completed
+    # task_dep, or notify_asset_subscribers via an arriving asset) evaluates
+    # last should be the one that signals — so evaluate_deps is the single
+    # gate that checks BOTH. Callers pass wait_for from the subscriber's task
+    # record and assets_ready from the same record (set by
+    # notify_asset_subscribers before the call).
+    wait_for = event.get('wait_for', []) or []
+    assets_ready = bool(event.get('assets_ready', False))
+    has_wait_for = len(wait_for) > 0
+    assets_satisfied = (not has_wait_for) or assets_ready
+
     # Handle empty dependencies
     if not dependencies:
+        # No task_deps means task_deps trivially satisfied. But if the task has
+        # wait_for assets that haven't arrived yet, the task is still not ready.
         return {
-            'is_ready': True,
+            'is_ready': assets_satisfied,
             'is_blocked': False,
             'is_paused': False,
             'deps_satisfied': True,  # No deps = satisfied by default
-            'verdict': 'ready',
-            'reason': 'no_deps',
+            'verdict': 'ready' if assets_satisfied else 'wait',
+            'reason': 'no_deps' if assets_satisfied else 'awaiting_assets',
             'dep_statuses': [],
             'counts': _empty_counts()
         }
@@ -146,19 +159,27 @@ def _handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     # failure-averse rule blocked only by a skip) — that is a legitimate no-op, not an
     # error, and verdicts 'skip'. Not blocked -> 'ready' or 'wait'.
     if not is_blocked:
-        verdict = 'ready' if deps_satisfied else 'wait'
+        if deps_satisfied:
+            # Asset coordination (Case B): if task also has wait_for assets that
+            # haven't arrived yet, hold the 'wait' verdict. notify_asset_subscribers
+            # will re-evaluate when the asset arrives (via its own evaluate_deps
+            # call) and signal at that point.
+            verdict = 'ready' if assets_satisfied else 'wait'
+        else:
+            verdict = 'wait'
     elif effective_rule in FAILURE_AVERSE_RULES and counts['failed'] > 0:
         verdict = 'upstream_failed'
     else:
         verdict = 'skip'
 
-    # is_ready = deps satisfied AND pipeline not paused
-    # deps_satisfied = deps satisfy trigger_rule (regardless of pause)
+    # is_ready = deps satisfied AND assets satisfied AND pipeline not paused
+    # deps_satisfied = task_deps satisfy trigger_rule (regardless of assets/pause)
     return {
-        'is_ready': deps_satisfied and not is_paused,
+        'is_ready': deps_satisfied and assets_satisfied and not is_paused,
         'is_blocked': is_blocked,
         'is_paused': is_paused,
-        'deps_satisfied': deps_satisfied,  # NEW: true if deps satisfy rule (even if paused)
+        'deps_satisfied': deps_satisfied,  # task_deps satisfy rule (even if assets/pause block)
+        'assets_satisfied': assets_satisfied,  # wait_for assets ready (or task has none)
         'verdict': verdict,  # ADR #115: 'ready' | 'wait' | 'skip' | 'upstream_failed'
         'reason': reason,
         'dep_statuses': dep_statuses,
@@ -319,6 +340,14 @@ def _check_trigger_rule(
         ),
     }
     
+    # ADR #117: removed aliases — map to their canonical equivalents so
+    # pipelines deployed before the 11→5 trim keep correct runtime semantics
+    # instead of silently falling back to all_success. Mirrors validation.py's
+    # removed_rule_suggestions.
+    rules['one_done'] = rules['all_done']
+    rules['none_failed'] = rules['all_done']
+    rules['none_failed_min_one_success'] = rules['one_success']
+
     if trigger_rule in rules:
         satisfied, reason = rules[trigger_rule]()
         return satisfied, reason, trigger_rule

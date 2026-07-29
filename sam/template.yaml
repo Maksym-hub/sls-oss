@@ -990,6 +990,12 @@ Resources:
         Variables:
           ASSET_EVENTS_TABLE: !Ref AssetEventsTable
           SUBSCRIPTIONS_TABLE: !Ref AssetSubscriptionsTable
+          # Case B (Option J): when assets are already ready at registration,
+          # check_assets flips assets_ready=true on the subscriber's task
+          # record so evaluate_deps (called later when task_deps complete)
+          # sees a coherent view. Without this, a task with wait_for + pending
+          # task_deps hangs after task_deps complete.
+          TOKENS_TABLE: !Ref PipelineTokensTable
       Tags:
         Environment: polyris
         Stage: !Ref Stage
@@ -1013,6 +1019,12 @@ Resources:
           ASSET_EVENTS_TABLE: !Ref AssetEventsTable
           QUEUED_ASSET_EVENTS_TABLE: !Ref QueuedAssetEventsTable
           QUEUED_EVENT_TTL_DAYS: "7"
+          # Case B (task_deps + wait_for coordination): notify_asset_subscribers
+          # asks evaluate_deps whether task_deps are also satisfied before
+          # signaling wait_token. Without this, an asset arriving before the
+          # last task_dep completes wakes dep_wrapper too early.
+          TOKENS_TABLE: !Ref PipelineTokensTable
+          EVALUATE_DEPS_LAMBDA: !GetAtt EvaluateDepsFunction.Arn
       Tags:
         Environment: polyris
         Stage: !Ref Stage
@@ -1202,6 +1214,23 @@ Resources:
                 Resource:
                   - !GetAtt AssetEventsTable.Arn
                   - !Sub "${AssetEventsTable.Arn}/index/*"
+              # Subscriptions writes: check_assets calls _save_asset_subscription
+              # via subscriptions_repo when assets aren't ready yet, and _delete_
+              # subscription when a recheck finds them ready. Without this
+              # statement those writes silently fail (best-effort catch).
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                Resource:
+                  - !GetAtt AssetSubscriptionsTable.Arn
+              # Case B: flip assets_ready=true on the subscriber's task record
+              # when assets are already ready at registration time.
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt PipelineTokensTable.Arn
 
   NotifyAssetSubscribersRole:
     Type: AWS::IAM::Role
@@ -1231,6 +1260,19 @@ Resources:
                 Resource:
                   - !GetAtt AssetSubscriptionsTable.Arn
                   - !GetAtt QueuedAssetEventsTable.Arn
+              # Case B coordination: mark assets_ready on the subscriber's task
+              # record so evaluate_deps sees a coherent view.
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt PipelineTokensTable.Arn
+              # Invoke evaluate_deps to check task_deps before signaling.
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt EvaluateDepsFunction.Arn
               - Effect: Allow
                 Action:
                   - states:SendTaskSuccess

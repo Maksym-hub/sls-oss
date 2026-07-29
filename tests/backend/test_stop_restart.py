@@ -168,23 +168,22 @@ def test_restart_not_found_returns_404(mocker):
     assert response['statusCode'] == 404
 
 
-def test_restart_fallback_resets_status(mocker):
-    """No RESTART_HELPER_ARN → fallback: reset status to waiting."""
+def test_restart_without_helper_arn_returns_500(mocker):
+    """RESTART_HELPER_ARN is set automatically by the SAM template. Its absence
+    means a broken/partial deploy. The old fallback path could not do the
+    two-level stop that the helper does (would leave ghost wrappers alive on
+    waiting_decision restarts), so restart_task must now fail fast with a clear
+    error instead of attempting a degraded restart."""
     from routes.tasks import restart_task
 
     item = _make_item(status='failed')
     mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
-    mocker.patch('routes.tasks.record_manual_decision')
-    mock_stop_exec = mocker.patch('routes.tasks.stop_task_executions')
-    mock_repo = mocker.patch('routes.tasks.executions_repo')
-    mock_repo.update.return_value = {}
 
     os.environ.pop('RESTART_HELPER_ARN', None)
     response = restart_task('extract', _make_event())
 
-    assert response['statusCode'] == 200
-    mock_repo.update.assert_called_once()
-    mock_stop_exec.assert_called_once()
+    assert response['statusCode'] == 500
+    assert 'RESTART_HELPER_ARN' in json.loads(response['body'])['error']
 
 
 def test_restart_stopped_task_via_helper(mocker):
@@ -209,27 +208,6 @@ def test_restart_stopped_task_via_helper(mocker):
     mock_sfn.start_execution.assert_called_once()
 
 
-def test_restart_stopped_task_via_fallback(mocker):
-    """Same regression, fallback (no RESTART_HELPER_ARN) path — and the
-    DynamoDB call must actually supply a value for :stopped, since
-    RESTART_CONDITION references it in the ConditionExpression string."""
-    from routes.tasks import restart_task
-
-    item = _make_item(status='stopped')
-    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
-    mocker.patch('routes.tasks.record_manual_decision')
-    mocker.patch('routes.tasks.stop_task_executions')
-    mock_repo = mocker.patch('routes.tasks.executions_repo')
-    mock_repo.update.return_value = {}
-
-    os.environ.pop('RESTART_HELPER_ARN', None)
-    response = restart_task('extract', _make_event())
-
-    assert response['statusCode'] == 200
-    call_kwargs = mock_repo.update.call_args.kwargs
-    assert ':stopped' in call_kwargs['expr_values']
-    assert call_kwargs['expr_values'][':stopped'] == 'stopped'
-    assert ':stopped' in call_kwargs['condition_expr']
 
 
 def test_restart_waiting_decision_task_via_helper(mocker):
@@ -257,29 +235,6 @@ def test_restart_waiting_decision_task_via_helper(mocker):
     assert response['statusCode'] == 200
     mock_sfn.start_execution.assert_called_once()
     mock_record.assert_called_once()
-
-
-def test_restart_waiting_decision_task_via_fallback(mocker):
-    """Same as above, fallback path (no RESTART_HELPER_ARN) — and the
-    DynamoDB call must supply a value for :waiting_decision, matching the
-    :stopped pattern already verified above."""
-    from routes.tasks import restart_task
-
-    item = _make_item(status='waiting_decision')
-    mocker.patch('routes.tasks.resolve_task_item', return_value=(item, item['execution_name']))
-    mocker.patch('routes.tasks.record_manual_decision')
-    mocker.patch('routes.tasks.stop_task_executions')
-    mock_repo = mocker.patch('routes.tasks.executions_repo')
-    mock_repo.update.return_value = {}
-
-    os.environ.pop('RESTART_HELPER_ARN', None)
-    response = restart_task('extract', _make_event())
-
-    assert response['statusCode'] == 200
-    call_kwargs = mock_repo.update.call_args.kwargs
-    assert ':waiting_decision' in call_kwargs['expr_values']
-    assert call_kwargs['expr_values'][':waiting_decision'] == 'waiting_decision'
-    assert ':waiting_decision' in call_kwargs['condition_expr']
 
 
 def test_restart_still_rejects_genuinely_active_running_task(mocker):

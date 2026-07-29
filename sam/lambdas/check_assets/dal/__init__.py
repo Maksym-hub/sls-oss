@@ -99,5 +99,30 @@ class SubscriptionsRepo:
         })
 
 
+class TokensRepo:
+    """pipeline-tokens table — keyed by execution_name. Used only to mark
+    assets_ready=true so evaluate_deps (called later by notify_dependents when
+    task_deps complete) can tell whether wait_for assets were already ready at
+    registration time."""
+
+    def __init__(self, table_name: Optional[str] = None):
+        self._table_name = table_name or os.environ.get('TOKENS_TABLE', 'pipeline-tokens')
+
+    @property
+    def table(self):
+        return _resource().Table(self._table_name)
+
+    def mark_assets_ready(self, execution_name: str) -> None:
+        """Idempotent SET assets_ready=true on the task record. Best-effort —
+        the caller (check_assets) logs and continues on failure."""
+        self.table.update_item(
+            Key={'execution_name': execution_name},
+            UpdateExpression='SET assets_ready = :true',
+            ExpressionAttributeValues={':true': True},
+            ConditionExpression='attribute_exists(execution_name)',
+        )
+
+
 asset_events_repo = AssetEventsRepo()
 subscriptions_repo = SubscriptionsRepo()
+tokens_repo = TokensRepo()

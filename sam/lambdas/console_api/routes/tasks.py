@@ -788,7 +788,7 @@ def _execute_task_action(
     stop_cause = reason or default_stop_cause or f'Task {action_name} via UI'
     stop_task_executions(item, stop_error, stop_cause)
     record_manual_decision(execution_name, action_name, stop_cause, item)
-    _write_synthetic_output_marker(item, action_name, stop_cause, date)
+    _write_synthetic_output_marker(item, action_name, stop_cause, item.get('date', date))
     if emit_asset_events:
         _emit_asset_events_for_manual_success(item, actual_task_name, date)
 
@@ -1014,7 +1014,7 @@ def stop_task(task_name: str, event: Dict) -> Dict:
     # Side-effects AFTER successful claim
     stop_task_executions(item, 'Stopped', 'Task stopped via UI - can be restarted')
     record_manual_decision(execution_name, 'stop', 'Task stopped via UI', item)
-    _write_synthetic_output_marker(item, 'stop', 'Task stopped via UI', date)
+    _write_synthetic_output_marker(item, 'stop', 'Task stopped via UI', item.get('date', date))
 
     # For aborted tasks: send orchestration callback if token exists
     # This prevents pipeline from hanging waiting for callback
@@ -1109,87 +1109,51 @@ def restart_task(task_name: str, event: Dict) -> Dict:
             },
         )
 
-    # Get the restart helper ARN from environment
+    # RESTART_HELPER_ARN is set automatically by the SAM template (see
+    # template.yaml — !Sub arn:aws:states:${AwsRegion}:${AWS::AccountId}:...).
+    # Its absence means a broken/partial deploy; the previous fallback path was
+    # dead code that couldn't do the two-level stop the helper does and would
+    # leave ghost wrappers alive on waiting_decision restarts. Fail fast with a
+    # clear error instead.
     restart_helper_arn = os.environ.get('RESTART_HELPER_ARN')
-
-    if restart_helper_arn:
-        # Record manual decision for timeline
-        record_manual_decision(execution_name, 'restart', 'Task restarted via UI', item)
-
-        # task_config/outlets are deploy-time DAG properties, never stored on
-        # the per-execution record — look them up from the registry so the
-        # restarted attempt doesn't silently lose retries/worker-type/etc or
-        # outlets (previously always reconstructed as empty).
-        node = _lookup_dag_node(item.get('pipeline_name', ''), item.get('task_name', ''))
-        task_config = (node or {}).get('task_config', {})
-        outlets = (node or {}).get('outlets', [])
-
-        # Call restart_task_helper Step Function
-        try:
-            exec_id = uuid.uuid4().hex[:8]
-            restart_name = f"restart-{execution_name[:60]}-{exec_id}"
-            result = sfn.start_execution(
-                stateMachineArn=restart_helper_arn,
-                name=restart_name,
-                input=json.dumps({
-                    'execution_name': execution_name,
-                    'task_config': task_config,
-                    'outlets': outlets,
-                }),
-            )
-            return cors_response(
-                200, {'message': f'Restart initiated for {execution_name}', 'execution_arn': result['executionArn']}
-            )
-        except Exception as e:
-            log.error("unknown", "Unexpected error", error=str(e))
-            return cors_response(500, {'error': f'Failed to start restart: {str(e)}'})
-    else:
-        # Fallback: stop all executions and reset status
-        stop_task_executions(item, 'RestartRequested', 'Task restart requested via UI')
-
-        # Record manual decision for timeline
-        record_manual_decision(execution_name, 'restart', 'Task restart (fallback) via UI', item)
-
-        # Reset status (only if still in the same restartable state this
-        # request observed — race condition guard). Derived from
-        # RESTARTABLE_STATUSES itself, not a separately hand-maintained
-        # string — sorted for a deterministic, readable expression, matching
-        # TERMINAL_CONDITION_EXPRESSION's own established pattern.
-        RESTART_CONDITION = '#s IN ({})'.format(', '.join(f':{s}' for s in sorted(RESTARTABLE_STATUSES)))
-        try:
-            executions_repo.update(
-                execution_name,
-                'SET #s = :status, started_at = :started, finished_at = :finished, #e = :error',
-                expr_values=build_condition_expression_values(
-                    {
-                        ':status': 'waiting',
-                        ':started': datetime.now(timezone.utc).isoformat(),
-                        ':finished': None,
-                        ':error': None,
-                        # build_condition_expression_values already adds every
-                        # TASK_TERMINAL_STATUSES value automatically — only
-                        # the non-terminal extras need adding explicitly.
-                        **{f':{s}': s for s in RESTARTABLE_STATUSES - TASK_TERMINAL_STATUSES},
-                    }
-                ),
-                expr_names={'#s': 'status', '#e': 'error'},
-                condition_expr=RESTART_CONDITION,
-            )
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-                return cors_response(
-                    409, {'error': 'Task state changed (already restarted?)', 'execution_name': execution_name}
-                )
-            else:
-                raise
-
-        return cors_response(
-            200,
-            {
-                'message': f'Task {execution_name} reset. Re-trigger pipeline to restart.',
-                'execution_name': execution_name,
-            },
+    if not restart_helper_arn:
+        log.error(
+            "restart_task",
+            "RESTART_HELPER_ARN not configured — misconfigured deploy",
+            execution_name=execution_name,
         )
+        return cors_response(500, {'error': 'RESTART_HELPER_ARN not configured — check deploy'})
+
+    # Record manual decision for timeline
+    record_manual_decision(execution_name, 'restart', 'Task restarted via UI', item)
+
+    # task_config/outlets are deploy-time DAG properties, never stored on
+    # the per-execution record — look them up from the registry so the
+    # restarted attempt doesn't silently lose retries/worker-type/etc or
+    # outlets (previously always reconstructed as empty).
+    node = _lookup_dag_node(item.get('pipeline_name', ''), item.get('task_name', ''))
+    task_config = (node or {}).get('task_config', {})
+    outlets = (node or {}).get('outlets', [])
+
+    # Call restart_task_helper Step Function
+    try:
+        exec_id = uuid.uuid4().hex[:8]
+        restart_name = f"restart-{execution_name[:60]}-{exec_id}"
+        result = sfn.start_execution(
+            stateMachineArn=restart_helper_arn,
+            name=restart_name,
+            input=json.dumps({
+                'execution_name': execution_name,
+                'task_config': task_config,
+                'outlets': outlets,
+            }),
+        )
+        return cors_response(
+            200, {'message': f'Restart initiated for {execution_name}', 'execution_arn': result['executionArn']}
+        )
+    except Exception as e:
+        log.error("unknown", "Unexpected error", error=str(e))
+        return cors_response(500, {'error': f'Failed to start restart: {str(e)}'})
 
 def register(router) -> None:
     """Register the free task read routes. See ADR #97."""

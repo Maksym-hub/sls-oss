@@ -29,6 +29,15 @@ test-sdk:
 	@echo "🧪 Running SDK tests..."
 	python3 -m pytest tests/sdk/ -v
 
+# NOTE on Lambda test isolation: each Lambda ships its own ``index.py`` at the
+# same relative path, so a single pytest session that imports several Lambdas
+# hits sys.modules['index'] cache collisions. ``test-lambdas`` below runs each
+# Lambda in a separate subprocess. For manual invocations there's also a
+# ``sam/lambdas/conftest.py`` pytest hook that clears the cached ``index`` /
+# ``dal`` / ``logger`` modules per test — so ``pytest sam/lambdas/`` (across
+# all index-based Lambdas) works too. ``console_api`` uses a full package
+# layout and must always be run from its own dir (below).
+
 # Backend API tests (routes, alerting)
 test-backend:
 	@echo "🧪 Running Backend tests..."

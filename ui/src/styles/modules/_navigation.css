@@ -97,16 +97,15 @@
     padding: 0.25rem;
 }
 
-/* Structure/History merged toggle — one seamless control, two halves.
-   Unlike .nav-pills (separated pills with gaps), this reads as a single
-   control: shared border, no gap, an internal divider between halves.
-   overflow: visible is required — ExecutionDropdown's history panel is an
-   absolutely-positioned child and must not be clipped by this wrapper. */
+/* Definition + History — two independent buttons that sit next to each other
+   with the same spacing pattern as the other action groups in the canvas
+   header. Each button owns its own border and full radius; the wrapper only
+   provides the gap. ``overflow: visible`` is required so ExecutionDropdown's
+   absolutely-positioned history panel isn't clipped. */
 .structure-source-toggle {
     display: inline-flex;
     align-items: stretch;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    gap: 0.5rem;
     overflow: visible;
 }
 .structure-source-toggle-btn {
@@ -115,8 +114,8 @@
     font-weight: 500;
     color: var(--text-secondary);
     background: transparent;
-    border: none;
-    border-radius: 5px 0 0 5px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.15s ease;
 }
@@ -127,9 +126,12 @@
     background: var(--accent-light);
     color: var(--accent);
 }
-.structure-source-toggle-divider {
-    width: 1px;
-    background: var(--border);
+/* Icon-only variant (the History book+count button) — same border and radius
+   as the Definition button, just tighter internal layout. */
+.structure-source-toggle-btn--icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
 }
 
 /* Plain variant - no background */

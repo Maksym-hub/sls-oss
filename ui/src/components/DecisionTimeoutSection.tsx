@@ -12,7 +12,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { api, isOk } from '@/utils/api';
+import { useDecisionTimeoutQuery, useSetDecisionTimeoutMutation } from '@/hooks/queries/useDecisionTimeout';
 import { paidSurface } from '@/ee-active.generated';
 import { Clock, Check, Loader2, Lock } from '@/utils/icons';
 
@@ -29,29 +29,18 @@ function secondsToHours(s: number): string {
 }
 
 export function DecisionTimeoutSection() {
-  const [seconds, setSeconds] = useState<number>(DEFAULT_SECONDS);
+  const { data, isLoading } = useDecisionTimeoutQuery();
+  const setTimeoutMutation = useSetDecisionTimeoutMutation();
+
+  const seconds = data?.decision_timeout_seconds ?? DEFAULT_SECONDS;
   const [draftHours, setDraftHours] = useState<string>(secondsToHours(DEFAULT_SECONDS));
-  const [loading, setLoading] = useState<boolean>(true);
-  const [saving, setSaving] = useState<boolean>(false);
   const [saved, setSaved] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Sync draft with server value once (and on refetch when the user isn't editing).
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      const result = await api.get('/settings/decision-timeout');
-      if (!alive) return;
-      if (isOk(result) && result.data) {
-        const s = (result.data as { decision_timeout_seconds?: number }).decision_timeout_seconds;
-        if (typeof s === 'number') {
-          setSeconds(s);
-          setDraftHours(secondsToHours(s));
-        }
-      }
-      setLoading(false);
-    })();
-    return () => { alive = false; };
-  }, []);
+    if (!isLoading) setDraftHours(secondsToHours(seconds));
+  }, [seconds, isLoading]);
 
   const onSave = useCallback(async () => {
     setError(null);
@@ -65,19 +54,17 @@ export function DecisionTimeoutSection() {
       setError(`Must be between ${MIN_SECONDS / 60} minutes and ${MAX_SECONDS / 86400} days.`);
       return;
     }
-    setSaving(true);
-    const result = await api.put('/settings/decision-timeout', {
-      decision_timeout_seconds: nextSeconds,
-    });
-    setSaving(false);
-    if (isOk(result)) {
-      setSeconds(nextSeconds);
+    try {
+      await setTimeoutMutation.mutateAsync(nextSeconds);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } else {
+    } catch {
       setError('Could not save. Please try again.');
     }
-  }, [draftHours]);
+  }, [draftHours, setTimeoutMutation]);
+
+  const loading = isLoading;
+  const saving = setTimeoutMutation.isPending;
 
   return (
     <div className="settings-section">

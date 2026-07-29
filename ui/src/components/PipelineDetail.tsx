@@ -321,17 +321,18 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                         </div>
                         )}
 
-                        {/* Structure/History merged toggle — one seamless control, two
-                            halves. Left: switch to the current deployed structure
-                            (blueprint mode, no execution data — see
+                        {/* Definition + History — two independent buttons with the
+                            same spacing pattern as the other action groups. Left:
+                            switch to the current deployed definition (blueprint
+                            mode, no execution data — see
                             docs/reference/SPIKE_CURRENT_STRUCTURE_VS_LATEST_RUN.md).
-                            Right: ExecutionDropdown's own History button, unchanged
-                            functionality (opens the picker, lists every run) — it
-                            also now doubles as the "active" indicator for run mode,
-                            highlighted whenever dagViewSource is 'run', whether that
-                            run was auto-selected or picked from its own list.
-                            Defaults to 'run' always. */}
-                        <div className="structure-source-toggle" role="group" aria-label="Structure source">
+                            Right: ExecutionDropdown's own History button — opens
+                            the picker, lists every run, and doubles as the "active"
+                            indicator for run mode (highlighted whenever
+                            dagViewSource is 'run', whether the run was
+                            auto-selected or picked from the list). Defaults to
+                            'run' always. */}
+                        <div className="structure-source-toggle" role="group" aria-label="Definition source">
                             <button
                                 type="button"
                                 onClick={() => { setDagViewSource('current'); setShowHistory(false); }}
@@ -339,9 +340,8 @@ export function PipelineDetail({ apiError, navigateToExecution }: PipelineDetail
                                 className={`structure-source-toggle-btn ${dagViewSource === 'current' ? 'active' : ''}`}
                                 title="Show what's deployed right now, independent of any run"
                             >
-                                Structure
+                                Definition
                             </button>
-                            <div className="structure-source-toggle-divider" />
                             <ExecutionDropdown
                                 pipelineName={pipeline?.name || ''}
                                 showHistory={showHistory}
@@ -642,8 +642,7 @@ function ExecutionDropdown({
                 title="History"
                 aria-label={`History (${runs.length})`}
                 aria-pressed={isActive}
-                className={`structure-source-toggle-btn ${isActive ? 'active' : ''}`}
-                style={{ borderRadius: '0 5px 5px 0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                className={`structure-source-toggle-btn structure-source-toggle-btn--icon ${isActive ? 'active' : ''}`}
             >
                 <BookOpen size={16} />
                 <span className="pd-history-count">{runs.length}</span>

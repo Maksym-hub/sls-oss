@@ -569,5 +569,105 @@ class TestConsecutiveCheck:
         assert saved_item['reference_date'] == '2026-02-22'
 
 
+class TestAssetsReadyFlag:
+    """Case B (Option J): check_assets must flip assets_ready=true on the
+    subscriber's task record when returning ready — otherwise a task with
+    wait_for + still-pending task_deps hangs forever: evaluate_deps (called
+    later when task_deps complete) would see wait_for + assets_ready=false
+    on the record and return verdict='wait', but no async asset arrival will
+    ever trigger notify_asset_subscribers to flip the flag (there is no
+    subscription — assets were already ready at registration)."""
+
+    def test_writes_assets_ready_when_immediately_ready(self, mocker):
+        """The critical path: assets were ready at first check → flag written."""
+        from index import handler
+
+        # asset already exists → ready immediately
+        mock_events_table = mocker.MagicMock()
+        mock_events_table.query.return_value = {
+            'Items': [{'asset_name': 'inventory', 'event_time': '2026-07-27T10:00:00Z'}]
+        }
+        from index import asset_events_repo, tokens_repo
+        mocker.patch.object(type(asset_events_repo), 'table',
+                            new_callable=mocker.PropertyMock,
+                            return_value=mock_events_table)
+
+        mark_mock = mocker.patch.object(tokens_repo, 'mark_assets_ready')
+
+        result = handler({
+            'wait_for': [{'asset_name': 'inventory'}],
+            'task_name': 'consumer',
+            'wait_token': 'AQC...',
+            'execution_name': 'consumer-2026-07-27-abc',
+            'ttl': 0,
+            'current_date': '2026-07-27',
+        }, None)
+
+        assert result['ready'] is True
+        mark_mock.assert_called_once_with('consumer-2026-07-27-abc')
+
+    def test_does_not_write_flag_when_not_ready(self, mocker):
+        """Assets not ready → no flag write (notify_asset_subscribers will
+        write it when the asset actually arrives)."""
+        from index import handler
+
+        # asset does NOT exist → not ready
+        mock_events_table = mocker.MagicMock()
+        mock_events_table.query.return_value = {'Items': []}
+        mock_sub_table = mocker.MagicMock()
+        from index import asset_events_repo, subscriptions_repo, tokens_repo
+        mocker.patch.object(type(asset_events_repo), 'table',
+                            new_callable=mocker.PropertyMock,
+                            return_value=mock_events_table)
+        mocker.patch.object(type(subscriptions_repo), 'table',
+                            new_callable=mocker.PropertyMock,
+                            return_value=mock_sub_table)
+
+        mark_mock = mocker.patch.object(tokens_repo, 'mark_assets_ready')
+
+        result = handler({
+            'wait_for': [{'asset_name': 'inventory'}],
+            'task_name': 'consumer',
+            'wait_token': 'AQC...',
+            'execution_name': 'consumer-2026-07-27-abc',
+            'ttl': 0,
+            'current_date': '2026-07-27',
+        }, None)
+
+        assert result['ready'] is False
+        mark_mock.assert_not_called()
+
+    def test_flag_write_failure_does_not_break_handler(self, mocker):
+        """A DDB failure on mark_assets_ready must not crash check_assets —
+        the immediate registration signal path still functions; the flag is
+        only needed for the later notify_dependents re-check. Log-and-continue
+        is the correct behaviour (matches subscriptions_repo pattern)."""
+        from index import handler
+
+        mock_events_table = mocker.MagicMock()
+        mock_events_table.query.return_value = {
+            'Items': [{'asset_name': 'inventory', 'event_time': '2026-07-27T10:00:00Z'}]
+        }
+        from index import asset_events_repo, tokens_repo
+        mocker.patch.object(type(asset_events_repo), 'table',
+                            new_callable=mocker.PropertyMock,
+                            return_value=mock_events_table)
+
+        mocker.patch.object(tokens_repo, 'mark_assets_ready',
+                            side_effect=Exception('DDB throttled'))
+
+        # Must not raise
+        result = handler({
+            'wait_for': [{'asset_name': 'inventory'}],
+            'task_name': 'consumer',
+            'wait_token': 'AQC...',
+            'execution_name': 'consumer-2026-07-27-abc',
+            'ttl': 0,
+            'current_date': '2026-07-27',
+        }, None)
+
+        assert result['ready'] is True  # ready reflects asset availability, not flag write
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

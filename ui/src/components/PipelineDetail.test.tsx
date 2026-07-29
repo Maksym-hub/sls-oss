@@ -369,27 +369,27 @@ describe('PipelineDetail', () => {
     // to a different endpoint — and vanished whenever the two disagreed, leaving a
     // bare graph with no explanation and no way out (ADR #106 follow-up).
     // ──────────────────────────────────────────────────────────────────────
-    describe('run / current structure toggle', () => {
-        it('renders "Structure" and the History button as one merged control', () => {
+    describe('run / current definition toggle', () => {
+        it('renders "Definition" and the History button as two separate controls', () => {
             render(<PipelineDetail {...defaultProps} />);
-            expect(screen.getByText('Structure')).toBeInTheDocument();
+            expect(screen.getByText('Definition')).toBeInTheDocument();
             expect(screen.getByRole('button', { name: /History/ })).toBeInTheDocument();
         });
 
         it('reflects the active half via aria-pressed on both buttons', () => {
             render(<PipelineDetail {...defaultProps} />);
-            // Default is 'run' — History side pressed, Structure not.
-            expect(screen.getByText('Structure')).toHaveAttribute('aria-pressed', 'false');
+            // Default is 'run' — History side pressed, Definition not.
+            expect(screen.getByText('Definition')).toHaveAttribute('aria-pressed', 'false');
             expect(screen.getByRole('button', { name: /History/ })).toHaveAttribute('aria-pressed', 'true');
 
-            fireEvent.click(screen.getByText('Structure'));
-            expect(screen.getByText('Structure')).toHaveAttribute('aria-pressed', 'true');
+            fireEvent.click(screen.getByText('Definition'));
+            expect(screen.getByText('Definition')).toHaveAttribute('aria-pressed', 'true');
             expect(screen.getByRole('button', { name: /History/ })).toHaveAttribute('aria-pressed', 'false');
         });
 
-        it('clicking "Structure" updates the store', () => {
+        it('clicking "Definition" updates the store', () => {
             render(<PipelineDetail {...defaultProps} />);
-            fireEvent.click(screen.getByText('Structure'));
+            fireEvent.click(screen.getByText('Definition'));
             expect(useAppStore.getState().dagViewSource).toBe('current');
         });
 
@@ -405,11 +405,11 @@ describe('PipelineDetail', () => {
             expect(useAppStore.getState().dagViewSource).toBe('current');
         });
 
-        it('clicking "Structure" closes the history picker if it was open', () => {
+        it('clicking "Definition" closes the history picker if it was open', () => {
             render(<PipelineDetail {...defaultProps} />);
             fireEvent.click(screen.getByRole('button', { name: /History/ }));
             expect(screen.getByRole('dialog', { name: /Execution history/ })).toBeInTheDocument();
-            fireEvent.click(screen.getByText('Structure'));
+            fireEvent.click(screen.getByText('Definition'));
             expect(screen.queryByRole('dialog', { name: /Execution history/ })).not.toBeInTheDocument();
         });
 

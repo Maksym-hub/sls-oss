@@ -1,5 +1,86 @@
 ## Unreleased
 
+### Fixed — hangs and stale-write hazards uncovered by a full-diff code review
+
+Six correctness fixes surfaced by an end-to-end review of the v0.93.0 diff.
+Each is self-contained and green on isolated tests; taken together they close
+the last known ways a running pipeline could get stuck in `waiting` without a
+signal path back out. See ADR #122 for the coordination design covering the
+first two.
+
+- **Registration fast-path resolves `deps_skip`/`deps_blocked`.** When all
+  task_deps are already terminal at registration time but the trigger rule
+  cannot fire on those statuses (e.g. targeted restart of a downstream task
+  while an upstream still sits at `failed`, or a `task_subset` backfill that
+  observes a previously-skipped upstream), the task previously fell into
+  `Wait_For_Signal` and hung at `waiting` until `orchestration_timeout` (~24h),
+  then was marked `upstream_failed` for the wrong reason (`DependencyTimeout`).
+  `Eval_Task_Deps`'s JSONata now computes a `$verdict`; `Route_Combined_Check`
+  routes `verdict IN ['skip','blocked']` to a new `Signal_Deps_Not_Ready` +
+  `Update_Status_Not_Ready` pair, which sends `deps_skip`/`deps_blocked` on the
+  `wait_token` (matching what `notify_dependents` sends via its own path) and
+  writes `skipped`/`upstream_failed` on the record. No asset gate on the
+  skip/blocked branch — a task whose task_deps cannot be satisfied can never
+  succeed regardless of `wait_for`.
+
+- **`assets_ready` coordination flag for `wait_for` + `task_deps` tasks.**
+  `dependency_wrapper`'s `Wait_For_Dependencies` was signalled by whichever
+  path (`notify_dependents` or `notify_asset_subscribers`) fired first on the
+  shared `wait_token`, letting an asset arrive first and run the task against
+  pending upstreams (`xcom.pull()` → `PullError`). A new `assets_ready`
+  boolean on `pipeline-tokens` records is set by `check_assets` when it
+  returns `ready=True` and by `notify_asset_subscribers` before it signals;
+  `evaluate_deps` requires `deps_satisfied AND (wait_for empty OR assets_ready)`
+  before returning `is_ready=true`. `notify_asset_subscribers` invokes
+  `evaluate_deps` (via boto3) before signaling and skips the signal when
+  task_deps are still pending — `notify_dependents` completes the signal when
+  the last task_dep lands. Fail-open on invoke errors: preserves legacy
+  "signal on asset arrival" rather than silently hanging.
+
+- **`Update_Status_Running` attempt guard.** The `run_task` helper now writes
+  `ConditionExpression: attribute_not_exists(attempt) OR attempt <=
+  :expectedAttempt` on the initial status write, mirroring the existing
+  attempt-keyed guard on `Save_Success` / `Save_Failed` / `Save_Error_Waiting`.
+  Prevents a ghost execution from a prior attempt from clobbering
+  `run_task_helper_arn` for the current attempt (which then breaks
+  `Stop_Old_Inner_Wrapper` on a future restart) and, worse, resetting the
+  attempt counter to a stale value so the current attempt's own terminal
+  writes then fail their own condition check. `<=` (not strict `<`) preserves
+  idempotency for a same-attempt DDB retry inside the SFN.
+
+- **`evaluate_deps` accepts removed `ADR #117` alias rules at runtime.**
+  Pipelines deployed with `none_failed` / `one_done` / `none_failed_min_one_success`
+  before the trim landed used to silently fall back to `all_success` semantics
+  at runtime — the fallback path for an unrecognised rule — and quietly
+  changed behaviour (cleanup tasks stopped running when any upstream failed).
+  The Lambda now aliases the three names to their canonical equivalents
+  (`all_done`, `all_done`, `one_success`), matching what `validation.py`'s
+  hint text promises at deploy time. The same aliases now live in the
+  registration `Eval_Task_Deps` JSONata so the fast-path and notify_dependents
+  path never disagree for pre-trim pipelines.
+
+- **Manual task-action synthetic output written under the task's own date.**
+  `_write_synthetic_output_marker` and `stop_task` were passing the request
+  body's `date` to the marker write. In a cross-midnight action (UI open at
+  23:58, click at 00:02) the body's date differed from the task's stored
+  `date`, so the marker landed at `output#{pipeline}#{task}#{today}` while
+  `xcom.pull()` reads `output#{pipeline}#{task}#{task_date}` — the `§7a`
+  `PullError` fix was silently ineffective for that task. Both sites now pass
+  `item.get('date', date)`, matching the pattern already used a few lines
+  down for `notify_dependents_via_sfn`.
+
+- **`restart_task` fail-fast on missing `RESTART_HELPER_ARN`.** The legacy
+  fallback path (~45 lines) was dead code: the SAM template's `!Sub` sets
+  `RESTART_HELPER_ARN` automatically, so its absence means a partial/broken
+  deploy, and the fallback itself couldn't do the two-level ordered stop that
+  the SFN helper does (would leave ghost wrappers alive on `waiting_decision`
+  restarts). Removed the branch; a missing env var now returns `500` with a
+  clear error message immediately, rather than silently attempting a degraded
+  restart. `CheckAssetsPolicy` picked up a `PutItem`/`DeleteItem` grant on
+  `AssetSubscriptionsTable` at the same time — the policy previously omitted
+  the table it writes to and `subscriptions_repo.put`/`.delete` was silently
+  failing under best-effort catches.
+
 ### Fixed — OSS build could strand the pipeline page in a paid view mode
 
 `App.tsx` bound `g`/`d`/`c` (pipeline view modes) on top of the bindings

@@ -110,7 +110,7 @@
         },
         "Update_Status_Running": {
             "Type": "Task",
-            "Comment": "Update DynamoDB: status = running, record running_at timestamp and run_task_helper_arn",
+            "Comment": "Update DynamoDB: status = running, record running_at timestamp and run_task_helper_arn. ConditionExpression guards against a ghost (prior-attempt) execution overwriting run_task_helper_arn or resetting the attempt counter for the current attempt. Uses <= (not strict <) for idempotency: same-attempt retries on DDB throttle can safely re-write the same values.",
             "Resource": "arn:aws:states:::dynamodb:updateItem",
             "Arguments": {
                 "TableName": "${tokens_table}",
@@ -120,6 +120,7 @@
                     }
                 },
                 "UpdateExpression": "SET #s = :status, running_at = :running_at, run_task_helper_arn = :helper_arn, task_run_id = :task_run_id, attempt = :attempt, task_arn = :task_arn, task_type = :task_type",
+                "ConditionExpression": "attribute_not_exists(attempt) OR attempt <= :expectedAttempt",
                 "ExpressionAttributeNames": {
                     "#s": "status"
                 },
@@ -144,6 +145,9 @@
                     },
                     ":task_type": {
                         "S": "{% $exists($states.input.task_type) ? $states.input.task_type : 'sfn' %}"
+                    },
+                    ":expectedAttempt": {
+                        "N": "{% $string($exists($states.input.attempt) ? $states.input.attempt : 1) %}"
                     }
                 }
             },
@@ -164,6 +168,14 @@
             "Output": "{% $states.input %}",
             "Next": "Emit_Task_Started",
             "Catch": [
+                {
+                    "ErrorEquals": [
+                        "DynamoDB.ConditionalCheckFailedException"
+                    ],
+                    "Comment": "A newer attempt (restart) has already advanced past this attempt's status write — ghost write correctly rejected. End quietly so the current attempt's outcome is what downstream sees.",
+                    "Output": "{% $states.input %}",
+                    "Next": "Stale_Attempt_Superseded"
+                },
                 {
                     "ErrorEquals": [
                         "States.ALL"

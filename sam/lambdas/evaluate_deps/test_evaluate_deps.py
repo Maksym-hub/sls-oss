@@ -503,6 +503,119 @@ class TestEdgeCases:
         assert counts['pending'] == 1
 
 
+class TestAssetsReadyCoordination:
+    """Case B (Option J): evaluate_deps is the single gate that considers BOTH
+    task_deps AND wait_for assets. When a task has wait_for, verdict='ready'
+    requires assets_ready=true — otherwise it returns 'wait', letting whichever
+    signal path (notify_dependents or notify_asset_subscribers) fires *last*
+    be the one to signal wait_token."""
+
+    def test_no_wait_for_ignores_assets_ready_flag(self, mocker):
+        """Baseline: a task without wait_for behaves exactly as before —
+        assets_ready is ignored."""
+        mocker.patch("evaluate_deps.index._batch_get_dep_statuses",
+                     return_value=["success", "success"])
+        mocker.patch("evaluate_deps.index._is_pipeline_paused", return_value=False)
+        result = handler({
+            "dependencies": ["a", "b"],
+            "trigger_rule": "all_success",
+        }, None)
+        assert result["is_ready"] is True
+        assert result["verdict"] == "ready"
+        assert result.get("assets_satisfied") is True
+
+    def test_wait_for_present_and_assets_ready_false_returns_wait(self, mocker):
+        """Task_deps satisfy the rule BUT wait_for assets aren't ready — the
+        verdict must be 'wait', not 'ready'. Prevents dep_wrapper from waking
+        with pending assets."""
+        mocker.patch("evaluate_deps.index._batch_get_dep_statuses",
+                     return_value=["success", "success"])
+        mocker.patch("evaluate_deps.index._is_pipeline_paused", return_value=False)
+        result = handler({
+            "dependencies": ["a", "b"],
+            "trigger_rule": "all_success",
+            "wait_for": [{"asset_name": "inventory"}],
+            "assets_ready": False,
+        }, None)
+        assert result["is_ready"] is False
+        assert result["verdict"] == "wait"
+        assert result["deps_satisfied"] is True
+        assert result["assets_satisfied"] is False
+
+    def test_wait_for_present_and_assets_ready_true_returns_ready(self, mocker):
+        """Both task_deps AND assets ready → verdict='ready', is_ready=True.
+        This is the case notify_asset_subscribers hits after flipping the
+        flag when task_deps were already done."""
+        mocker.patch("evaluate_deps.index._batch_get_dep_statuses",
+                     return_value=["success", "success"])
+        mocker.patch("evaluate_deps.index._is_pipeline_paused", return_value=False)
+        result = handler({
+            "dependencies": ["a", "b"],
+            "trigger_rule": "all_success",
+            "wait_for": [{"asset_name": "inventory"}],
+            "assets_ready": True,
+        }, None)
+        assert result["is_ready"] is True
+        assert result["verdict"] == "ready"
+
+    def test_no_deps_wait_for_present_assets_not_ready(self, mocker):
+        """Task with only wait_for (no task_deps) and assets not ready → wait.
+        Guards the empty-dependencies fast-path from the same class of bug."""
+        mocker.patch("evaluate_deps.index._is_pipeline_paused", return_value=False)
+        result = handler({
+            "dependencies": [],
+            "trigger_rule": "all_success",
+            "wait_for": [{"asset_name": "inventory"}],
+            "assets_ready": False,
+        }, None)
+        assert result["is_ready"] is False
+        assert result["verdict"] == "wait"
+        assert result["reason"] == "awaiting_assets"
+
+    def test_skip_verdict_unaffected_by_assets_ready(self, mocker):
+        """Case A analog: a task whose task_deps produce verdict='skip' is
+        resolved regardless of assets — it can never succeed anyway. The
+        registration SFN's Route_Combined_Check already routes on this;
+        here we pin that evaluate_deps also doesn't require assets_ready to
+        report skip."""
+        mocker.patch("evaluate_deps.index._batch_get_dep_statuses",
+                     return_value=["skipped", "skipped"])
+        mocker.patch("evaluate_deps.index._is_pipeline_paused", return_value=False)
+        result = handler({
+            "dependencies": ["a", "b"],
+            "trigger_rule": "none_skipped",
+            "wait_for": [{"asset_name": "inventory"}],
+            "assets_ready": False,
+        }, None)
+        assert result["verdict"] == "skip"
+
+
+def test_removed_rule_aliases_map_to_canonical_equivalents():
+    """ADR #117 removed 6 redundant trigger rules. Pipelines deployed before the
+    trim carry the old rule names in their SFN input, so evaluate_deps must map
+    them to their canonical equivalents at runtime rather than silently falling
+    back to all_success (which has different semantics for cleanup patterns).
+
+    Concrete risk: none_failed was used for cleanup tasks expected to always run
+    after deps finish. Falling back to all_success marks such a task upstream_failed
+    when any dep is failed — exactly the wrong behaviour for a cleanup task."""
+    # none_failed ≡ all_done: fires when all deps are terminal, regardless of status
+    assert _check_trigger_rule("none_failed", ["success", "failed"])[0] is True
+    assert _check_trigger_rule("none_failed", ["success", "skipped"])[0] is True
+    assert _check_trigger_rule("none_failed", ["failed", "failed"])[0] is True
+    assert _check_trigger_rule("none_failed", ["success", "waiting"])[0] is False  # pending
+
+    # one_done ≡ all_done (same semantics, different Airflow name)
+    assert _check_trigger_rule("one_done", ["success", "failed"])[0] is True
+    assert _check_trigger_rule("one_done", ["skipped", "waiting"])[0] is False  # pending
+
+    # none_failed_min_one_success ≡ one_success: fires as soon as one dep succeeds
+    assert _check_trigger_rule("none_failed_min_one_success", ["success", "failed"])[0] is True
+    assert _check_trigger_rule("none_failed_min_one_success", ["skipped", "skipped"])[0] is False
+    assert _check_trigger_rule("none_failed_min_one_success", ["success", "waiting"])[0] is True  # one_success fires immediately
+
+
+
 def test_succeeded_alias_satisfies_success_rules():
     """Regression: 'succeeded' is the canonical Airflow-compat alias for success
     and is what normalize_execution_status() produces from AWS SFN's 'SUCCEEDED'.

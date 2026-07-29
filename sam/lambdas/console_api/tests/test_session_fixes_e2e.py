@@ -198,7 +198,11 @@ def fake_env(monkeypatch):
     monkeypatch.setenv('DYNAMODB_TABLE', 'test-tokens')
     monkeypatch.setenv('PIPELINES_TABLE', 'test-registry')
     monkeypatch.setenv('AWS_DEFAULT_REGION', 'us-east-1')
-    monkeypatch.delenv('RESTART_HELPER_ARN', raising=False)
+    # RESTART_HELPER_ARN is set automatically by the SAM template in every real
+    # deploy. Tests that exercise restart_task mock routes.tasks.sfn to avoid
+    # a real StartExecution call.
+    monkeypatch.setenv('RESTART_HELPER_ARN',
+                       'arn:aws:states:us-east-1:123456789012:stateMachine:restart-helper')
 
 
 @pytest.fixture
@@ -273,15 +277,29 @@ class TestStopThenRestartChain:
 
         # Step 2: restart the SAME task by task_name + date (the GSI
         # resolver path this time) — must succeed despite status='stopped'.
-        restart_resp = tasks_module.restart_task(
-            'extract',
-            {'body': json.dumps({'date': '2026-07-21', 'pipeline_execution': 'run-1'})},
+        # The SFN-helper path now handles the DDB reset itself, so the
+        # console-api's job is just to hand the correct execution_name to the
+        # helper — pin THAT contract here.
+        calls = []
+        fake_sfn = type('FakeSfn', (), {})()
+        fake_sfn.start_execution = lambda **kw: (
+            calls.append(kw) or {'executionArn': 'arn:aws:states:us-east-1:123456789012:execution:x:y'}
         )
+        import routes.tasks as tm
+        orig_sfn = tm.sfn
+        tm.sfn = fake_sfn
+        try:
+            restart_resp = tasks_module.restart_task(
+                'extract',
+                {'body': json.dumps({'date': '2026-07-21', 'pipeline_execution': 'run-1'})},
+            )
+        finally:
+            tm.sfn = orig_sfn
         assert restart_resp['statusCode'] == 200, restart_resp
-        final_status = fake_table.items['extract-2026-07-21-currentrun']['status']
-        assert final_status == 'waiting', (
-            f"expected the fallback restart path to reset status to 'waiting', got {final_status!r}"
-        )
+        # The restart helper must have been called for the CURRENT execution,
+        # not the stale one — which is the whole point of this test.
+        assert len(calls) == 1
+        assert json.loads(calls[0]['input'])['execution_name'] == 'extract-2026-07-21-currentrun'
         # The stale duplicate still must not have been touched by either step.
         assert fake_table.items['extract-2026-07-21-oldattempt']['status'] == 'failed'
 
@@ -342,9 +360,8 @@ class TestStopThenRestartChain:
         assert fake_table.items['extract-2026-07-21-stale00000002']['status'] == 'aborted'
 
     def test_restart_via_sfn_helper_path_also_accepts_stopped(self, wired, monkeypatch):
-        """The stopped-status fix must hold on BOTH restart code paths — the
-        fallback (already covered above) AND the SFN-helper path, which is
-        the one actually used in a real deployment (RESTART_HELPER_ARN set)."""
+        """The stopped-status fix on the SFN-helper path — the only path there
+        is now, after the (previously dead) fallback was removed."""
         tasks_module, fake_table = wired
         monkeypatch.setenv('RESTART_HELPER_ARN', 'arn:aws:states:us-east-1:123456789012:stateMachine:restart-helper')
         fake_table.items['extract-2026-07-21-currentrun'] = {
@@ -425,7 +442,11 @@ class TestStopThenRestartChain:
 
     def test_double_round_trip_stop_restart_stop_stays_coherent(self, wired):
         """A user stops, restarts, then stops again — each step must land on
-        a sensible, expected status, with no step silently no-op'ing."""
+        a sensible, expected status, with no step silently no-op'ing.
+
+        The SFN-helper path is the only restart path now — the helper is what
+        flips DDB status back to 'waiting' asynchronously. This test simulates
+        that write to exercise the coherence chain end-to-end."""
         tasks_module, fake_table = wired
         fake_table.items['extract-2026-07-21-currentrun'] = {
             'execution_name': 'extract-2026-07-21-currentrun',
@@ -439,11 +460,23 @@ class TestStopThenRestartChain:
         assert r1['statusCode'] == 200
         assert fake_table.items['extract-2026-07-21-currentrun']['status'] == 'stopped'
 
-        r2 = tasks_module.restart_task(
-            'extract-2026-07-21-currentrun',
-            {'body': json.dumps({'date': '2026-07-21', 'pipeline_execution': 'run-1'})})
+        # Restart: mock sfn.start_execution and simulate what the SFN helper
+        # itself writes (status='waiting') so the third step below has the
+        # correct precondition. In production this write happens inside
+        # restart_task_helper's Reset_Task_Record state.
+        fake_sfn = type('FakeSfn', (), {})()
+        fake_sfn.start_execution = lambda **kw: {'executionArn': 'arn:aws:states:us-east-1:123:execution:x:y'}
+        import routes.tasks as tm
+        orig_sfn = tm.sfn
+        tm.sfn = fake_sfn
+        try:
+            r2 = tasks_module.restart_task(
+                'extract-2026-07-21-currentrun',
+                {'body': json.dumps({'date': '2026-07-21', 'pipeline_execution': 'run-1'})})
+        finally:
+            tm.sfn = orig_sfn
         assert r2['statusCode'] == 200, r2
-        assert fake_table.items['extract-2026-07-21-currentrun']['status'] == 'waiting'
+        fake_table.items['extract-2026-07-21-currentrun']['status'] = 'waiting'  # simulate helper
 
         # Third action: the task is back to 'waiting' (a non-terminal, non-running
         # state) — stop_task's TASK_WAITING_STATUSES branch applies: 'aborted', not 'stopped'.

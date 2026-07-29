@@ -110,6 +110,32 @@ def test_pause_check_still_runs_for_normal_tasks(template):
     assert states["Route_Pause_Check"]["Default"] == "Update_Status_Running"
 
 
+def test_update_status_running_has_attempt_guard(template):
+    """Update_Status_Running must carry a ConditionExpression that blocks a
+    ghost (prior-attempt) execution from overwriting run_task_helper_arn or
+    resetting the attempt counter for the current attempt.
+
+    Without this guard a delayed ghost can clobber run_task_helper_arn with its
+    own dead ARN, causing future restarts' Stop_Old_Inner_Wrapper to target the
+    wrong execution. A ConditionalCheckFailedException on the ghost must route
+    to Stale_Attempt_Superseded, not continue execution."""
+    state = template["States"]["Update_Status_Running"]
+    cond = state["Arguments"].get("ConditionExpression", "")
+    assert "attempt" in cond, (
+        "Update_Status_Running must guard on 'attempt' to block ghost writes; "
+        f"got ConditionExpression: {cond!r}"
+    )
+    assert ":expectedAttempt" in state["Arguments"]["ExpressionAttributeValues"], (
+        "Update_Status_Running must bind :expectedAttempt for the ConditionExpression"
+    )
+    # Ghost-rejection path must route to Stale_Attempt_Superseded, not continue
+    catches = {e: c["Next"] for c in state.get("Catch", []) for e in c["ErrorEquals"]}
+    assert catches.get("DynamoDB.ConditionalCheckFailedException") == "Stale_Attempt_Superseded", (
+        "ConditionalCheckFailedException from Update_Status_Running must go to "
+        f"Stale_Attempt_Superseded; catch table: {catches}"
+    )
+
+
 def test_no_orphan_states(template):
     """All declared states must be reachable from StartAt. Catches typos
     in Next/Default that would create unreachable code."""

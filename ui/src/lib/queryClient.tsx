@@ -60,6 +60,9 @@ export const queryKeys = {
     // Differs from pipelineDetail (which fetches status + executions). This
     // hits /pipeline-dag and extracts task IDs only — cached across modals.
     pipelineTasksList: (pipelineName: string) => ['pipeline', pipelineName, 'tasks-list'] as const,
+
+    // Global decision-wait timeout (ADR #103 1b) — one value per deployment.
+    decisionTimeout: ['settings', 'decision-timeout'] as const,
 };
 
 /**

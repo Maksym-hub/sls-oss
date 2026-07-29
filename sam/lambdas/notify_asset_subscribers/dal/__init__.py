@@ -90,6 +90,37 @@ class AssetEventsRepo:
         return response.get('Items', [])
 
 
+class TokensRepo:
+    """pipeline-tokens table — keyed by execution_name. Used to (a) flip
+    assets_ready=true when a subscribed asset arrives so evaluate_deps sees a
+    coherent view, and (b) read the subscriber's task record (dependencies,
+    trigger_rule, wait_for) to hand to evaluate_deps."""
+
+    def __init__(self, table_name: Optional[str] = None):
+        self._table_name = table_name or os.environ.get('TOKENS_TABLE', 'pipeline-tokens')
+
+    @property
+    def table(self):
+        return _resource().Table(self._table_name)
+
+    def mark_assets_ready_and_get(self, execution_name: str) -> Optional[Dict]:
+        """Atomic SET assets_ready=true + return the full updated record. Used
+        by notify_asset_subscribers so it can immediately hand the record's
+        fields to evaluate_deps for a coordinated ready/wait decision."""
+        try:
+            response = self.table.update_item(
+                Key={'execution_name': execution_name},
+                UpdateExpression='SET assets_ready = :true',
+                ExpressionAttributeValues={':true': True},
+                ConditionExpression='attribute_exists(execution_name)',
+                ReturnValues='ALL_NEW',
+            )
+            return response.get('Attributes')
+        except Exception:
+            return None
+
+
 # Module singletons
 subscriptions_repo = SubscriptionsRepo()
 asset_events_repo = AssetEventsRepo()
+tokens_repo = TokensRepo()

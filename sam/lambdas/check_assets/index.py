@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 # v0.79.3 (ADR #75) — DAL repository pattern for all DynamoDB access.
-from dal import asset_events_repo, subscriptions_repo
+from dal import asset_events_repo, subscriptions_repo, tokens_repo
 # v0.79.4 (ADR #76) — structured JSON logging.
 from logger import log
 
@@ -61,7 +61,7 @@ def handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     
     # Evaluate wait_for with AND/OR logic
     is_ready, asset_results = _evaluate_wait_for(wait_for, current_date)
-    
+
     # If not ready, save subscriptions for missing assets
     if not is_ready:
         missing_assets = _get_missing_assets(asset_results)
@@ -76,26 +76,50 @@ def handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 reference_date=current_date,
                 ttl=ttl
             )
-        
+
         # Double-check: Re-evaluate after saving subscriptions to handle race condition
         # Producer might have notified between initial check and subscription save
         is_ready_recheck, asset_results_recheck = _evaluate_wait_for(wait_for, current_date)
-        
+
         if is_ready_recheck:
             # Asset appeared while we were subscribing - clean up subscriptions
             for asset_spec in missing_assets:
                 _delete_subscription(asset_spec['name'], task_name)
+            _mark_assets_ready(execution_name)
             return {
                 'type': 'asset_deps',
                 'ready': True,
                 'assets': asset_results_recheck
             }
-    
+
+    if is_ready:
+        # Assets were already ready at registration time — mark the task record
+        # so evaluate_deps (called later when task_deps complete via
+        # notify_dependents) knows assets were satisfied. Without this the task
+        # would hang: evaluate_deps would see wait_for + assets_ready=false and
+        # return verdict='wait', but no async asset arrival will ever trigger
+        # notify_asset_subscribers to flip the flag (there's no subscription).
+        _mark_assets_ready(execution_name)
+
     return {
         'type': 'asset_deps',
         'ready': is_ready,
         'assets': asset_results
     }
+
+
+def _mark_assets_ready(execution_name: str) -> None:
+    """Best-effort: mark assets_ready=true on the task record. Failure here
+    doesn't block registration — the task's wait_for path still functions via
+    the immediate registration signal — but a downstream restart or a
+    concurrent task_deps completion would then not see the flag."""
+    if not execution_name:
+        return
+    try:
+        tokens_repo.mark_assets_ready(execution_name)
+    except Exception as e:
+        log.warn("_mark_assets_ready", "mark_assets_ready failed",
+                 execution_name=execution_name, error=str(e))
 
 
 def _evaluate_wait_for(wait_for: List[Dict], current_date: str = '') -> tuple:

@@ -29,13 +29,15 @@ from typing import List, Dict, Any
 
 # v0.79.3 (ADR #75) — DAL repository pattern for DynamoDB.
 # Raw boto3 calls moved to dal/__init__.py.
-from dal import subscriptions_repo, asset_events_repo
+from dal import subscriptions_repo, asset_events_repo, tokens_repo
 # v0.79.4 (ADR #76) — structured JSON logging.
 from logger import log
 
-# Lazy initialization for SFN client only (sfn calls stay inline — single
-# operation, no scope advantage from a repo).
+# Lazy initialization for SFN + Lambda clients (single-op boto3 calls, no
+# scope advantage from a repo).
 _sfn = None
+_lambda_client = None
+
 
 def _get_sfn():
     global _sfn
@@ -45,8 +47,17 @@ def _get_sfn():
     return _sfn
 
 
+def _get_lambda():
+    global _lambda_client
+    if _lambda_client is None:
+        import boto3
+        _lambda_client = boto3.client('lambda')
+    return _lambda_client
+
+
 SUBSCRIPTIONS_TABLE = os.environ.get('SUBSCRIPTIONS_TABLE', 'dependency-subscriptions')
 ASSET_EVENTS_TABLE = os.environ.get('ASSET_EVENTS_TABLE', 'asset-events')
+EVALUATE_DEPS_LAMBDA = os.environ.get('EVALUATE_DEPS_LAMBDA', '')
 
 
 def handler(event: Dict[str, Any], context) -> Dict[str, Any]:
@@ -102,6 +113,27 @@ def handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                     # Asset is stale for this subscriber - don't notify yet
                     continue
             
+            # Case B coordination: flip assets_ready=true on the subscriber's
+            # task record and delegate the ready/wait decision to evaluate_deps.
+            # Reason: this task may also have task_deps that haven't finished
+            # yet. Signaling now would wake dep_wrapper and run the task with
+            # pending upstreams (xcom.pull → PullError). evaluate_deps is the
+            # single gate that checks BOTH task_deps AND assets_ready.
+            execution_name = sub.get('execution_name', '')
+            should_signal = _coordinate_ready_check(execution_name)
+
+            # Always delete the subscription — the asset has arrived, so this
+            # subscription's job is done. If task_deps aren't ready yet, they'll
+            # signal via notify_dependents later (and evaluate_deps will then
+            # see assets_ready=true on the record).
+            _delete_subscription(asset_name, subscriber_name)
+
+            if not should_signal:
+                # Task_deps not ready — leave the wait_token untouched. When
+                # the last task_dep completes, notify_dependents' evaluate_deps
+                # will see assets_ready=true and signal.
+                continue
+
             # Send signal to waiting task
             success = _send_task_success(
                 wait_token,
@@ -109,13 +141,10 @@ def handler(event: Dict[str, Any], context) -> Dict[str, Any]:
                 asset_uri=asset_uri,
                 event_time=event_time
             )
-            
+
             if success:
                 notified_count += 1
                 notified_subscribers.append(subscriber_name)
-                
-                # Delete subscription after successful notify
-                _delete_subscription(asset_name, subscriber_name)
     
     return {
         'notified': notified_count,
@@ -210,6 +239,57 @@ def _check_consecutive_ready(asset_name: str, consecutive_days: int, reference_d
     # Check if all required dates are present
     missing = required_dates - found_dates
     return len(missing) == 0
+
+
+def _coordinate_ready_check(execution_name: str) -> bool:
+    """Case B coordination gate. Returns True iff we should signal wait_token.
+
+    1) Atomically SET assets_ready=true on the subscriber's task record and
+       return the updated record.
+    2) If EVALUATE_DEPS_LAMBDA is configured, ask evaluate_deps (the single
+       source of truth) whether both task_deps and assets are now satisfied.
+    3) On any failure to look up the record or invoke evaluate_deps, fall
+       back to True — preserves the legacy "always signal on asset arrival"
+       behaviour rather than silently dropping the signal. Case B is a
+       correctness improvement, not a hard invariant; a fallback that
+       occasionally signals early is better than one that hangs the task."""
+    if not execution_name:
+        return True  # legacy path — old subscriptions may lack execution_name
+
+    record = tokens_repo.mark_assets_ready_and_get(execution_name)
+    if not record:
+        log.warn("_coordinate_ready_check", "task record not found",
+                 execution_name=execution_name)
+        return True  # fall back to legacy behaviour
+
+    if not EVALUATE_DEPS_LAMBDA:
+        # Coordinated evaluation not wired — a fresh deploy may still be
+        # rolling out. Signal anyway.
+        return True
+
+    try:
+        dependencies_raw = record.get('dependencies', '[]')
+        wait_for_raw = record.get('wait_for', '[]')
+        payload = {
+            'dependencies': json.loads(dependencies_raw) if isinstance(dependencies_raw, str) else dependencies_raw,
+            'trigger_rule': record.get('trigger_rule', 'all_success'),
+            'date': record.get('date', ''),
+            'pipeline_execution_short': record.get('pipeline_execution_short', ''),
+            'pipeline_execution': record.get('pipeline_execution', ''),
+            'wait_for': json.loads(wait_for_raw) if isinstance(wait_for_raw, str) else wait_for_raw,
+            'assets_ready': True,  # we just wrote it — evaluate_deps sees a coherent view
+        }
+        response = _get_lambda().invoke(
+            FunctionName=EVALUATE_DEPS_LAMBDA,
+            InvocationType='RequestResponse',
+            Payload=json.dumps(payload).encode('utf-8'),
+        )
+        body = json.loads(response['Payload'].read())
+        return bool(body.get('is_ready', False))
+    except Exception as e:
+        log.warn("_coordinate_ready_check", "evaluate_deps invoke failed",
+                 execution_name=execution_name, error=str(e))
+        return True  # fall back to signaling on invoke failure
 
 
 def _send_task_success(wait_token: str, asset_name: str, asset_uri: str, event_time: str) -> bool:

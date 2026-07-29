@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // Default mock: free build (empty paid surface) + a stored timeout.
 vi.mock('@/ee-active.generated', () => ({ paidSurface: {} }));
@@ -13,18 +14,27 @@ vi.mock('@/utils/api', () => ({
 
 import { DecisionTimeoutSection } from './DecisionTimeoutSection';
 
+function renderWithQuery(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>
+  );
+}
+
 describe('DecisionTimeoutSection', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('shows the stored value', async () => {
-    render(<DecisionTimeoutSection />);
+    renderWithQuery(<DecisionTimeoutSection />);
     await waitFor(() => {
       expect(screen.getByText(/Currently 2 hours/)).toBeInTheDocument();
     });
   });
 
   it('renders read-only on the free tier (no Save button)', async () => {
-    render(<DecisionTimeoutSection />);
+    renderWithQuery(<DecisionTimeoutSection />);
     await waitFor(() => {
       expect(screen.getByText(/Read-only/)).toBeInTheDocument();
     });

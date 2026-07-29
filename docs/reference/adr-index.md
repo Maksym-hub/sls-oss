@@ -6,7 +6,7 @@ always have — this index is the map so you never have to guess where one is:
 - **Inline** in [`DESIGN_DECISIONS.md`](DESIGN_DECISIONS.md) — the majority, especially earlier ones.
 - **Standalone** `adr-NN-*.md` files — used for larger or self-contained decisions.
 
-_81 ADRs indexed (67 inline, 14 standalone). Regenerate with the snippet in this repo's docs tooling; do not hand-edit rows._
+_82 ADRs indexed (67 inline, 15 standalone). Regenerate with the snippet in this repo's docs tooling; do not hand-edit rows._
 
 | # | Title | Where |
 |---|-------|-------|
@@ -103,3 +103,4 @@ _81 ADRs indexed (67 inline, 14 standalone). Regenerate with the snippet in this
 | 119 | Unified DAG visualization node/edge builder (`generate_dag_json` + `_build_pipeline_metadata`) | inline |
 | 120 | Manual task actions: recorded input, synthetic output markers, asset events on Mark Successful, and safe direct Restart from `waiting_decision` | inline |
 | 121 | Restart correctness: stop both wrapper levels in the right order, reconstruct `task_config`/`outlets` from the registry, `restart-` name prefix | inline |
+| 122 | Registration fast-path resolves `deps_skip`/`deps_blocked`; `evaluate_deps` gates on `assets_ready` for wait_for coordination | [`adr-122-registration-fast-path-and-asset-coordination.md`](adr-122-registration-fast-path-and-asset-coordination.md) |
