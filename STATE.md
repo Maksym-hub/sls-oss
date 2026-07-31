@@ -25,11 +25,6 @@ Update it when something moves. Paths here are checked by
   sequential-chain fallback overrides the answer and a fan-out of independent
   tasks is unreachable. Pinned by a test that documents current behaviour;
   fixing it changes that function's contract.
-- **`ui/src/components/DecisionTimeoutSection.tsx` imports `api` directly**, which
-  `CLAUDE.md` forbids in two places. Found by
-  `tests/sdk/test_claude_md_claims.py`. Fix is a React Query hook; until then
-  that guard is red.
-
 ## Known debt, measured
 
 - **Coverage omit list is still too wide.** `polyris/local.py` is ~20% AWS (only

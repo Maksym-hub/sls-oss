@@ -105,7 +105,7 @@ class Step:
 class Wait(Step):
     """
     Wait step - adds delay before continuing.
-    Airflow equivalent: TimeDeltaSensor, DateTimeSensor
+
     
     Example:
         wait_20s = Wait(seconds=20)
@@ -152,7 +152,7 @@ class Wait(Step):
 class Pass(Step):
     """
     Pass step - transform data, compute variables.
-    Airflow equivalent: PythonOperator with return value
+
     
     Example:
         prepare = Pass(
@@ -193,7 +193,7 @@ class Pass(Step):
 class Choice(Step):
     """
     Choice step - conditional branching.
-    Airflow equivalent: BranchPythonOperator
+
     
     Example:
         check_day = Choice(
@@ -285,7 +285,7 @@ class Condition:
 class HttpTask(Step):
     """
     HTTP API call step.
-    Airflow equivalent: SimpleHttpOperator
+
     
     Example:
         notify = HttpTask(
@@ -325,22 +325,15 @@ class HttpTask(Step):
 
 
 # ============================================
-# Map Step - Dynamic Task Mapping (Airflow 2.3+)
+# Map Step - Dynamic Task Mapping
 # ============================================
 
 @dataclass
 class Map(Step):
     """
     Map step - iterate over array, process each item.
-    Airflow equivalent: Dynamic Task Mapping with .expand()
-    
+
     Example:
-        # Airflow style:
-        # @task
-        # def process(item): return item * 2
-        # process.expand(item=[1, 2, 3])
-        
-        # SFN-DSL style:
         process_all = Map(
             step_id="process_items",
             items_path="$.items",  # JSONPath to array
@@ -358,7 +351,6 @@ class Map(Step):
     # Task/Step to run for each item
     iterator: Any = None  # Task or Step
     
-    # Concurrency control (like Airflow pools)
     max_concurrency: int = 0  # 0 = unlimited
     
     # Tolerate failures
@@ -386,7 +378,7 @@ class Map(Step):
 class Sensor(Step):
     """
     Sensor step - wait for external condition.
-    Airflow equivalent: S3KeySensor, FileSensor, ExternalTaskSensor
+
     
     Example:
         # Wait for S3 file
@@ -446,7 +438,7 @@ class Sensor(Step):
 class ShortCircuit(Step):
     """
     ShortCircuit step - conditionally skip downstream tasks.
-    Airflow equivalent: @task.short_circuit
+
     
     Example:
         # Skip rest of pipeline if condition is false
@@ -484,7 +476,7 @@ class ShortCircuit(Step):
 class LambdaTask(Step):
     """
     Direct Lambda invocation (without nested Step Function).
-    Airflow equivalent: PythonOperator (sort of)
+
     
     Example:
         validate = LambdaTask(

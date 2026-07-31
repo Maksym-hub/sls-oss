@@ -33,8 +33,7 @@ not a display bug.
 
 Two vocabulary questions were entangled with the derivation:
 
-- `success` vs `succeeded`. Tasks are written with `success` (Airflow-compatible;
-  polyris *is* "Airflow-compatible"). Execution status was canonicalised to `succeeded`
+- `success` vs `succeeded`. Tasks are written with `success`. Execution status was canonicalised to `succeeded`
   (SFN-aligned) by ADR #71, and the frontend carried a `normalizeStatus` band-aid that
   mapped `succeeded → success` for display. Net effect: tasks display `success`, runs
   display `succeeded` — inconsistent.
@@ -117,5 +116,4 @@ Two vocabulary questions were entangled with the derivation:
 ADR #71 (`normalize_execution_status`) — **only its value choice**. The mechanism
 (centralise SFN → canonical lowercase at the boundary, codegen-synced, drift-tested)
 stands and is extended here. The canonical "success" value changes from `succeeded` to
-`success` to match the product's Airflow-compatible identity and to remove the
-frontend band-aid.
+`success` and to remove the frontend band-aid.

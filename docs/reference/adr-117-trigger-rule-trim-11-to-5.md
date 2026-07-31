@@ -4,13 +4,13 @@
 
 ## Context
 
-ADR #115 kept all 11 Airflow rule names accepted (3 "canonical" + 8 "compat aliases,
-mapped to canonical behavior, not advertised as distinct") for Airflow-migration
+ADR #115 kept all 11 rule names accepted (3 "canonical" + 8 "compat aliases,
+mapped to canonical behavior, not advertised as distinct") for migration
 compatibility. That framing was revisited: an alias a user can still write, that
 silently behaves like a *different* rule they didn't ask for (or never fires at all),
 is not a compatibility feature — it's a trap. A rule named `one_failed` that can never
 be satisfied is worse than not offering it, because the name itself teaches the wrong
-mental model (Airflow's autonomous-propagation semantics) right up until the moment a
+mental model (autonomous-propagation semantics) right up until the moment a
 real failure occurs in production and it silently never fires.
 
 Re-deriving the reachable-state analysis from ADR #115/`SPIKE_TRIGGER_RULES.md`, but
@@ -109,7 +109,7 @@ duplicating the others on the failure path specifically.
   separate `test_trigger_rule_sync` (an independent, cruder JSONata/Python string-search
   check) had its own hardcoded 11-rule list, missed on the first pass through this
   change — trimmed to 5.
-- **Docs.** `docs/features/DSL.md`, `docs/reference/AIRFLOW_MIGRATION.md`,
+- **Docs.** `docs/features/DSL.md`, `docs/reference/MIGRATION.md`,
   `docs/architecture/ARCHITECTURE.md`, `docs/operations/TROUBLESHOOTING.md` updated to
   present 5 rules, not 11-with-caveats.
 - **EE.** `polyris/_ee/ai/examples.py`, `polyris/_ee/ai/docs.py` (AI-assistant example/doc

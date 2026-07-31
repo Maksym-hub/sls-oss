@@ -1,4 +1,4 @@
-"""@dag decorator tests — Airflow-style DAG construction via decorator.
+"""@dag decorator tests — DAG construction via decorator.
 
 Covers ``polyris.helpers.dag`` (CLAUDE.md #13): default vs explicit ``dag_id``,
 schedule/description passthrough, and that the wrapped function body runs inside

@@ -3,11 +3,9 @@
 ## Overview
 
 polyris provides a Python DSL for defining data pipelines that compile to AWS
-Step Functions. The DSL borrows Airflow's ergonomics — `@task`, the `>>`
-dependency operator, and a `DAG()` context manager — so it feels familiar if
-you've used Airflow. It is *not* Airflow-compatible: pipelines run on Step
-Functions (not an Airflow scheduler/executor), and Airflow operators/providers
-do not carry over.
+Step Functions. Use `@task` decorators, the `>>` dependency operator, and a
+`DAG()` context manager to describe pipelines — they execute as Step Functions
+state machines, with no scheduler or worker pool to operate.
 
 ---
 
@@ -295,10 +293,9 @@ def my_task():
 > whose only purpose is reacting to a confirmed failure can never fire. See ADR #117
 > for the full reachable-state analysis.
 
-polyris supports 5 trigger rules — trimmed from Airflow's 11 (ADR #117). The other 6
-names are **rejected at validation time** (`polyris-validate` / `polyris-deploy`), each
-with a specific suggestion, rather than silently accepted and then behaving
-differently than their Airflow name implies.
+polyris supports 5 trigger rules (ADR #117). Six additional rule names are
+**rejected at validation time** (`polyris-validate` / `polyris-deploy`), each
+with a specific suggestion for what to use instead.
 
 | Rule | Description | Use Case |
 |------|-------------|----------|
@@ -310,10 +307,9 @@ differently than their Airflow name implies.
 
 ### Removed rules (ADR #117) and what to use instead
 
-Re-deriving the reachable-state analysis against the common case — a paused task
-resolved via the UI's **manual** Skip/Mark-Success buttons — shows the other 6 of
-Airflow's 11 names either duplicate one of the 5 above in every reachable state, or can
-never fire at all:
+In polyris's intervention-first failure model (ADR #114), 6 additional rule names
+either duplicate one of the 5 above in every reachable state, or can never fire
+at all:
 
 | Removed rule | Use instead | Why |
 |------|-------------|----------|
@@ -336,7 +332,7 @@ never fire at all:
 > marker's branch before it can evaluate.
 >
 > **Skip cascades for `all_success` (ADR #115).** A skipped upstream blocks
-> `all_success` — matching Airflow — but only when the skip came from a *rule*
+> `all_success` — but only when the skip came from a *rule*
 > resolving `skipped`. A **manual** skip (an operator explicitly skipping a paused task
 > to unblock it) does not cascade — a human tolerating one gap shouldn't silently
 > no-op an entire downstream chain.
@@ -379,7 +375,7 @@ task_a >> [task_b, task_c, task_d]
 task_a >> [task_b, task_c] >> task_d
 ```
 
-### Function Call Style (Airflow 2.0+)
+### Function Call Style
 
 ```python
 @task.sfn(arn=...)

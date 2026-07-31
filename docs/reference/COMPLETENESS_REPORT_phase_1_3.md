@@ -23,8 +23,7 @@ document itself was corrected in place to record this (not silently deviated fro
 **Code:**
 - `polyris/constants.py` — `TriggerRuleLiteral` and `TriggerRule` reordered (3
   canonical first: `all_success`, `one_success`, `all_done`) with `# Compat alias`
-  comments on the other 8; `TriggerRule`'s docstring overclaim ("100% Airflow
-  3.1.5-compatible") corrected to describe the intervention-first model and point to
+  comments on the other 8; `TriggerRule`'s docstring overclaim corrected to describe the intervention-first model and point to
   ADR #114/#115. All 11 values and attribute names unchanged.
 
 **Codegen:**
@@ -33,14 +32,14 @@ document itself was corrected in place to record this (not silently deviated fro
   reordering + a refreshed source-hash comment, no value/name changes.
 
 **Docs (#9):**
-- `docs/features/DSL.md` — removed the "Full Airflow parity... 11 trigger rules"
-  banner; split the rule table into Canonical (3) and Airflow-compat-alias (8)
+- `docs/features/DSL.md` — removed the "Full parity... 11 trigger rules"
+  banner; split the rule table into Canonical (3) and compat-alias (8)
   sections with a "behaves like, in practice" column; consolidated the incremental
   1.1/1.2 ADR notes (which explicitly said they'd be superseded here) into one
   coherent explanation; rewrote the Examples block — the old ones for `all_done`
   (cleanup), `one_failed` (alert), `all_failed` (fallback) were actively misleading
   given the intervention-model caveats now fully understood.
-- `docs/reference/AIRFLOW_MIGRATION.md` — completed the trigger-rules table (was
+- `docs/reference/MIGRATION.md` — completed the trigger-rules table (was
   missing 4 of 11 — a pre-existing gap, not introduced by this phase), marked
   canonical/alias, consolidated the failure-pause caveat with the existing 1.2
   skip-cascade note.
@@ -80,7 +79,7 @@ ADR #113 (and from the #111/#112 index gap found and fixed in the Phase 0/1.1 re
 `ARCHITECTURE.md` states the exact mechanism verbatim: *"PagerDuty fires in line 1
 (immediate) so on-call can act during the decision-wait window ... ADR #103 1b."* This
 is precisely the claim the original citation made. The citation has been restored in
-both `DSL.md` and `AIRFLOW_MIGRATION.md`.
+both `DSL.md` and `MIGRATION.md`.
 
 Two lessons, recorded rather than smoothed over: (1) a citation that fails a shallow
 check ("not in the index, no standalone file") is not proven false — this codebase has
@@ -94,10 +93,9 @@ addition to the #111/#112 gap already fixed in the Phase 0/1.1 report — added 
 
 ## 1. Consumers sweep
 
-- Repo-wide grep for the fixed overclaim phrase (`"100% Airflow"` /
-  `"Airflow 3.1.5-compatible"`) across `.py`/`.md`/`.ts`/`.tsx`: only the one instance
+- Repo-wide grep for the fixed overclaim phrase across `.py`/`.md`/`.ts`/`.tsx`: only the one instance
   in `polyris/constants.py` existed; no duplicate elsewhere to miss.
-- Repo-wide grep for `"11 trigger"` / `"11 Airflow"` / `"full airflow parity"` across
+- Repo-wide grep for `"11 trigger"` / `"full parity"` across
   `docs/` and `README.md`: found and addressed in `DSL.md`, `README.md`; the one
   remaining hit (`docs/tools/DEVELOPMENT.md`: *"11 trigger rules Python ↔ JSONata
   sync"*) is a factually accurate description of the parity test file's scope (it

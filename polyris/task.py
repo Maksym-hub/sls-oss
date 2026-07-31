@@ -4,7 +4,7 @@ Task classes for SFN-DSL.
 This module contains:
 - TaskInstance: Result of calling a @task decorated function
 - Task: A task in the pipeline
-- TaskDecorator: Airflow-compatible task decorator
+- TaskDecorator: Task decorator
 - task: Singleton TaskDecorator instance
 """
 
@@ -130,10 +130,9 @@ class TaskInstance:
            of `other`. For `a << b << c` (Python evaluates left-to-right as
            `(a << b) << c`), returning `self` from `a << b` means the second
            operation becomes `a << c` again — `b` is silently skipped out of
-           the chain entirely. This is exactly the common Airflow idiom
-           `load << transform << extract` (a real, three-or-more-item chain,
-           not a contrived case) — it silently produced `load` depending on
-           BOTH `transform` and `extract` directly, with `transform` having
+           the chain entirely. For `load << transform << extract` (a real,
+           three-or-more-item chain), this silently produced `load` depending
+           on BOTH `transform` and `extract` directly, with `transform` having
            no dependency on `extract` at all, and no error anywhere to
            reveal the wrong graph. `__rshift__` already returns `other` for
            exactly this reason (verified: `>>` chaining is correct); `<<` now
@@ -210,11 +209,11 @@ class TaskInstance:
             task_instance.task.dependencies.append(self.task)
     
     def set_downstream(self, task_or_list):
-        """Explicitly set downstream task(s). Airflow-compatible."""
+        """Explicitly set downstream task(s)."""
         self >> task_or_list
     
     def set_upstream(self, task_or_list):
-        """Explicitly set upstream task(s). Airflow-compatible."""
+        """Explicitly set upstream task(s)."""
         self << task_or_list
 
 # ============================================
@@ -224,7 +223,7 @@ class TaskInstance:
 @dataclass
 class Task:
     """
-    A task in the pipeline. Airflow-compatible attributes.
+    A task in the pipeline.
     
     Supports multiple execution types via task_type:
     - sfn: Nested Step Function (default)
@@ -247,7 +246,6 @@ class Task:
     # Cross-account execution
     role: str = "same"  # 'acq', 'etl', 'processing', 'orchestration', 'same'
     
-    # Airflow-compatible attributes
     retries: int = 0
     retry_delay: timedelta = field(default_factory=lambda: timedelta(minutes=5))
     max_retry_delay: Optional[timedelta] = None
@@ -367,10 +365,7 @@ class Task:
         return int(self.wait_before) if self.wait_before else 0
     
     def __call__(self, *args, **kwargs) -> TaskInstance:
-        """
-        Call task like a function - Airflow-compatible.
-        Returns TaskInstance that can be used for dependencies.
-        """
+        """Call task like a function; returns TaskInstance for wiring dependencies."""
         instance = TaskInstance(self, args, kwargs)
         self._task_instances.append(instance)
         return instance
@@ -417,7 +412,7 @@ class Task:
         return NotImplemented
 
 # ============================================
-# Task Decorator - Airflow-compatible with service variants
+# Task Decorator
 # ============================================
 
 class CommonTaskKwargs(TypedDict, total=False):
@@ -462,7 +457,7 @@ def _validate_common_kwargs(decorator_name: str, common: Mapping[str, object]) -
 
 class TaskDecorator:
     """
-    Airflow-compatible task decorator with service-specific variants.
+    Task decorator with service-specific variants.
     
     IMPORTANT: Base @task is not allowed - you must use a service-specific decorator:
     

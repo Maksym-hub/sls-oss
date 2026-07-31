@@ -1,6 +1,6 @@
 # Spike: Do the 11 trigger rules actually work?
 
-**Question.** We advertise 11 Airflow-compatible `trigger_rule`s. Do they work end-to-end
+**Question.** We advertise 11 `trigger_rule`s. Do they work end-to-end
 with the status model and the SFN execution engine, or is the taxonomy partly aspirational?
 
 **Bottom line.** No — not all 11 work today. The **failure-reactive** rules cannot fire in
@@ -107,8 +107,8 @@ ADR #112).
 
 ## Recommendation for the "11 rules" claim
 
-Shipping "11 Airflow-compatible trigger rules" while the failure-reactive half cannot fire is
-a false claim — and Airflow's whole point is reacting to upstream *failure* states.
+Shipping "11 trigger rules" while the failure-reactive half cannot fire is
+a false claim — the whole point of failure-reactive rules is reacting to upstream *failure* states.
 
 - **Minimum honest OSS:** ship Fix 1, and mark `one_failed`, `all_failed`, `all_done`,
   `all_done_min_one_success` (and note `one_success`/`one_done` timing) as **experimental /

@@ -18,7 +18,7 @@ aws cloudformation deploy \
   --template-file bootstrap.yaml \
   --stack-name polyris-bootstrap \
   --parameter-overrides \
-    GitHubOrg=polyris \  # TODO(release): replace with the real GitHub org
+    GitHubOrg=Polyris \
     GitHubRepo=polyris \
     ReleasesBucketName=polyris-releases \
   --capabilities CAPABILITY_NAMED_IAM \

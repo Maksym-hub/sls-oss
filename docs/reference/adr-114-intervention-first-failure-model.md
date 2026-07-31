@@ -31,13 +31,13 @@ autonomously to a failure the human hasn't seen yet.
 decision; it does not autonomously propagate through the DAG. This is treated as the
 product's identity, not a gap:
 
-- Competing orchestrators (Airflow, Dagster) fail and stop; recovering requires clearing
+- Competing orchestrators (Dagster) fail and stop; recovering requires clearing
   and re-running outside the failed execution. Polyris pausing **inside** the run with
   `retry` / `mark_success` / `skip` / `fail` actions (ADR #110 moved this to the free
   tier) is a real differentiator, not a lesser version of autonomous propagation.
 - Because failure does not autonomously propagate, failure-reactive `trigger_rule`s
   cannot be supported as advertised today. ADR #115 narrows the canonical rule set
-  accordingly instead of leaving a claim ("11 Airflow-compatible rules") the engine
+  accordingly instead of leaving a claim ("11 trigger rules") the engine
   cannot honor.
 - The one rule whose loss has real product value — `all_done` as an unconditional
   cleanup/teardown step — gets a narrow, scoped exception (ADR #116), not a general
@@ -46,7 +46,7 @@ product's identity, not a gap:
 ## Consequences
 
 - Docs/positioning: describe polyris as intervention-first serverless orchestration, not
-  as "Airflow-compatible trigger rules." See ADR #115 for the resulting rule set and
+  as "trigger rules." See ADR #115 for the resulting rule set and
   the `README.md` / `docs/features/DSL.md` updates it drove.
 - A full reversal of this decision (autonomous failure propagation, i.e. removing the
   `Parallel` abort-on-failure entirely) is a strategic pivot, not a fix, and is

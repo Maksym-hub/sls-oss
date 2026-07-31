@@ -26,7 +26,7 @@ Available commands:
 Each command has its own --help. Run e.g. `polyris-deploy --help`.
 
 Documentation:
-  https://github.com/Maksym-hub/polyris
+  https://github.com/Polyris/polyris
 """
 
 

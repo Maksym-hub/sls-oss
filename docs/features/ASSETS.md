@@ -12,7 +12,7 @@
 
 ## Overview
 
-polyris supports Airflow 3.0-style asset-based orchestration, enabling cross-pipeline dependencies without hardcoded references.
+polyris supports asset-based orchestration, enabling cross-pipeline dependencies without hardcoded references.
 
 **Key concepts:**
 - **Asset**: A data artifact (file, table, dataset)

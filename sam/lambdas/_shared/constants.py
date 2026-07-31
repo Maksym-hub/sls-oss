@@ -68,7 +68,7 @@ except ImportError:
 
 
 class TriggerRule:
-    """5 trigger rules (ADR #117 — trimmed from Airflow's 11)."""
+    """5 trigger rules (ADR #117)."""
     ALL_SUCCESS = 'all_success'
     ONE_SUCCESS = 'one_success'
     ALL_DONE = 'all_done'

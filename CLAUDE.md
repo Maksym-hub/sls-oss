@@ -92,7 +92,7 @@ This includes:
 - Catching and ignoring exceptions to mask bugs
 
 If something cannot be implemented properly right now: stop, document the gap explicitly
-in the backlog (`docs/reference/UI_AUDIT.md` or relevant doc), and discuss with the user
+in `STATE.md` (Decided, not done) or the relevant doc, and discuss with the user
 before shipping. A clearly-documented gap is acceptable. A silent fake that "works" is not.
 
 Test mocks (pytest-mock `mocker` fixture, vitest `vi.fn()`) are different — they belong
@@ -106,7 +106,7 @@ reused or extended. Custom one-off implementations are a last resort, not a firs
 The same applies to whole modules and subsystems — before building a type system,
 parser, validator, or DSL from scratch, check the Python ecosystem (`pyarrow`,
 `pydantic`, `sqlalchemy`, `jsonschema`, etc.) and what comparable projects
-(Dagster, Airflow, dbt) do. Use directly when it fits, as a bridge when dependency
+(Dagster, dbt) do. Use directly when it fits, as a bridge when dependency
 cost is too high (see ADR #42 for the bridge pattern), build from scratch only as
 a last resort. Document the trade-off in the relevant ADR.
 
@@ -771,7 +771,7 @@ current code. Snapshot at v0.78.10:
   don't need `aria-label`, but a targeted sweep of icon-only ones
   hasn't been done)
 
-None of the gaps are silent — they're all in BACKLOG.md or this section.
+None of the gaps are silent — they're all in STATE.md or this section.
 If you're touching one of these files for another reason, fix the gap
 while you're there. Don't open a PR just to fix them in isolation
 unless you're doing a deliberate hygiene pass.
@@ -781,8 +781,7 @@ unless you're doing a deliberate hygiene pass.
 
 ## What is Polyris
 
-Serverless data pipeline orchestration on AWS Step Functions. Python DSL (Airflow-compatible
-syntax) → generates ASL → deploys via CloudFormation (`polyris-deploy`).
+Serverless data pipeline orchestration on AWS Step Functions. Python DSL → generates ASL → deploys via CloudFormation (`polyris-deploy`).
 
 Core idea: each task = one `dependency_wrapper` SFN execution that waits for deps, runs the
 task, then signals downstream tasks via `notify_dependents`.
@@ -814,7 +813,7 @@ sam/
       pause_waiter/sfn.tpl.json
       notify_asset_consumers/sfn.tpl.json
   lambdas/
-    console_api/      # REST API (63 routes full build, 18 free), DAL repos, route handlers
+    console_api/      # REST API (63 routes full build, 27 free), DAL repos, route handlers
     evaluate_deps/    # Evaluates trigger rules (all_success, all_done, etc.)
     query_subscriptions/  # Finds downstream subscribers for a completed task
     check_assets/     # Validates asset freshness for wait_for
@@ -911,8 +910,8 @@ only do **one GSI add or delete per UpdateTable call**. Renaming a GSI
 2. Or two-phase: temporarily add old GSI back to template, deploy, then
    remove it, deploy again.
 
-Full procedure in `docs/reference/BACKLOG.md` under "Known Operational
-Quirk — DynamoDB GSI rename via CloudFormation".
+Procedure: delete the old GSI manually via `aws dynamodb update-table
+--global-secondary-index-updates`, wait for completion, then re-run `sam deploy`.
 
 Avoid renaming GSIs in future template edits. Add-new-first, migrate
 reads, remove-old-later as separate PRs.

@@ -24,8 +24,10 @@ Deploy polyris to a blank AWS account. ~30-45 minutes.
 # macOS
 brew install awscli
 
-# Linux
-pip install awscli
+# Linux — official v2 installer (pip installs the deprecated v1)
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip && sudo ./aws/install
+rm -rf awscliv2.zip aws/
 
 # Configure credentials
 aws configure --profile polyris-dev
@@ -59,8 +61,7 @@ node --version  # must be >= 18.18 (22 LTS recommended)
 ### 2.1 Clone the repo
 
 ```bash
-# TODO(release): replace `polyris` with the real GitHub org before publishing
-git clone https://github.com/polyris/polyris.git
+git clone https://github.com/Polyris/polyris.git
 cd polyris
 ```
 
@@ -160,7 +161,7 @@ sam deploy --profile "$AWS_PROFILE"
 ```
 
 First deploy takes ~5-10 minutes. Creates:
-- 7 DynamoDB tables
+- 8 DynamoDB tables
 - 16 Step Functions state machines (13 templates + 3 test SFNs)
 - 6 Lambda functions
 - API Gateway, Cognito, S3, CloudFront

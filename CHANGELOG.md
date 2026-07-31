@@ -1504,8 +1504,8 @@ data" — no distinction between the graph's *structure* and a node's *current p
 
 - **The default trigger rule could hang a pipeline forever.**
   `evaluate_deps._calculate_counts` counted successes with a hardcoded
-  `status == 'success'`, ignoring `'succeeded'` — the canonical Airflow-compat
-  alias and exactly what `normalize_execution_status()` produces from AWS Step
+  `status == 'success'`, ignoring `'succeeded'` — the legacy alias and exactly
+  what `normalize_execution_status()` produces from AWS Step
   Functions' `SUCCEEDED`. A dependency reporting `'succeeded'` was counted as
   neither success nor pending, so `all_success` (and every success-oriented rule)
   stayed unsatisfied and the downstream task never ran. Now derived from the
@@ -1546,17 +1546,17 @@ data" — no distinction between the graph's *structure* and a node's *current p
   the EE overlay. Also removed a dead `multiple_outputs` `_create_task` param and
   a redundant `if True:` guard in `validation.py`. Unused imports now fail CI.
 
-### Removed — dead Airflow-parity task fields
+### Removed — dead unused task fields
 
 - **Ten inert `Task` fields removed:** `pool`, `pool_slots`, `priority_weight`,
   `weight_rule`, `queue`, `depends_on_past`, `wait_for_downstream`, `doc_json`,
-  `doc_yaml`, `doc_rst`. These were Airflow scheduling/doc concepts carried on the
+  `doc_yaml`, `doc_rst`. These scheduling/doc concepts were carried on the
   dataclass (and `_create_task`) but **not exposed on any `@task.*` decorator**
   (absent from `CommonTaskKwargs`, so unreachable) and **read by nothing** — the
-  same dead-field class as `slack_channel`. `AIRFLOW_MIGRATION.md` already states
-  these Airflow features are not supported (e.g. "Pools — use Step Functions
-  concurrency limits"), so the fields contradicted the documented design. `Task`
-  drops from 54 to 44 fields; behavior is unchanged.
+  same dead-field class as `slack_channel`. These features are not supported by
+  polyris (e.g. "Pools — use Step Functions concurrency limits"), so the fields
+  contradicted the documented design. `Task` drops from 54 to 44 fields; behavior
+  is unchanged.
 
 ### Removed — dead `slack_channel` DAG/task field
 
@@ -2595,12 +2595,10 @@ See ADR #94.
 
 ### Documentation
 
-- Repositioned away from "Airflow-compatible". README now leads with
-  *"Orchestration without the orchestrator"* (serverless substrate: nothing to
-  run, nothing hidden, asset-centric, pay-per-run). Airflow is described honestly
-  as *familiar syntax / ergonomics*, not runtime compatibility; the migration
-  guide is reframed as a concept-mapping "Coming from Airflow" guide that states
-  what does and doesn't carry over.
+- README now leads with *"Orchestration without the orchestrator"* (serverless
+  substrate: nothing to run, nothing hidden, asset-centric, pay-per-run). Updated
+  the migration guide to a concept-mapping guide that states what does and doesn't
+  carry over.
 - Brought the architecture docs current: added a Design Principles section
   (SFN-first / canonical output store / asset-centric / generated SSoT), a
   lineage-aware Backfill section (upstream smart-fill, downstream cascade,
@@ -2831,11 +2829,7 @@ Backend (SFN template). After deploy, **cancel the stuck backfill and start a
 new one** — in-flight executions under the old template are not retroactively
 fixed.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.80.1.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-```
+
 
 ## v80.0 (0.80.0) - 2026-05-28
 
@@ -2932,11 +2926,7 @@ drifted. Now: one authority, one typed accessor, one CI parity check.
 Backend-only (console_api Lambda; the SDK `polyris` is bundled). No UI
 changes. No API contract or behavior change for valid inputs.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.80.0.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-```
+
 
 ## v79.10 (0.79.10) - 2026-05-28
 
@@ -2992,11 +2982,7 @@ eligibility test.
 
 Backend-only (console_api Lambda). No UI changes.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.10.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-```
+
 
 ## v79.9 (0.79.9) - 2026-05-28
 
@@ -3066,11 +3052,7 @@ self-corrects. New backfills work immediately.
 
 Backend-only (console_api Lambda). No UI changes.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.9.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-```
+
 
 ### Sanity
 
@@ -3143,11 +3125,7 @@ cell / task) since they all share one `BackfillModal`.
 
 UI-only release. No backend changes.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.8.zip
-cd ui && npm run build && ../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
+
 
 ### Sanity
 
@@ -3229,11 +3207,7 @@ one place. Canonical icon: **Rewind** (Mike's choice).
 
 UI-only release. No backend changes.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.7.zip
-cd ui && npm run build && ../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
+
 
 ### Sanity
 
@@ -3316,13 +3290,7 @@ not in any template, which is fine).
 Pure infrastructure release — no Lambda code changed. CI will
 gain the new `check-sfn-templates` step.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.6.zip
-# No backend or UI rebuild needed; this is repo tooling.
-# If CI was previously running gates manually, add:
-make check-sfn-templates  # alongside existing make targets
-```
+
 
 ### Sanity
 
@@ -3366,8 +3334,8 @@ hand-written backend only had `'success'`). Tests updated to
 reflect new set membership.
 
 Code that did `status in TaskStatus.TERMINAL` previously didn't
-recognize `'succeeded'` as terminal — silently buggy on Airflow-3-
-style status writes. After v0.79.5, both forms recognized.
+recognize `'succeeded'` as terminal — silently buggy when a dependency
+reported the SFN-normalized form. After v0.79.5, both forms recognized.
 
 ### Documentation
 
@@ -3393,16 +3361,12 @@ TestStatusCategories tests updated for canonical set values
 Backend-only. All 5 helper Lambdas + console_api need the new
 `constants_generated.py` in their deploy artifact.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.5.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-```
+
 
 ### Sanity
 
 After deploy, downstream-failure detection in `evaluate_deps` for
-tasks that completed with status `'succeeded'` (Airflow 3 form):
+tasks that completed with status `'succeeded'` (SFN-normalized form):
 they're now counted as success-terminal. No specific test query
 needed — covered by existing handler tests.
 
@@ -3446,11 +3410,7 @@ No new tests — pure substitution. All existing tests pass.
 Backend-only. All 5 Lambdas (4 helpers + console_api) ship with
 identical `logger.py`.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.4.zip
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-```
+
 
 ### Sanity
 
@@ -3539,13 +3499,7 @@ Stage 7 of the multi-release alignment plan — **DAL migration for all
 Backend-only release (no UI changes). All 5 helper Lambdas need to
 be redeployed.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.3.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-```
 
 UI deploy not required for this release.
 
@@ -3640,15 +3594,7 @@ Stage 6 of the multi-release alignment plan — **per-partition retry**
 
 Full deploy (backend route extension + frontend button + new CSS).
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.2.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-cd ../ui && npm run build
-../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
 
 ### Sanity after deploy
 
@@ -3748,15 +3694,7 @@ Full deploy (backend + frontend). Frontend will see legacy responses
 during the rolling deploy window — the `partitions` field has a
 legacy fallback in `BackfillDetailPage` for that case.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.1.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-cd ../ui && npm run build
-../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
 
 ### Sanity after deploy
 
@@ -3887,15 +3825,7 @@ Backend deploy required (`constants_generated.py` ships with each
 Lambda but is unused at runtime by this release — they're additive).
 Frontend deploy required (build picks up new `generated/enums.ts`).
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.79.0.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-cd ../ui && npm run build
-../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
 
 ### Sanity after deploy
 
@@ -3998,15 +3928,7 @@ DDB, plus a `'success'` legacy form. Now canonicalized at the boundary.
 
 Full deploy needed (backend + frontend).
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.78.14.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-cd ../ui && npm run build
-../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
 
 ### Sanity after deploy
 
@@ -4076,14 +3998,7 @@ and filter logic narrowing.
 
 Frontend-only. No backend changes.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.78.13.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
 
-cd ui && npm run build
-../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
 
 ### Sanity after deploy
 
@@ -4179,12 +4094,7 @@ util.
 
 Frontend-only. No backend changes.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.78.12.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ symlink check
-cd ui && npm run build && ../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
+
 
 ### Sanity checks after deploy
 
@@ -4264,14 +4174,7 @@ Nothing.
 
 Full deploy needed (backend + frontend changes).
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.78.11.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ verify symlink
 
-cd sam && sam build && sam deploy --no-confirm-changeset --profile polyris-dev
-cd ../ui && npm run build && ../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
 
 ### Sanity after deploy
 
@@ -4490,14 +4393,7 @@ BACKLOG: investigate why `Finalize` step skips in some cases.
 
 Frontend-only changes (CSS + UI logic). No backend deploy needed.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.78.8.zip
-ls -la sam/lambdas/console_api/polyris   # ⚠️ verify symlink
-cd ui
-npm run build
-../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
+
 
 After deploy, hard-refresh in light mode to verify status pills are
 visible. Click into a backfill with TOTAL==COMPLETED to verify status
@@ -4623,17 +4519,7 @@ v0.78.5 deploy review, and adds one feature (pipeline filter combobox).
 
 Frontend-only changes. No backend deploy needed.
 
-```bash
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.78.7.zip
-# ⚠️ Verify symlink
-ls -la sam/lambdas/console_api/polyris
-# If 16 bytes: cd sam/lambdas/console_api && rm -f polyris && ln -s ../../../polyris polyris
 
-cd ui
-npm run build
-../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
 
 ## v78.6 (0.78.6) - 2026-05-27
 
@@ -4676,19 +4562,7 @@ view was never registered in when it was added (v0.75.x).
 
 This release requires **both backend and frontend deploy**:
 
-```bash
-# Backend (CloudFront function change requires SAM deploy)
-cd /home/makskoval/my/sam/polyris
-unzip -o ~/Downloads/polyris-0.78.6.zip
-ls -la sam/lambdas/console_api/polyris  # verify symlink
-cd sam
-sam build && sam deploy --profile polyris-dev
 
-# Frontend
-cd ../ui
-npm run build
-../sam/deploy-ui.sh polyris-dev us-east-1 ./out --profile polyris-dev
-```
 
 After both ship, hard-refresh the browser (CloudFront invalidation
 clears the old function but the browser may have cached the
@@ -5582,10 +5456,9 @@ range (5, 7, 14, 30, or 60 days). Each cell shows the asset's status
 on that date — answering *"what's broken, and when did it start?"* at
 a glance.
 
-The matrix is the gap industry tooling leaves open: Airflow Grid is
-per-DAG, Dagster's Asset Catalog is a list, Dagster's Partition Status
-is single-asset. A cross-asset temporal view is what operators reach
-for during outage forensics or partition-status review.
+The matrix is the gap industry tooling leaves open: competing tools offer
+per-DAG grids or single-asset lists. A cross-asset temporal view is what
+operators reach for during outage forensics or partition-status review.
 
 #### Cell types
 
@@ -10554,7 +10427,7 @@ Requires running the pipeline once after re-deploy to update registry.
 ## [v36.00] - 2026-01-10
 
 ### Added
-- **Asset-based orchestration** — Airflow 3.0-style triggers
+- **Asset-based orchestration** — asset-triggered pipeline execution
 - AND logic (all assets required)
 - OR logic (any asset triggers)
 - Asset events and queue management

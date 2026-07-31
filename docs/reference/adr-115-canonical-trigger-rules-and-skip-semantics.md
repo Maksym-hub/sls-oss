@@ -12,7 +12,7 @@
 
 ## Context
 
-polyris's SDK exposes 11 Airflow-named `trigger_rule`s. Investigating two observed runs
+polyris's SDK exposes 11 `trigger_rule`s. Investigating two observed runs
 (`branching-demo`, `trigger-rules-reference`) where a rule that should not have fired
 showed up **red** with the run marked `aborted` — with no task actually failing — led to a
 full audit (`docs/reference/SPIKE_TRIGGER_RULES.md`). Three independent defects were
@@ -29,8 +29,8 @@ found:
 2. **`skipped` counts as `ok` for `all_success` only.** `ok = success + skipped` (used
    *only* by the `all_success` branch, per line-level check) means a skipped upstream does
    not block `all_success` — collapsing it onto `none_failed`'s behavior. This is a
-   "keep the pipeline moving" shortcut, not an intentional Airflow-faithful skip
-   semantics; it removes the one distinction the two rules are supposed to have.
+   "keep the pipeline moving" shortcut, not intentional skip
+   semantics; it removes the one distinction the two rules have.
 
 3. **Failure-reactive rules are structurally unreachable** under ADR #114 (`one_failed`,
    `all_failed`, `all_done`, `all_done_min_one_success` all require a genuine terminal
@@ -66,12 +66,12 @@ Full derivation in `docs/reference/SPIKE_TRIGGER_RULES.md`.
    it into the existing `Auto_Skip_*` chain (writes `skipped`, notifies dependents,
    `SendTaskSuccess`) instead of `Handle_Failure`.
 
-4. **Legacy Airflow rule names remain accepted, mapped to canonical behavior, not
+4. **Legacy rule names remain accepted, mapped to canonical behavior, not
    advertised as distinct.** `none_failed`, `none_failed_min_one_success`,
    `none_skipped`, `all_skipped`, `one_failed`, `all_failed`,
    `all_done_min_one_success`, `one_done` continue to validate and run — each maps onto
    one of the canonical behaviors (documented mapping table in `docs/features/DSL.md`) —
-   for Airflow-migration compatibility. Docs stop presenting them as 11 independent
+   for migration compatibility. Docs stop presenting them as 11 independent
    behaviors.
 
 5. **Skip has an origin, and only rule-originated skip cascades.** A downstream
@@ -130,10 +130,10 @@ Full derivation in `docs/reference/SPIKE_TRIGGER_RULES.md`.
   run" — with **zero tests removed**: every existing per-rule test still tests real,
   unchanged behavior. See `docs/reference/COMPLETENESS_REPORT_phase_1_3.md`.
 - **Docs.** `docs/features/DSL.md` (canonical/alias table + skip-origin behavior),
-  `docs/reference/AIRFLOW_MIGRATION.md`, `docs/operations/TROUBLESHOOTING.md`,
+  `docs/reference/MIGRATION.md`, `docs/operations/TROUBLESHOOTING.md`,
   `docs/architecture/ARCHITECTURE.md`, `docs/architecture/BACKEND.md`, `README.md` —
-  repositioned from "11 Airflow rules" to "intervention-first orchestration; 3
-  canonical rules, Airflow names accepted as aliases." (`EDITIONS.md` does not exist in
+  repositioned from "11 trigger rules" to "intervention-first orchestration; 3
+  canonical rules, legacy names accepted as aliases." (`EDITIONS.md` does not exist in
   this repo — an earlier draft of this ADR referenced it in error.)
 - **EE.** Rule-originated skip-cascade can leave a downstream asset chain
   un-materialized; manual skip does not. EE asset docs get a note; the asset matrix's

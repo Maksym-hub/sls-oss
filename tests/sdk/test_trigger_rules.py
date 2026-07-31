@@ -13,9 +13,9 @@ The Python source of truth for trigger rules is evaluate_deps/index.py.
 import itertools
 from typing import List
 
-# All supported trigger rules (ADR #117 — trimmed from Airflow's 11 to the
-# 5 that produce a distinct, reachable behavior under the intervention-first
-# model; see docs/features/DSL.md for the analysis)
+# All supported trigger rules (ADR #117 — 5 rules that produce a distinct,
+# reachable behavior under the intervention-first model; see
+# docs/features/DSL.md for the analysis)
 TRIGGER_RULES = [
     'all_success',
     'one_success',
@@ -351,8 +351,8 @@ def test_kept_rules_still_pass_validation():
 
 
 def test_genuinely_unknown_rule_gets_a_generic_error_not_a_removal_suggestion():
-    """A trigger_rule that was never one of Airflow's original 11 (e.g. a
-    typo) is a different case from a *removed* rule (ADR #117) — it should
+    """A trigger_rule that is a typo is a different case from a *removed*
+    rule (ADR #117) — it should
     get the generic "not a recognized rule, valid rules are: ..." message,
     not a specific "was removed, use X instead" suggestion."""
     from polyris import DAG, task

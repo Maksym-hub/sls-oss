@@ -83,7 +83,7 @@ PyPI publish**:
 
 ```toml
 # polyris-ee/pyproject.toml
-dependencies = ["polyris @ git+https://github.com/Maksym-hub/polyris.git@v0.92.0"]
+dependencies = ["polyris @ git+https://github.com/Polyris/polyris.git@v0.93.0"]
 ```
 
 Because the core repo is **public**, this needs no token or deploy key. A "core

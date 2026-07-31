@@ -1,7 +1,7 @@
 """
-polyris: Serverless Flow - Airflow-Compatible API for AWS Step Functions
+polyris: Serverless data pipeline orchestration on AWS Step Functions
 
-Write pipelines using Airflow syntax, deploy to AWS Step Functions.
+Define pipelines in Python, deploy to AWS Step Functions.
 
 Example:
     from polyris import DAG, task, Asset, config

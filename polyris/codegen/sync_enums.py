@@ -109,7 +109,7 @@ def _render_python_body() -> str:
     # TriggerRule
     parts.append(_enum_class_py(
         "TriggerRule",
-        "Airflow-compatible trigger rules.",
+        "Trigger rules.",
         [(n, getattr(src.TriggerRule, n))
          for n in vars(src.TriggerRule) if not n.startswith("_")],
     ))
@@ -257,7 +257,7 @@ def _render_ts_body() -> str:
 
     parts.append(_ts_union(
         "TriggerRule",
-        "Airflow-compatible trigger rules.",
+        "Trigger rules.",
         [getattr(src.TriggerRule, n) for n in vars(src.TriggerRule)
          if not n.startswith("_")],
     ))

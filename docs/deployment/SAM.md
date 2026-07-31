@@ -12,8 +12,8 @@ Polyris uses AWS SAM (Serverless Application Model) to deploy shared infrastruct
 
 ```bash
 # Create state/artifacts bucket (one time)
-# TODO(release): replace `polyris` with your real org/bucket prefix
-aws s3 mb s3://polyris-polyris-state
+# Replace <your-namespace> with your own prefix (e.g. your org or project name)
+aws s3 mb s3://<your-namespace>-polyris-state
 
 # Configure
 cd sam

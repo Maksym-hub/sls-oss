@@ -169,7 +169,7 @@ not an error.
 running, and its upstream dependency is itself `skipped` — not failed.
 
 **This is expected behavior (ADR #115).** A skipped upstream now cascades through
-`all_success` (matching Airflow), instead of silently counting as "OK to continue."
+`all_success`, instead of silently counting as "OK to continue."
 Check *why* the upstream was skipped:
 1. If a human explicitly skipped it (task action) — a **manual** skip does **not**
    cascade, so if you're seeing this, the skip likely came from a trigger_rule

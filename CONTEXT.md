@@ -37,7 +37,7 @@ executions. A feed that says "runs" and queries executions counts wrong.
 | **granularity** | Cadence inferred from the cron: how a date range expands into partitions. |
 | **backfill** | A deliberate re-run across a range of past partitions, tracked as its own object. |
 | **re-run** | Running a single existing run again. Not a backfill; no backfill record. |
-| **catchup** | Not a polyris concept. If you see it, it came from Airflow vocabulary. |
+| **catchup** | Not a polyris concept. |
 
 **The trap:** a date range is not a partition count until granularity is applied.
 
@@ -64,7 +64,7 @@ executions. A feed that says "runs" and queries executions counts wrong.
 | **OSS build** | A build with `src/ee/` absent. What `check-oss-build.sh` proves still works. |
 
 **The trap:** "not in the OSS build" and "not implemented" look identical from
-CE. Check `EDITIONS.md` before concluding a feature is missing.
+CE. Check `CONTRIBUTING.md` (Common Tasks section) before concluding a feature is missing.
 
 ## Testing
 

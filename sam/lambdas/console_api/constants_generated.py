@@ -73,7 +73,7 @@ TASK_STOPPABLE_STATUSES = {
 }
 
 class TriggerRule:
-    """Airflow-compatible trigger rules."""
+    """Trigger rules."""
     ALL_SUCCESS = 'all_success'
     ONE_SUCCESS = 'one_success'
     ALL_DONE = 'all_done'

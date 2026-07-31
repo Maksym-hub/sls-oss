@@ -19,9 +19,9 @@ Instead, report them privately through one of the following channels:
 
 <!-- TODO(release): replace with your real security contact before publishing -->
 - **GitHub Security Advisories** (preferred): use the
-  ["Report a vulnerability"](https://github.com/polyris/polyris/security/advisories/new)
+  ["Report a vulnerability"](https://github.com/Polyris/polyris/security/advisories/new)
   button on the repository's *Security* tab.
-- **Email**: security@polyris.example  <!-- TODO(release): replace with a real, monitored address -->
+- **Email**: makskoval@quintagroup.org
 
 Please include as much of the following as you can:
 

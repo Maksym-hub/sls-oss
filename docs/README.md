@@ -39,7 +39,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [API.md](operations/API.md) | REST API reference (52 endpoints) |
+| [API.md](operations/API.md) | REST API reference (27 free endpoints; 63 in the full build) |
 | [UI.md](operations/UI.md) | Web Console guide |
 | [TROUBLESHOOTING.md](operations/TROUBLESHOOTING.md) | Common issues and solutions |
 
@@ -57,6 +57,5 @@
 |----------|-------------|
 | [CLI.md](reference/CLI.md) | Complete CLI reference — all commands and options |
 | [CONFIGURATION.md](reference/CONFIGURATION.md) | config.py settings, environments, cross-account roles |
-| [AIRFLOW_MIGRATION.md](reference/AIRFLOW_MIGRATION.md) | Migration from Airflow |
 | [DESIGN_DECISIONS.md](reference/DESIGN_DECISIONS.md) | Key design decisions |
 | [ROADMAP.md](reference/ROADMAP.md) | Planned features and direction |

@@ -228,7 +228,7 @@ Task Completion (run_task/failure_handler/console_api)
         │     │     ├─ BatchGetItem: get all dependency statuses
         │     │     ├─ BatchGetItem: skip_origin, only if a dep is skipped (ADR #115)
         │     │     ├─ Check pipeline pause status
-        │     │     └─ Evaluate trigger_rule (3 canonical + 8 Airflow-compat aliases)
+        │     │     └─ Evaluate trigger_rule (5 rules — ADR #117)
         │     │
         │     ├─▶ Route based on evaluation (verdict, ADR #115):
         │     │     ├─ is_ready: Signal_Ready → Update status → Delete subscription
@@ -288,13 +288,9 @@ run_task_helper → Notify_Asset_Consumers_SFN (async StartExecution)
 
 REST API handler:
 
-**Endpoints (49):**
-- Pipelines: list, status, run, backfill, pause
-- Tasks: skip, fail, stop, restart, retry
-- Executions: children, stop, pause, resume, extend
-- Assets: list, lineage, trigger, queue
-- Runs: list, filter
-- Notifications: list
+**Endpoints:** 27 free (OSS build), 63 in the full build. Free routes cover
+pipelines, tasks, executions, assets, runs, and notifications. Paid (Team)
+routes add backfill, alert config, PATs, and observability.
 
 ### 2. evaluate_deps
 
@@ -304,7 +300,7 @@ Evaluates whether a subscriber task should start based on all upstream statuses:
 
 - `BatchGetItem` — fetch all dependency statuses in one call
 - `BatchGetItem` — fetch `skip_origin`, only when a dependency is `skipped` (ADR #115)
-- Evaluate `trigger_rule` (3 canonical + 8 Airflow-compat aliases — see
+- Evaluate `trigger_rule` (5 rules — ADR #117; see
   `docs/features/DSL.md#trigger-rules`)
 - Check pipeline `paused` status
 - Returns: `{is_ready, is_blocked, is_paused, deps_satisfied, verdict, reason, dep_statuses, counts}`

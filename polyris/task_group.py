@@ -1,7 +1,7 @@
 """
 TaskGroup for SFN-DSL.
 
-TaskGroup allows grouping tasks together, Airflow-compatible.
+TaskGroup allows grouping tasks together.
 """
 
 from typing import List, Optional, Callable, TYPE_CHECKING
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 @dataclass
 class TaskGroup:
     """
-    Group tasks together. Airflow-compatible.
+    Group tasks together.
     
     Example:
         with TaskGroup("extract") as extract_group:
@@ -153,7 +153,7 @@ def task_group(
     **kwargs
 ):
     """
-    Decorator to create a TaskGroup. Airflow-compatible.
+    Decorator to create a TaskGroup.
     
     Example:
         @task_group()

@@ -64,7 +64,7 @@ class TaskStatus(str, Enum):
     
     # Terminal success states
     SUCCESS = "success"                    # Task completed successfully
-    SUCCEEDED = "succeeded"                # Alias for success (Airflow compat)
+    SUCCEEDED = "succeeded"                # Alias for success (legacy compat)
     
     # Terminal failure states
     FAILED = "failed"                      # Task execution failed
@@ -141,7 +141,7 @@ STOPPABLE_STATUSES: Set[str] = {
 
 
 # =============================================================================
-# Trigger Rules (Airflow 3.x compatible)
+# Trigger Rules
 # =============================================================================
 
 
@@ -150,13 +150,13 @@ STOPPABLE_STATUSES: Set[str] = {
 # ADR #114/#115/#117: polyris pauses a failed task for a human decision rather
 # than propagating failure autonomously (intervention-first), and a CONFIRMED
 # failure (resolved via Fail) cancels the whole pipeline's Parallel before any
-# downstream trigger_rule ever evaluates. Given that, only 5 of Airflow's 11
-# rule names produce a behavior reachable in practice; the other 6 either
-# duplicate one of these 5 exactly (verified across the full status-
-# combination matrix, see tests/sdk/test_trigger_rules.py) or can never be
-# satisfied at all (all_failed/one_failed — their only use case is reacting to
-# a confirmed failure, which is exactly the state Parallel-abort prevents them
-# from reaching). See ADR #117 and docs/features/DSL.md for the full analysis.
+# downstream trigger_rule ever evaluates. Given that, only 5 rule names produce
+# a behavior reachable in practice; the other 6 either duplicate one of these 5
+# exactly (verified across the full status-combination matrix, see
+# tests/sdk/test_trigger_rules.py) or can never be satisfied at all
+# (all_failed/one_failed — their only use case is reacting to a confirmed
+# failure, which is exactly the state Parallel-abort prevents them from
+# reaching). See ADR #117 and docs/features/DSL.md for the full analysis.
 TriggerRuleLiteral = Literal[
     "all_success",           # Default. All upstream tasks succeeded.
     "one_success",           # At least one succeeded (doesn't wait for all).
@@ -179,7 +179,7 @@ TaskTypeLiteral = Literal[
 ]
 
 
-# Schedule presets (Airflow-compatible)
+# Schedule presets
 SCHEDULE_PRESETS = {
     "@once": None,
     "@hourly": "rate(1 hour)",
@@ -198,11 +198,9 @@ class TriggerRule:
     (ADR #114): a failed task pauses for a human decision rather than
     propagating failure autonomously, and a *confirmed* failure cancels the
     whole pipeline's Parallel before any downstream trigger_rule evaluates.
-    6 of Airflow's 11 rule names were removed (ADR #117) — they either
-    duplicated one of these 5 exactly in every reachable state, or could
-    never be satisfied at all. See docs/features/DSL.md for the analysis.
-
-    See: https://airflow.apache.org/docs/apache-airflow/stable/core-concepts/dags.html#trigger-rules
+    6 rule names were rejected (ADR #117) — they either duplicated one of
+    these 5 exactly in every reachable state, or could never be satisfied at
+    all. See docs/features/DSL.md for the analysis.
     """
     ALL_SUCCESS = "all_success"           # All upstream tasks have succeeded (default)
     ONE_SUCCESS = "one_success"           # At least one succeeded (does NOT wait for all)

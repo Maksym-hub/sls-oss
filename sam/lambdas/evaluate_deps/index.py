@@ -3,8 +3,7 @@ Evaluate Dependencies Lambda
 
 Minimal Lambda for operations Step Functions cannot do natively:
 1. BatchGetItem - fetch all dependency statuses in one call
-2. Evaluate trigger_rule - complex logic (3 canonical + 8 Airflow-compat aliases,
-   ADR #115)
+2. Evaluate trigger_rule - complex logic (5 rule names, ADR #115/#117)
 3. Check pipeline paused status
 
 Called from notify_dependents SFN helper.
@@ -265,17 +264,17 @@ def _check_trigger_rule(
     """
     Evaluate if trigger_rule is satisfied.
 
-    5 rule names (ADR #117 — trimmed from Airflow's 11): each produces a
-    distinct, reachable behavior under polyris's intervention-first model. A
-    *confirmed* failure (resolved via Fail) cancels the whole pipeline's
-    Parallel before any downstream trigger_rule ever evaluates — so
-    dep_statuses passed here never actually contains 'failed'/'upstream_failed'
-    in practice. 6 of Airflow's original names were removed because, given
-    that, they either duplicated one of these 5 exactly (one_done/none_failed
-    -> all_done; none_failed_min_one_success/all_done_min_one_success ->
-    one_success) or could never be satisfied at all (all_failed/one_failed —
-    their only use case is reacting to a confirmed failure). See
-    docs/features/DSL.md for the full analysis.
+    5 rule names (ADR #117): each produces a distinct, reachable behavior
+    under polyris's intervention-first model. A *confirmed* failure (resolved
+    via Fail) cancels the whole pipeline's Parallel before any downstream
+    trigger_rule ever evaluates — so dep_statuses passed here never actually
+    contains 'failed'/'upstream_failed' in practice. 6 rule names were
+    rejected because, given that, they either duplicated one of these 5
+    exactly (one_done/none_failed -> all_done;
+    none_failed_min_one_success/all_done_min_one_success -> one_success) or
+    could never be satisfied at all (all_failed/one_failed — their only use
+    case is reacting to a confirmed failure). See docs/features/DSL.md for
+    the full analysis.
 
     - all_success: All deps success/skipped (default)
     - one_success: At least one success (doesn't wait for all!)
@@ -360,7 +359,7 @@ def _check_trigger_rule(
 
 def _calculate_counts(dep_statuses: List[str]) -> Dict[str, int]:
     """Calculate status counts for observability."""
-    # 'succeeded' is the canonical Airflow-compat alias for 'success' and is what
+    # 'succeeded' is the legacy alias for 'success' and is what
     # normalize_execution_status() produces from AWS SFN's 'SUCCEEDED'. Counting
     # only the literal 'success' silently dropped it, so all_success (the default
     # rule) would deadlock when a dependency reported 'succeeded'.

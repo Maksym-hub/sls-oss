@@ -42,7 +42,7 @@ export const TASK_STATUS = {
     STOPPED: 'stopped',
 } as const;
 
-/** Airflow-compatible trigger rules. */
+/** Trigger rules. */
 export type TriggerRule =
   | 'all_success'
   | 'one_success'

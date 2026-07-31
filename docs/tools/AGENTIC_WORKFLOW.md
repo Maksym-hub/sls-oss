@@ -180,25 +180,6 @@ bash scripts/verify-changed.sh
 
 ---
 
-## Known: one guard is currently red
-
-`test_claude_md_claims.py::test_components_never_import_api_directly` fails.
-`ui/src/components/DecisionTimeoutSection.tsx` imports `api` and calls
-`api.get` / `api.put` directly, which `CLAUDE.md` forbids in two places
-(the audit snapshot and the UI Patterns section).
-
-This is a real finding, not a bad test — the same class as the three DAL bypasses
-closed in v0.93.1. Two ways to resolve it:
-
-1. **Move the component onto a React Query hook**, following
-   `ui/src/hooks/queries/`. The claim becomes true.
-2. **Amend the claim** in `CLAUDE.md` to record the exception, the way the
-   `notify/registry.py` DAL exception is recorded.
-
-Until one of those, adding this test to `make check` or CI turns them red.
-
----
-
 ## What this does not replace
 
 A live smoke before tagging (Principle #15). Every gate here runs against mocks

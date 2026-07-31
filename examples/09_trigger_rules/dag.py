@@ -5,9 +5,9 @@ upstream tasks' outcomes. The default is `all_success`. Two upstream tasks
 (`extract_a`, `extract_b`) feed one marker task per rule, so you can see each
 condition side by side.
 
-polyris supports 5 trigger rules (ADR #117 — trimmed from Airflow's 11).
-Airflow's other 6 rule names are rejected at validation time with a specific
-suggestion: under polyris's intervention-first model, a *confirmed* failure
+polyris supports 5 trigger rules (ADR #117). The other 6 possible names are
+rejected at validation time with a specific suggestion: under polyris's
+intervention-first model, a *confirmed* failure
 (resolving a paused task with Fail) cancels the whole pipeline's Parallel
 before any downstream trigger_rule ever evaluates. Given that, `one_done`
 and `none_failed` always behave identically to `all_done`;

@@ -335,28 +335,6 @@ sfn.send_task_success(
 
 ---
 
-## HTTP Task (for Slack/PagerDuty)
-
-```json
-{
-  "Type": "Task",
-  "Resource": "arn:aws:states:::http:invoke",
-  "Arguments": {
-    "ApiEndpoint": "https://hooks.slack.com/...",
-    "Method": "POST",
-    "Headers": {"Content-Type": "application/json"},
-    "Authentication": {
-      "ConnectionArn": "arn:aws:events:...connection/..."
-    },
-    "RequestBody": {...}
-  }
-}
-```
-
-Requires EventBridge Connection for authentication.
-
----
-
 ## Best Practices
 
 1. **Use JSONata** - More powerful than JSONPath

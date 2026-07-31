@@ -6,7 +6,7 @@ Drives ``polyris.dag.DAG`` directly (CLAUDE.md #13):
     ``trigger_assets`` → asset schedule.
   - Graph methods: ``topological_sort`` (ordering + cycle detection),
     ``roots``, ``leaves``, ``get_task`` / ``task_dict``.
-  - The Airflow-compat ``test()`` / ``cli()`` helpers.
+  - The ``test()`` / ``cli()`` helpers.
 """
 from __future__ import annotations
 
@@ -164,7 +164,7 @@ class TestGraphMethods:
 
 
 # ============================================================ #
-# Airflow-compat helpers
+# DAG helpers
 # ============================================================ #
 class TestCompatHelpers:
     def test_cli_is_noop(self):

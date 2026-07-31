@@ -56,8 +56,6 @@ StateMachine deleted
 
 No zombie pipelines, no orphaned subscriptions.
 
-## EventBridge Registration (Legacy)
-
 ## Self-Healing Registration
 
 Every pipeline run includes registration as the first step:

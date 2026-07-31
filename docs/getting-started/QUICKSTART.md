@@ -12,8 +12,7 @@ Deploy Polyris to your AWS account in ~10 minutes.
 ## 1. Clone
 
 ```bash
-# TODO(release): replace `polyris` with the real GitHub org before publishing
-git clone https://github.com/polyris/polyris
+git clone https://github.com/Polyris/polyris
 cd polyris/sam
 ```
 
@@ -104,9 +103,13 @@ aws cognito-idp admin-create-user \
 Install the Polyris CLI, then deploy one of the bundled examples:
 
 ```bash
-# From the repo root, once — installs the polyris-* commands:
+# Go back to the repo root first
+cd "$(git rev-parse --show-toplevel)"
+
+# Install the polyris-* CLI commands (one time)
 pip install -e .
 
+# Deploy one of the bundled examples
 cd examples/01_single_task
 polyris-validate      # check the DAG is valid
 polyris-deploy        # build + deploy via CloudFormation

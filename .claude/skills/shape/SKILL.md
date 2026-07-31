@@ -29,7 +29,7 @@ belongs to stage 2.
 
 ## What to interrogate
 
-- **Boundary.** Free or paid? (EDITIONS.md is canonical.) This decides half the
+- **Boundary.** Free or paid? (See CONTRIBUTING.md open-core section.) This decides half the
   design and is the single most expensive thing to get wrong late.
 - **Scope.** What is explicitly *not* in this change?
 - **Contract.** New/changed DDB fields, API routes, SFN states, enum members?

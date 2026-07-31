@@ -2,7 +2,7 @@
 
 Two roles:
 
-* :class:`XComArg` — the DSL handle returned by ``task()`` (Airflow-compatible),
+* :class:`XComArg` — the DSL handle returned by ``task()``,
   used to wire dependencies at pipeline-definition time.
 * :func:`pull` — the runtime helper a task calls to fetch the whole output a
   dependency produced. It reads the canonical DynamoDB output store (key
@@ -36,8 +36,8 @@ class PullError(RuntimeError):
 class XComArg:
     """Represents the output of a task, used for data passing.
 
-    Airflow-compatible: ``task()`` returns an ``XComArg`` that can be passed to
-    other tasks to declare a dependency.
+    ``task()`` returns an ``XComArg`` that can be passed to other tasks to declare
+    a dependency.
     """
     def __init__(self, task_instance: 'TaskInstance', key: str = "return_value"):
         self.task_instance = task_instance

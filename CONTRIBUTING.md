@@ -31,8 +31,7 @@ No AWS credentials needed for running tests locally (uses pytest-mock `mocker` f
 ### 1. Clone and Setup
 
 ```bash
-# TODO(release): replace `polyris` with the real GitHub org before publishing
-git clone https://github.com/polyris/polyris.git
+git clone https://github.com/Polyris/polyris.git
 cd polyris
 
 # Python dependencies (for SDK development)
@@ -102,7 +101,7 @@ polyris/
 │
 ├── sam/     # AWS Infrastructure
 │   ├── lambdas/          # Lambda function code
-│   │   ├── console_api/  # REST API (52 endpoints)
+│   │   ├── console_api/  # REST API (27 free endpoints)
 │   │   ├── evaluate_deps/# Dependency evaluation
 │   │   ├── check_assets/ # Asset freshness checks
 │   │   ├── notify_asset_subscribers/ # Asset event notification
@@ -119,7 +118,7 @@ polyris/
 │
 ├── tests/                # SDK integration tests
 ├── docs/                 # Documentation
-└── pipelines/            # Example pipelines
+└── examples/             # Example pipelines
 ```
 
 ---
@@ -147,8 +146,8 @@ cp sam/lambdas/_shared/constants.py sam/lambdas/evaluate_deps/constants.py
 | SDK core (DAG, tasks, DSL) | `tests/sdk/test_smoke.py` | `pytest tests/sdk/` | DAG structure, dependencies, ASL generation, constants |
 | ASL snapshots | `tests/sdk/test_asl_snapshots.py` | `pytest tests/sdk/` | Golden file comparison of generated Step Functions JSON |
 | Template features | `tests/sdk/test_templates.py` | `pytest tests/sdk/` | orchestration_timeout, route table, run_task resilience |
-| API routes | `tests/backend/test_api_routes.py` | `pytest tests/backend/` | All 49 console_api routes registered and callable |
-| Trigger rules | `tests/sdk/test_trigger_rules.py` | `pytest tests/sdk/` | 11 trigger rules: Python ↔ JSONata logic sync |
+| API routes | `tests/backend/test_api_routes.py` | `pytest tests/backend/` | All 27 free console_api routes registered and callable |
+| Trigger rules | `tests/sdk/test_trigger_rules.py` | `pytest tests/sdk/` | 5 trigger rules: Python ↔ JSONata logic sync |
 | SFN flow graphs | `tests/sdk/test_sfn_flow.py` | `pytest tests/sdk/` | State references, reachability, Catch, cycles for all 13 templates |
 | JSONata expressions | `tests/sfn_jsonata/` | `cd tests/sfn_jsonata && npm test` | Default fallbacks, type conversions, conditionals, 550 expressions compile |
 | evaluate_deps Lambda | `sam/lambdas/evaluate_deps/` | `PYTHONPATH=. pytest` | BatchGetItem, trigger_rule evaluation, paused check |
@@ -221,33 +220,33 @@ routes follow the same `register(router)` seam in the private repo.)
 
 ---
 
-## Sign your commits (DCO)
+## Sign your commits (GPG)
 
-polyris uses the [Developer Certificate of Origin](DCO) — by signing off you
-certify you wrote the patch or otherwise have the right to contribute it under the
-project's Apache-2.0 license. **Every commit must be signed off**, and CI enforces
-it (`.github/workflows/dco.yml`):
+Every commit must carry a GPG signature. CI enforces this — unsigned commits
+will be rejected on merge.
 
 ```bash
-git commit -s                       # appends "Signed-off-by: Name <you@example.com>"
-git rebase --signoff origin/main    # retro-fit sign-off across an existing branch
+# One-time setup: tell git which key to use
+git config --global user.signingkey <YOUR_KEY_ID>
+git config --global commit.gpgsign true
+
+# Then commit normally — signing happens automatically
+git commit -m "feat: my change"
+
+# Or sign a single commit explicitly
+git commit -S -m "feat: my change"
+
+# Retro-fit signatures on an existing branch
+git rebase --exec 'git commit --amend --no-edit -S' origin/main
 ```
 
-The sign-off name/email must match your commit author identity.
-
-> **DCO vs CLA.** The DCO is a lightweight provenance check; contributions come in
-> under the same Apache-2.0 license (inbound = outbound). It deliberately does
-> **not** ask you to assign rights. Because polyris's paid tiers are built from
-> *separate* code — not from contributions to the open core — a heavier Contributor
-> License Agreement is **not** required today. If relicensing optionality on
-> contributed core code is ever needed, a CLA (e.g. via cla-assistant) would be
-> added then. This is a deliberate, recorded choice, not an oversight.
+To find your key ID: `gpg --list-secret-keys --keyid-format=long`
 
 ---
 
 ## PR Checklist
 
-- [ ] Commits signed off (`git commit -s`) — see [DCO](#sign-your-commits-dco)
+- [ ] Commits GPG-signed — see [GPG signing](#sign-your-commits-gpg)
 - [ ] Tests pass locally (`make test`)
 - [ ] Constants synced (`make sync-constants`)
 - [ ] No lint errors (`make lint`)
@@ -262,4 +261,4 @@ The sign-off name/email must match your commit author identity.
 - **Reporting a vulnerability:** See [SECURITY.md](SECURITY.md) — please report security issues privately, not via public issues.
 - **Architecture questions:** See `docs/architecture/`
 - **API reference:** See `docs/operations/API.md`
-- **Slack:** #polyris-dev
+- **Questions & discussion:** [GitHub Issues](https://github.com/Polyris/polyris/issues)

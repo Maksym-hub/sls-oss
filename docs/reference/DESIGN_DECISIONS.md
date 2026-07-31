@@ -69,7 +69,7 @@ parameter name kept in the config. See ADR #103 and `docs/features/alerts.md`.
 
 ### 4. Asset-Based Orchestration (not ExternalTaskSensor)
 
-**Decision:** Implement Airflow 3.0-style asset triggers.
+**Decision:** Implement asset triggers.
 
 **Rationale:**
 - Decoupled pipelines
@@ -103,13 +103,14 @@ parameter name kept in the config. See ADR #103 and `docs/features/alerts.md`.
 - 1-minute granularity minimum — not real-time
 - Can't power a dashboard that shows individual task status
 
-**Tables:** 7 tables for different concerns
+**Tables:** 8 tables for different concerns
 - pipeline_tokens (task state + canonical output)
 - dependency_subscriptions (dependency tracking)
 - task_events (timeline history)
 - pipeline_registry (DAG metadata)
-- asset_registry (deprecated), asset_events, asset_subscriptions (asset orchestration)
+- asset_events, asset_subscriptions (asset orchestration)
 - queued_asset_events (AND logic for multi-asset triggers)
+- api_tokens (PATs — ADR #65)
 
 ---
 
@@ -197,7 +198,7 @@ Example: `scrape-2026-01-12-abc12345`
 
 **`pipeline_execution_short` (keep decision):**
 - 103 references across codebase — refactoring is 2-3 day effort
-- Airflow v3 moving in same direction (short execution IDs)
+- Industry moving in same direction (short execution IDs)
 - Used in: execution_name construction, DynamoDB keys, SFN input, UI display
 - Collision probability at 20 chars: ~10^-19 at 1000 concurrent pipelines (safe)
 - Revisit only if it causes a concrete bug
@@ -229,7 +230,7 @@ For larger data, tasks should write to S3 and pass the path as output.
 Can't generate tasks at runtime. Accepted because:
 - Step Functions Map state covers most cases
 - Simpler to understand
-- Matches Airflow 2.x model
+- Matches established orchestrator model
 
 ---
 
@@ -272,7 +273,7 @@ def scrape_pdp():
 **Rationale:**
 - Python lacks good mechanism for "signature inheritance" between methods
 - Alternatives (TypedDict, `**kwargs`, ParamSpec) all break IDE hints
-- Airflow uses same pattern
+- Established orchestrators use same pattern
 - ~10 params × 7 decorators = acceptable duplication for perfect IDE experience
 
 **Alternative considered:** Base class with shared params
@@ -386,7 +387,7 @@ return {"output_path": "s3://bucket/output/2026-01-01/", "row_count": 50000}
 | Pattern | Monthly cost for waiting |
 |---|---:|
 | polyris (waitForTaskToken) | **$0** |
-| Airflow (worker blocked) | ~$4,950 |
+| Managed orchestrators (MWAA) | ~$4,950 |
 | Prefect (polling agent) | ~$53 |
 | Dagster (polling daemon) | ~$35 |
 
@@ -436,7 +437,7 @@ This is polyris's key architectural advantage — the longer tasks run, the more
 
 **Decision:** All UI reads come from DynamoDB. Step Functions API is used only for control actions and reconciliation of running executions.
 
-**Principle:** Same pattern as Apache Airflow (Celery executes → Postgres stores → Webserver reads from Postgres). The execution engine writes, the database stores, the UI reads from the database.
+**Principle:** The execution engine writes, the database stores, the UI reads from the database.
 
 **Step Functions (execution engine) — WRITE/CONTROL only:**
 - Start execution, Stop/Abort execution
@@ -1905,7 +1906,7 @@ regenerate scenarios as "latest event wins."
   1. *Cost.* +4 SFN transitions and +1 DDB write per task with outlets,
      for every run including successes. At SaaS scale (100 customers ×
      500 tasks/day) this added ~$165/month — material against the
-     project's "dramatically cheaper than Airflow" positioning. The
+     project's "dramatically cheaper than managed orchestrators" positioning. The
      transitions weren't doing real work; they were duplicating state.
   2. *CLAUDE.md #12 violation.* Task status is already canonical in
      `pipeline-tokens`, updated by `Update_Status_Running` and
@@ -2136,8 +2137,7 @@ Three companion features round out the change:
 
 #### Why declarative (not auto-detect)
 
-Both Dagster (`partitions_def`) and Airflow 3.2+ (`partition_keys`)
-chose declarative despite their larger engineering teams. Their
+Both Dagster (`partitions_def`) and other orchestrators chose declarative despite their larger engineering teams. Their
 reasoning matches ours: partition cadence is *intentional* (the user's
 design choice), not observable. A pipeline that hasn't run for a week
 looks "monthly" to an inference engine but might be daily-and-broken.
@@ -2309,7 +2309,7 @@ for all six entry points.
 all pipeline executions (cron-driven, manual, asset-event-triggered) and
 users associate the word "run" with a single execution. Renaming would
 break established habits; the new bulk-operation concept gets a distinct
-name. "Backfill" is also industry-standard (Airflow, Dagster, dbt use
+name. "Backfill" is also industry-standard (Dagster, dbt use
 this term for the same concept).
 
 ##### Backfill = unit of work
@@ -2701,7 +2701,7 @@ power users.
 
 5. **"Backfill" not "Run" naming** — chosen over "Run" because (a)
    conflicts with existing UI terminology, (b) industry-standard term
-   for this concept (Airflow, Dagster, dbt), (c) avoids re-education
+   for this concept (Dagster, dbt), (c) avoids re-education
    cost for users coming from those tools.
 
 #### Cost
@@ -3081,7 +3081,7 @@ ADR #51 introduces backfill cost preview in `POST /api/backfill` response
 operation. This requires a methodology — what's included, what's excluded,
 how accurate, and how surfaced.
 
-Competitors (Airflow, Dagster) don't preview costs; they don't have to,
+Competing orchestrators (Dagster) don't preview costs; they don't have to,
 since their pricing is hosting-based (you pay for the orchestrator
 cluster regardless of operations). polyris is serverless — every
 operation costs incremental dollars — so cost preview is meaningful and
@@ -3897,7 +3897,7 @@ distinction adds complexity without value.
 
 | System | Bulk states |
 |---|---|
-| **Airflow Backfill** | success / failed / running (only 3) |
+| **Managed orchestrators** | success / failed / running (only 3) |
 | **Dagster Backfill** | requested / in_progress / completed / failed / canceled (5) |
 | **polyris** | pending / running / completed / failed / partial / canceled (6) |
 
@@ -4586,7 +4586,7 @@ Negligible. The existing $31/month infra budget unaffected.
 
 1. **Strip broken options from API** — honest but loses ADR #51 scope
    (task_subset, cascade='all'/'none' are key differentiators vs
-   Airflow/Dagster).
+   competing orchestrators).
 2. **Document as known limitations** — dishonest, leaves false claims
    in API docs.
 3. **Reimplement child SFN from scratch** — disproportionate.
@@ -4798,7 +4798,7 @@ response, surfaced in `BackfillsListPage` (column "Cost"),
 `BackfillDetailPage` ("Estimated cost" row), and `BackfillModal` (preview
 line). The methodology — modeling bulk-backfill SFN transitions + child
 pipeline transitions — was technically sound and positioned as a
-serverless differentiator vs Airflow/Dagster.
+serverless differentiator vs competing orchestrators.
 
 Live UI revealed a different problem. The label "Cost" reads to users as
 "what this run cost" (actuals), while the value is "what we expect this
@@ -6409,14 +6409,14 @@ sets (values inline-duplicated from canonical). The drift test
 #### What changed about the canonical sets
 
 The canonical `polyris.constants.TERMINAL_STATUSES` includes both
-`'success'` (legacy/Airflow 2) and `'succeeded'` (Airflow 3). The
+`'success'` (legacy) and `'succeeded'` (current). The
 old class-level `TaskStatus.TERMINAL` in backend only had `'success'`.
 After migration, `TASK_TERMINAL_STATUSES` now includes both forms.
 
 **Behavior impact:** any code checking `status in TASK_TERMINAL_STATUSES`
 will now treat `'succeeded'` as terminal where previously it might
 not have. This is the correct direction — the SDK already documented
-`succeeded` as an alias for `success` (Airflow compat), so callers
+`succeeded` as an alias for `success` (migration compat), so callers
 that didn't recognize it were silently buggy. Tests updated to
 reflect the new set membership.
 
@@ -7144,7 +7144,7 @@ that *can* drift now (see B); this catches it at CI time.
   end-to-end tested here. Per the "highest quality" bar, an unverified
   change to the most critical component is not shipped blind — the issue,
   its open AWS-behavior question, and two candidate fixes are specified in
-  BACKLOG.md for a deploy-time validation.
+  STATE.md for a deploy-time validation.
 
 #### Backlog hygiene
 
@@ -7203,7 +7203,7 @@ hand-maintained copy remains. The string-value `BackfillStatus` class
 console_api as the readable value namespace — it mirrors the generated
 class and is covered by the existing enum drift check; folding it fully
 into the generated module is the remaining piece of the broader
-enum-SSoT consolidation tracked in BACKLOG.md.
+enum-SSoT consolidation tracked in STATE.md.
 
 #### DAL placement note
 
@@ -7244,7 +7244,7 @@ in manual; manual `TriggerRule.DEFAULT` and `PipelineStatus.PAUSED/ABORTED`
 not in canonical). A naive re-export would break those consumers. Reconciling
 canonical membership first — and investigating whether canonical
 PipelineStatus is genuinely missing paused/aborted (a possible latent bug,
-not mere duplication) — is logged in BACKLOG.md as the remaining piece of
+not mere duplication) — is logged in STATE.md as the remaining piece of
 the 8-family enum SSoT effort. Consolidating only the safe families now,
 and documenting the unsafe ones precisely, is the correct bounded scope:
 shipping a re-export that breaks `PipelineStatus.PAUSED` to chase tidiness
@@ -7303,7 +7303,7 @@ backfill review. The remaining families' string-value classes that are
 still hand-written in _shared are now guarded rather than free-floating;
 fully folding _shared into generated (resolving the standalone-resilience
 tension) is the last piece of the broader effort, left as a deliberate
-design decision in BACKLOG.md.
+design decision in STATE.md.
 
 ### 84 SDK / shared-constants delivery to Lambdas — guarded copy now, PyPI later (v0.80.0)
 
@@ -7514,12 +7514,12 @@ between "pipeline backfill" vs "asset backfill" and the overloaded
 #### Context
 
 The codebase had accumulated two parallel mental models — task/pipeline
-(Airflow-style) and asset (Dagster-style) — both surfaced as first-class
+and asset (Dagster-style) — both surfaced as first-class
 to the user. This produced concept sprawl: two backfill entry points,
 `cascade` (auto/all/none) bolted onto only asset targets, `skip_tasks` /
 task-subset, skip-completed pre-flight, and a UX that forced the user to
 pick an abstraction level (pipeline vs asset) before understanding the
-difference. The product's core promise — *simpler than Airflow* — was at
+difference. The product's core promise — simpler than managed orchestrators — was at
 risk. The recurring "we keep reworking this" pain traces to never having
 fixed which model is primary.
 
@@ -8795,9 +8795,8 @@ code rather than rely on anyone remembering.
 is the case that most needs attention (the run is blocked on a human). (2) There was
 no distinction between "a task failed" and "the run needs a decision"; conceptually
 "task failed" and "pipeline failed" are the same event (a run fails *because* a task
-fails), so alerting on both would double-notify. Industry practice (Airflow DAG-level
-callbacks, Dagster/Prefect run-level alerts; Airflow 3.1 added human-in-the-loop as a
-first-class primitive) is to alert at the **run level** with the task as context, and
+fails), so alerting on both would double-notify. Industry practice (DAG-level
+callbacks, Dagster/Prefect run-level alerts) is to alert at the **run level** with the task as context, and
 to treat human-gated pauses as their own signal.
 
 **Decision.** Notifications are computed **one per run**, classified into two states:

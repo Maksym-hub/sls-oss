@@ -20,7 +20,7 @@ from .dag import DAG
 
 def chain(*tasks):
     """
-    Chain tasks in sequence. Airflow-compatible.
+    Chain tasks in sequence.
     
     Example:
         chain(task1, task2, task3, task4)
@@ -57,7 +57,7 @@ def chain(*tasks):
 
 def cross_downstream(from_tasks, to_tasks):
     """
-    Set cross dependencies. Airflow-compatible.
+    Set cross dependencies.
     
     Example:
         cross_downstream([op1, op2], [op3, op4])
@@ -75,7 +75,7 @@ def cross_downstream(from_tasks, to_tasks):
 
 class Label:
     """
-    Edge label for DAG visualization. Airflow-compatible.
+    Edge label for DAG visualization.
     
     Example:
         task1 >> Label("When success") >> task2
@@ -119,7 +119,7 @@ class Label:
 
 
 # ============================================
-# @dag Decorator - Airflow-compatible
+# @dag Decorator
 # ============================================
 
 def dag(
@@ -133,13 +133,13 @@ def dag(
     default_args: Optional[Dict[str, Any]] = None,
     params: Optional[Dict[str, Any]] = None,
     tags: Optional[List[str]] = None,
-    owner: str = "airflow",
+    owner: str = "polyris",
     max_active_tasks: int = 16,
     max_active_runs: int = 16,
     **kwargs
 ):
     """
-    Decorator to define a DAG. Airflow-compatible.
+    Decorator to define a DAG.
     
     Example:
         @dag(start_date=datetime(2025, 1, 1), schedule="@daily")

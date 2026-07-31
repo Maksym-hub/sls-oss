@@ -122,7 +122,7 @@ class TestTaskInstanceOperatorEdges:
     # __lshift__ (<<) — regression tests for two real bugs found in a
     # code-review pass: (1) every branch returned `self` instead of
     # `other`, silently breaking 3+-item chains like `c << b << a`
-    # (a common Airflow idiom, e.g. `load << transform << extract`);
+    # (e.g. `load << transform << extract`);
     # (2) TaskGroup/Step/Label all raised AttributeError on `<<`, even
     # though `>>` supported all of them — the two operators were not
     # actually equivalent ways to write the same edge.

@@ -130,7 +130,7 @@ Registration helper
             ├── Check freshness (if specified)
             │
             └── If not ready:
-                └── Save subscription to dependency_subscriptions
+                └── Save subscription to asset-subscriptions
                     Key: asset:{asset_name}
         │
         ▼

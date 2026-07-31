@@ -151,7 +151,7 @@ class Metadata:
 
 class Asset:
     """
-    Represents a logical data asset (Airflow 3.0 compatible).
+    Represents a logical data asset.
 
     ⚠️  Experimental — the asset API may change in a future release, and the
     visual asset console is not yet in the open-source build (engine only).
@@ -168,7 +168,7 @@ class Asset:
               positional arg without name=, it becomes the uri and name is derived.
         uri: Optional physical location (e.g., "s3://bucket/path/", "postgres://...")
         group: Optional grouping for UI organization (e.g., "raw", "processed", "external")
-        extra: Optional arbitrary metadata dict (Airflow 3.0 compatible)
+        extra: Optional arbitrary metadata dict.
                Use for views, schema info, etc.
         description: Human-readable description (polyris extension)
         tags: Optional list of tags for filtering/categorization (polyris extension)
@@ -218,7 +218,7 @@ class Asset:
         # Simple
         orders = Asset("orders")
         
-        # Airflow 3.0 style - uri as first arg
+        # URI as first arg
         orders = Asset("s3://bucket/orders/")
         
         # Full declaration with typed schema (recommended)
@@ -262,7 +262,7 @@ class Asset:
         group: str = "",
         extra: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,  # Alias for extra
-        # polyris extensions (not in Airflow)
+        # polyris extensions
         description: str = "",
         tags: Optional[List[str]] = None,
         freshness_hours: Optional[float] = None,
@@ -300,7 +300,7 @@ class Asset:
             # Merge: extra takes precedence
             extra = {**metadata, **extra}
         
-        # Airflow 3.0 compatible: first positional arg can be uri or name
+        # First positional arg can be uri or name
         # If it looks like a URI (contains ://), treat as uri
         if name is not None and uri is None and "://" in name:
             uri = name

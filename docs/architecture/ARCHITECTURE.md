@@ -17,7 +17,7 @@
 │  │                    Shared Infrastructure (SAM/CloudFormation)         │   │
 │  │   ┌───────────────┐    ┌───────────────┐    ┌──────────────────┐   │   │
 │  │   │  dependency   │    │  EventBridge  │    │    DynamoDB      │   │   │
-│  │   │   wrapper     │    │    Rules      │    │    (7 tables)    │   │   │
+│  │   │   wrapper     │    │    Rules      │    │    (8 tables)    │   │   │
 │  │   └───────────────┘    └───────────────┘    └──────────────────┘   │   │
 │  │          │                     │                                   │   │
 │  │   ┌───────────────┐    ┌───────────────┐                          │   │
@@ -379,7 +379,7 @@ Task Failure
 ## Trigger Rules
 
 Canonical: `all_success` (default), `one_success`, `all_done`. The other 8 are accepted
-Airflow-compat aliases — see `docs/features/DSL.md#trigger-rules` for which behave
+accepted rule names — see `docs/features/DSL.md#trigger-rules` for which behave
 distinctly vs. collapse onto a canonical one under the intervention-first failure
 model (ADR #114), and `docs/reference/adr-115-canonical-trigger-rules-and-skip-semantics.md`
 for the full rationale.
@@ -392,7 +392,7 @@ for the full rationale.
 | `one_success` | At least one dep = success (immediate!) |
 | `none_skipped` | No deps skipped |
 
-5 rules total (ADR #117 — trimmed from Airflow's 11; the other 6 either duplicated one
+5 rules total (ADR #117 — 6 names are rejected outright; the other 6 either duplicated one
 of these in every state reachable under the intervention-first model, ADR #114, or
 could never fire at all — see `docs/features/DSL.md#trigger-rules`).
 

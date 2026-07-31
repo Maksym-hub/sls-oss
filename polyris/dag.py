@@ -1,7 +1,5 @@
 """
 DAG class for SFN-DSL.
-
-Directed Acyclic Graph - Airflow-compatible.
 """
 
 from typing import List, Optional, Dict, Any, Callable, TYPE_CHECKING
@@ -20,8 +18,8 @@ if TYPE_CHECKING:
 @dataclass
 class DAG:
     """
-    Directed Acyclic Graph - Airflow-compatible.
-    
+    Directed Acyclic Graph.
+
     Example:
         with DAG(
             dag_id="my-etl",
@@ -39,7 +37,7 @@ class DAG:
     dag_id: str
     description: str = ""
     
-    # Scheduling (Airflow-compatible)
+    # Scheduling
     # Can be:
     #   - str: "@daily", "@hourly", "0 * * * *" (time-based)
     #   - Asset: schedule=my_asset (triggered when asset is updated)
@@ -47,7 +45,7 @@ class DAG:
     #   - AssetAll: schedule=[asset_a & asset_b] (explicit AND)
     #   - AssetAny: schedule=[asset_a | asset_b] (OR - any triggers)
     schedule: Any = None
-    schedule_interval: Optional[str] = None  # Alias for schedule (deprecated in Airflow 2.4+)
+    schedule_interval: Optional[str] = None  # Legacy alias for schedule
     timetable: Any = None  # Custom timetable
     trigger_assets: Optional[List[Any]] = None  # Alternative to schedule for asset triggers
     trigger_mode: str = "all"  # "all" (AND) or "any" (OR) for trigger_assets
@@ -65,7 +63,7 @@ class DAG:
     # Metadata
     tags: List[str] = field(default_factory=list)
     group: str = ""  # Pipeline group for sidebar grouping (e.g. "acme", "shopmart")
-    owner: str = "airflow"
+    owner: str = "polyris"
     
     # Rendering
     template_searchpath: Optional[List[str]] = None
@@ -88,7 +86,6 @@ class DAG:
     doc_md: str = ""
     
     # Pipeline variables - computed at start, available to all tasks
-    # Similar to Airflow's {{ ds }}, {{ execution_date }}, etc.
     variables: Dict[str, str] = field(default_factory=dict)
     
     # Internal
@@ -257,13 +254,12 @@ class DAG:
                     all_dep_ids.add(dep.task_id)
         return [t for t in self.tasks if t.task_id not in all_dep_ids]
     
-    # Airflow-compatible methods
     def cli(self):
-        """Generate CLI commands - Airflow-compatible."""
+        """Generate CLI commands."""
         pass
     
     def test(self, execution_date: Optional[datetime] = None):
-        """Test DAG - Airflow-compatible."""
+        """Test DAG."""
         print(f"Testing DAG: {self.dag_id}")
         for task in self.topological_sort():
             print(f"  Task: {task.task_id}")

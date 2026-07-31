@@ -1211,7 +1211,7 @@ def _build_registration_chain(
         
         states["Define_Inputs"] = {
             "Type": "Pass",
-            "Comment": "Compute pipeline variables (like Airflow's {{ ds }}, {{ execution_date }})",
+            "Comment": "Compute pipeline variables (e.g. current_date, execution_id)",
             "Output": {
                 "variables": variables_output,
                 "skip_tasks": JSONATA_SKIP_TASKS,

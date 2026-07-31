@@ -311,13 +311,13 @@ class TestStatusCategories:
 
     v0.79.5 (ADR #77) — sets are now imported from canonical
     polyris/constants.py via generated module-level constants. The
-    canonical TaskStatus enum includes both 'success' (legacy/Airflow 2
-    form) and 'succeeded' (Airflow 3 form), so the terminal/success
-    sets contain both.
+    canonical TaskStatus enum includes both 'success' (legacy form) and
+    'succeeded' (SFN-normalized form), so the terminal/success sets
+    contain both.
     """
 
     def test_terminal_success(self):
-        # Both legacy 'success' and Airflow-3 'succeeded' are success-like
+        # Both legacy 'success' and SFN-normalized 'succeeded' are success-like
         assert TERMINAL_SUCCESS == {'success', 'succeeded', 'skipped'}
 
     def test_terminal_failure(self):
@@ -581,6 +581,8 @@ class TestAssetsReadyCoordination:
         mocker.patch("evaluate_deps.index._batch_get_dep_statuses",
                      return_value=["skipped", "skipped"])
         mocker.patch("evaluate_deps.index._is_pipeline_paused", return_value=False)
+        mocker.patch("evaluate_deps.index._batch_get_rule_originated_skip",
+                     return_value=None)
         result = handler({
             "dependencies": ["a", "b"],
             "trigger_rule": "none_skipped",
@@ -605,7 +607,7 @@ def test_removed_rule_aliases_map_to_canonical_equivalents():
     assert _check_trigger_rule("none_failed", ["failed", "failed"])[0] is True
     assert _check_trigger_rule("none_failed", ["success", "waiting"])[0] is False  # pending
 
-    # one_done ≡ all_done (same semantics, different Airflow name)
+    # one_done ≡ all_done (same semantics, rejected alias name)
     assert _check_trigger_rule("one_done", ["success", "failed"])[0] is True
     assert _check_trigger_rule("one_done", ["skipped", "waiting"])[0] is False  # pending
 
@@ -617,8 +619,8 @@ def test_removed_rule_aliases_map_to_canonical_equivalents():
 
 
 def test_succeeded_alias_satisfies_success_rules():
-    """Regression: 'succeeded' is the canonical Airflow-compat alias for success
-    and is what normalize_execution_status() produces from AWS SFN's 'SUCCEEDED'.
+    """Regression: 'succeeded' is the legacy alias for success and is what
+    normalize_execution_status() produces from AWS SFN's 'SUCCEEDED'.
     _calculate_counts once counted only the literal 'success', so any dependency
     reporting 'succeeded' left all_success (the DEFAULT rule) unsatisfied forever —
     a silent pipeline deadlock. All success-oriented rules must treat the two

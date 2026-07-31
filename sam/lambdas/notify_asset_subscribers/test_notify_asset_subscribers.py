@@ -485,7 +485,8 @@ class TestCoordinateReadyCheck:
 
     def test_coordinate_signals_when_evaluate_deps_says_ready(self, mocker):
         """The happy path: both task_deps and assets are now ready → signal."""
-        import index, json
+        import index
+        import json
         from index import _coordinate_ready_check, tokens_repo
         mocker.patch.object(tokens_repo, 'mark_assets_ready_and_get',
                             return_value={
@@ -508,7 +509,8 @@ class TestCoordinateReadyCheck:
         """The core Case B fix: asset arrives but task_deps haven't finished.
         evaluate_deps returns is_ready=False → skip the signal so
         notify_dependents will signal later once task_deps complete."""
-        import index, json
+        import index
+        import json
         from index import _coordinate_ready_check, tokens_repo
         mocker.patch.object(tokens_repo, 'mark_assets_ready_and_get',
                             return_value={

@@ -33,7 +33,7 @@ def _py_files(*roots, exclude_tests=False):
     for r in roots:
         for p in (ROOT / r).rglob("*.py"):
             s = str(p)
-            if "__pycache__" in s:
+            if "__pycache__" in s or ".aws-sam" in s:
                 continue
             if exclude_tests and ("/tests/" in s or "/test_" in s or p.name.startswith("test_")):
                 continue

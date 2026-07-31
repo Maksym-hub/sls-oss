@@ -6,9 +6,6 @@ Serverless, asset-centric data pipelines on AWS Step Functions. No scheduler, no
 workers, no metadata database to run — your pipelines compile to Step Functions,
 and AWS runs them. Pay per run; idle cost is near zero.
 
-If you've used Airflow, the `@task` / `>>` / `DAG()` DSL will feel familiar — but
-polyris is not managed Airflow. There's nothing to operate.
-
 ## Why polyris
 
 - 🪂 **Nothing to run** — no scheduler, workers, or metadata DB. Step Functions
@@ -23,15 +20,14 @@ polyris is not managed Airflow. There's nothing to operate.
 
 ## Features
 
-- 🐍 **Familiar Python DSL** — `@task`, `>>` operators, `DAG()` context (Airflow-style ergonomics)
+- 🐍 **Familiar Python DSL** — `@task`, `>>` operators, `DAG()` context manager
 - 🚀 **One-command deploy** — `polyris-deploy` (CloudFormation)
 - 🧪 **Local testing** — Validate, dry-run, mock execution
 - 🔔 **Failure notifications** — browser notifications on failure (the notify Lambda fans out to every enabled channel — no silent failures)
 - ⏸️ **Intervention-first failures** — a failing task pauses for a human decision
   (retry / mark success / skip / fail) instead of just falling over — fix it inline,
   in the same run, free (ADR #114)
-- 🎯 **Trigger rules** — `all_success`, `one_success`, `all_done`, plus 8 more accepted
-  for Airflow-migration compatibility ([details](docs/features/DSL.md#trigger-rules))
+- 🎯 **Trigger rules** — `all_success`, `one_success`, `all_done`, and more ([details](docs/features/DSL.md#trigger-rules))
 - 🔗 **Automatic data passing** — outputs flow to downstream **lambda & SFN** tasks via a DynamoDB output store (up to 350KB); service tasks (glue/ecs/…) exchange data via S3
 - 📊 **Web Console** — pipelines and DAG views for every run
 - 🧬 **Asset dependencies** — declare cross-pipeline asset inlets/outlets; inspect lineage from the CLI with `polyris-output --graph`
@@ -59,6 +55,8 @@ polyris is not managed Airflow. There's nothing to operate.
 No AWS account needed. Explore the DSL, validate pipelines, generate Step Functions JSON — all locally.
 
 ```bash
+git clone https://github.com/Polyris/polyris
+cd polyris
 pip install -e .
 polyris-init my-pipeline --local
 cd my-pipeline
@@ -82,13 +80,18 @@ Edit `dag.py` to experiment with task types, dependencies, trigger rules, and as
 ### 1. Install
 
 ```bash
-pip install -e .
+git clone https://github.com/Polyris/polyris
+cd polyris
+pip install -e .   # installs polyris-deploy, polyris-validate, polyris-output, polyris-init
+cd ..              # back to your workspace
 ```
 
 ### 2. Configure (config.py)
 
+Create `config.py` in your pipelines workspace (not inside the polyris repo):
+
 ```python
-# config.py — in your pipelines repo root
+# config.py — in your pipelines workspace root (alongside your pipeline directories)
 ENVIRONMENTS = {
     "dev": {
         "namespace": "mycompany",
@@ -188,6 +191,12 @@ polyris-deploy
 # Replace `polyris-dev` with your stack name (the `stack_name` in samconfig.toml).
 aws cloudformation describe-stacks --stack-name polyris-dev --query "Stacks[0].Outputs[?OutputKey=='ConsoleUiUrl'].OutputValue" --output text
 ```
+
+Or open the AWS CloudFormation console → your stack → Outputs tab → `ConsoleUiUrl`.
+
+### 6. Trigger a run
+
+The pipeline runs on its schedule, but you can trigger it manually right away from the console: open your pipeline → click **Run**. The run appears in the DAG view within seconds.
 
 Pipeline runs daily at midnight, with automatic retries and alerts. Something broken? See [TROUBLESHOOTING.md](docs/operations/TROUBLESHOOTING.md).
 
@@ -453,23 +462,22 @@ See [SETUP_FROM_SCRATCH.md](docs/getting-started/SETUP_FROM_SCRATCH.md) for full
 | [api-tokens.md](docs/features/api-tokens.md) | API tokens (PAT) for scripts/CI — 🔒 Team (OSS: use a Cognito access token) |
 | [LOCAL_TESTING.md](docs/tools/LOCAL_TESTING.md) | Local testing (validate, dry_run, mock) |
 | [REGISTRATION.md](docs/tools/REGISTRATION.md) | Pipeline registration (CLI, auto) |
-| [API.md](docs/operations/API.md) | REST API reference (52 endpoints) |
+| [API.md](docs/operations/API.md) | REST API reference (27 free endpoints; 63 in the full build) |
 | [UI.md](docs/operations/UI.md) | Web Console guide |
 | [ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) | System architecture, diagrams |
 | [STEP_FUNCTIONS.md](docs/architecture/STEP_FUNCTIONS.md) | ASL patterns and helpers |
 | [BACKEND.md](docs/architecture/BACKEND.md) | Backend implementation details |
-| [AIRFLOW_MIGRATION.md](docs/reference/AIRFLOW_MIGRATION.md) | Migration from Airflow |
 | [DESIGN_DECISIONS.md](docs/reference/DESIGN_DECISIONS.md) | Key design decisions |
 
 ---
 
-## Cost Comparison
+## Cost
 
-| | Airflow (MWAA) | polyris |
+| | Managed orchestrators | polyris |
 |---|----------------|---------|
-| **Base cost** | ~$300/month | $0 |
+| **Base cost** | ~$300+/month | $0 |
 | **Per pipeline run** | $0 (included) | ~$0.01 |
-| **8 tasks, 1x/day, 30 days** | ~$300 | ~$0.50 |
+| **8 tasks, 1x/day, 30 days** | ~$300+ | ~$0.50 |
 | **Scaling** | Manual | Automatic |
 
 ---

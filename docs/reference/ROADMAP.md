@@ -30,8 +30,7 @@ Have a request or want to help build one of these? Open an issue or see
 - **Audit logging** — a record of who changed what, when.
 
 ### Quality of life
-- **Keyboard shortcuts** — faster navigation in the console.
-- **Asset lineage graph** — visualize asset dependencies as an interactive graph.
+- **Asset lineage graph** — visualize asset dependencies as an interactive graph in the console (CLI: `polyris-output --graph` is already available).
 
 ### Distribution & onboarding
 Goal: shrink "clone the repo + run SAM by hand" down to installing a package and

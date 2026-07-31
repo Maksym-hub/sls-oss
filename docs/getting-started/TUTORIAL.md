@@ -27,7 +27,7 @@ This tutorial walks you through exploring polyris locally, then deploying your f
 For deployment (Steps 3+):
 2. **AWS Account** with admin access
 3. **AWS SAM CLI**
-5. **AWS CLI** configured with credentials
+4. **AWS CLI** configured with credentials
 
 ---
 
@@ -202,7 +202,12 @@ polyris-deploy
 ## Step 7: Test Your Pipeline
 
 ### Via UI
-1. Open Console URL (from `aws cloudformation describe-stacks --stack-name polyris-dev --query "Stacks[0].Outputs" console_url`)
+1. Get the Console URL:
+   ```bash
+   aws cloudformation describe-stacks --stack-name polyris-dev \
+     --query "Stacks[0].Outputs[?OutputKey=='ConsoleUiUrl'].OutputValue" \
+     --output text
+   ```
 2. Click "my-first-pipeline"
 3. Click "▶ Run"
 
@@ -229,7 +234,6 @@ See [TROUBLESHOOTING.md](../operations/TROUBLESHOOTING.md) for more.
 1. **DSL Reference** — [DSL.md](../features/DSL.md) — all task types, trigger rules, parameters
 2. **Assets** — [ASSETS.md](../features/ASSETS.md) — cross-pipeline dependencies
 3. **Configuration** — [CONFIGURATION.md](../reference/CONFIGURATION.md) — all config.py options
-4. **Coming from Airflow** — [AIRFLOW_MIGRATION.md](../reference/AIRFLOW_MIGRATION.md) — concept mapping & honest differences
 
 ---
 

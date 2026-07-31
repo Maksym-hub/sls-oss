@@ -14,13 +14,13 @@ index updated). Last ADR is #112.
 | ADR | decision | status |
 |-----|----------|--------|
 | **#114** | **Intervention-first failure model.** Task failure (retries exhausted) pauses in `waiting_decision` for a human decision; it does *not* autonomously propagate. This is the product identity; it is *why* failure-reactive trigger rules are constrained. | needs approval |
-| **#115** | **Canonical trigger rules + skip semantics.** Canonical set = `all_success`, `one_success`, `all_done`. `skipped` is a distinct terminal that **cascades** for `all_success` (no longer counted as OK in trigger evaluation) but stays *resolved* for run-status derivation. Remaining Airflow names (`none_failed`, `none_failed_min_one_success`, `none_skipped`, `all_skipped`, `one_failed`, `all_failed`, `all_done_min_one_success`, `one_done`) are accepted as **compat aliases mapping to canonical behavior**, documented as non-distinct — not advertised as separate. | needs approval |
+| **#115** | **Canonical trigger rules + skip semantics.** Canonical set = `all_success`, `one_success`, `all_done`. `skipped` is a distinct terminal that **cascades** for `all_success` (no longer counted as OK in trigger evaluation) but stays *resolved* for run-status derivation. Remaining names (`none_failed`, `none_failed_min_one_success`, `none_skipped`, `all_skipped`, `one_failed`, `all_failed`, `all_done_min_one_success`, `one_done`) are accepted as **compat aliases mapping to canonical behavior**, documented as non-distinct — not advertised as separate. | needs approval |
 | **#116** | **Cleanup via scoped de-abort** (`all_done` runs after a resolved failure). Deferred to Phase 2 (needs live-SFN validation). | draft later |
 
 **Also decide (drives #115):** manual skip vs conditional skip. Manual skip cascading can
 "un-materialize" a downstream asset chain (verified: a skipped task does *not* reach
-`Emit_Asset_Events`, so it materializes nothing). Options: (a) both cascade (simplest,
-Airflow-faithful); (b) conditional-skip cascades, manual-skip does not (safer UX, one extra
+`Emit_Asset_Events`, so it materializes nothing). Options: (a) both cascade (simplest);
+(b) conditional-skip cascades, manual-skip does not (safer UX, one extra
 status distinction). Pick one in #115.
 
 → **No code starts until #114 + #115 are approved.**
@@ -71,7 +71,7 @@ The observed bug: a rule that legitimately does not fire is written `upstream_fa
   `trigger-rules-reference` acceptance case (both extractors success → no-op rules `skipped`,
   run `success`); mutation; the parity guard.
 - **Docs (#9):** `docs/features/DSL.md` (skip now cascades; `none_failed` to opt out),
-  `docs/reference/AIRFLOW_MIGRATION.md`.
+  `docs/reference/MIGRATION.md`.
 - **#23 sweep:** consumers of `TASK_SUCCESS_STATUSES` — **confirm `derive_execution_status` is
   unaffected** (skipped must stay `_DERIVE_RESOLVED` for run-status); the `ok` logic; EE.
   **EE asset ripple:** cascade → more un-materialized assets → update EE asset docs; note the
@@ -92,7 +92,7 @@ removed, no test deleted, no `_check_trigger_rule` dispatch logic touched.
 
 - **Code:** `polyris/constants.py` — `TriggerRuleLiteral` and `TriggerRule` reordered
   (3 canonical first) and commented (`# Compat alias`); the `TriggerRule` docstring's
-  overclaim ("100% Airflow 3.1.5-compatible") corrected. All 11 values/names unchanged —
+  overclaim corrected. All 11 values/names unchanged —
   codegen reads `vars()`/the `Literal` members, not comments, confirmed before editing.
   Codegen regenerated (order changed, values didn't) and `--check` + `check_shared_constants`
   both pass.
@@ -101,7 +101,7 @@ removed, no test deleted, no `_check_trigger_rule` dispatch logic touched.
 - **Docs (#9):** `docs/features/DSL.md` (banner + table split into Canonical/Alias +
   rewritten Examples — the old ones for `all_done`/`one_failed`/`all_failed` were
   actively misleading given the intervention-model caveats), `docs/reference/
-  AIRFLOW_MIGRATION.md` (table completed to all 11 — was missing 4; canonical/alias
+  MIGRATION.md` (table completed to all 11 — was missing 4; canonical/alias
   marked), `docs/architecture/ARCHITECTURE.md` (fixed a real drift the 1.1 change had
   introduced: `all_success`'s row, and a status table listing the transient `deps_blocked`/
   `deps_ready` signals as if persisted — added `deps_skip`), `README.md` (replaced the

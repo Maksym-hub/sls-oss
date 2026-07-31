@@ -321,7 +321,7 @@ When MFA is enabled, users can use any TOTP authenticator app (Google Authentica
 
 ## API Route Protection
 
-### Protected Routes (42 routes)
+### Protected Routes
 
 All API routes require authentication except public routes listed below:
 

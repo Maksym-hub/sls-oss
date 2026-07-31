@@ -62,18 +62,18 @@ for a different consumer (backfill date-range expansion) but the inference logic
 is exactly the input a granularity-aware dedup key would need. Nothing currently wires
 it into the asset-trigger path.
 
-## How Airflow and Dagster handle this (for calibration, not imitation)
+## How other orchestrators handle this (for calibration, not imitation)
 
 Both default to the *opposite* extreme — react to every individual materialization
 event, no date-level dedup at all — and both have real, documented pain from that
 choice:
 
-- **Airflow Datasets:** a single producer run can emit multiple dataset events, and
-  Airflow does not reliably process all of them (apache/airflow#47398: 4 events emitted,
-  only some ever reached the consumer). Separately, users have asked Airflow for a way
+- **Dataset-based orchestrators:** a single producer run can emit multiple dataset events, and
+  some do not reliably process all of them (4 events emitted,
+  only some ever reached the consumer). Separately, users have asked for a way
   to reset/day-scope dataset-triggered counting because *lack* of day-scoping breaks
   their AND-across-two-producers case when one producer is manually rerun
-  (apache/airflow#36618 — the exact inverse of what we're looking at: they want what we
+  (the exact inverse of what we're looking at: they want what we
   have by default, and don't have a supported way to get it).
 - **Dagster Auto-Materialize (eager policy):** re-materializes downstream on every
   upstream materialization by design, which one user described as triggering "lots of
