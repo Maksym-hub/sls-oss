@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "polyris"
 version = "0.93.0"
-description = "Airflow-compatible Python DSL for AWS Step Functions"
+description = "Serverless data pipeline orchestration on AWS Step Functions"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
