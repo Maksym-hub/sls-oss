@@ -205,7 +205,7 @@ def _run_eval_task_deps(template, dep_statuses, trigger_rule, skip_origins=None)
     ("all_success", ["success", "success"], "ready"),
     ("all_success", ["success", "failed"], "blocked"),        # failure_averse + failed
     ("all_success", ["success", "waiting"], "wait"),          # still pending
-    ("all_success", ["skipped", "skipped"], "skip"),          # done, rule can't fire, no failures
+    ("all_success", ["skipped", "skipped"], "ready"),         # skip_origin="" → not rule-originated → treated as OK
     ("one_success", ["failed", "success"], "ready"),
     ("one_success", ["failed", "failed"], "blocked"),         # failure_averse + all failed
     ("one_success", ["skipped", "skipped"], "skip"),          # no success, no failure
