@@ -33,13 +33,13 @@ your own marks in a way that implies a joint or official product.
 
 ## Registration status
 
-`<TODO — owner action>`: trademark registration for "Polyris" is **pending /
-unregistered**. Until registered, the mark is asserted as a common-law trademark
-(™). Update this section with the registration number and jurisdiction once filed.
+The "Polyris" mark is currently **unregistered** and is asserted as a common-law
+trademark (™). Update this section with the registration number and jurisdiction
+once filed.
 
 ## Questions / permission requests
 
-Contact: `<fill — email / GitHub handle>`. When in doubt, ask — we're happy to
+Contact: makskoval@quintagroup.org. When in doubt, ask — we're happy to
 grant reasonable uses in writing.
 
 ---

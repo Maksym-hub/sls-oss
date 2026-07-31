@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-CONTEXT = ROOT / "CONTEXT.md"
+CONTEXT = ROOT / ".claude" / "CONTEXT.md"
 STATE = ROOT / "STATE.md"
 
 # Terms that are deliberately vocabulary-only: they name a discipline or an

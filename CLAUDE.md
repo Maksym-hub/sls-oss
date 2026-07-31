@@ -1297,7 +1297,7 @@ After significant changes:
 Optional but recommended: `docs/tools/AGENTIC_WORKFLOW.md` documents the
 `/shape` → `/build` → `/break` loop, the Stop hook that runs the gates before a
 turn can end, the destructive-command guard, and the two tests that keep this
-document and `CONTEXT.md` from drifting. If you change a checkable claim here,
+document and `.claude/CONTEXT.md` from drifting. If you change a checkable claim here,
 update `tests/sdk/test_claude_md_claims.py` in the same change.
 
 ---
